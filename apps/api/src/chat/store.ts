@@ -25,4 +25,10 @@ export const chatStore = {
   getHistory(partyId: string): ChatMessage[] {
     return messagesByParty.get(partyId) ?? [];
   },
+
+  // Called when a party ends (a new one starts) so the map doesn't grow one
+  // entry per party for the lifetime of the process.
+  remove(partyId: string): void {
+    messagesByParty.delete(partyId);
+  },
 };

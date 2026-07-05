@@ -4,6 +4,7 @@ import { prisma } from '../database/sqlite';
 import { playbackStateStore, PlaybackState } from './store';
 import { transcodeQueue } from '../transcoding/queue';
 import { setTranscodeStatus } from '../transcoding/status';
+import { chatStore } from '../chat/store';
 import { StartPartyResponse } from '@roomies/contracts';
 
 // Directory that Caddy serves HLS from
@@ -23,7 +24,14 @@ export const PlaybackService = {
     const partyId = randomUUID();
     const outputDir = path.join(CACHE_DIR, partyId);
 
-    // Only one active party is supported globally — this replaces any prior state.
+    // Only one active party is supported globally — this replaces any prior
+    // state. Evict the previous party's chat history so the in-memory store
+    // doesn't accumulate one entry per party for the life of the process.
+    const previousPartyId = playbackStateStore.get()?.partyId;
+    if (previousPartyId) {
+      chatStore.remove(previousPartyId);
+    }
+
     const state: PlaybackState = {
       partyId,
       currentMovieId: mediaFileId,
