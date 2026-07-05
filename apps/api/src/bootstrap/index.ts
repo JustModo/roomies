@@ -10,6 +10,7 @@ import { playbackRoutes } from '../playback/controller';
 import { transcodingRoutes } from '../transcoding/controller';
 import { chatRoutes } from '../chat';
 import { createTranscodeWorker } from '../transcoding/worker';
+import { setTranscodeStatus } from '../transcoding/status';
 import { initializeConfig } from '../config';
 
 export const bootstrap = async (app: FastifyInstance) => {
@@ -53,7 +54,13 @@ export const bootstrap = async (app: FastifyInstance) => {
     app.log.info({ jobId: job.id, partyId: job.data.partyId }, 'Transcode job completed');
   });
   transcodeWorker.on('failed', (job, err) => {
-    app.log.error({ jobId: job?.id, partyId: job?.data.partyId, err }, 'Transcode job failed');
+    // All retries are exhausted by the time this fires — safe to mark the
+    // job's final status as failed (see transcoding/worker.ts for why this
+    // isn't set on every attempt).
+    if (job?.data?.partyId) {
+      setTranscodeStatus(job.data.partyId, 'failed');
+    }
+    app.log.error({ jobId: job?.id, partyId: job?.data?.partyId, err }, 'Transcode job failed');
   });
 
   // 4. Register Global Hooks & Gateway

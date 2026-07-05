@@ -45,8 +45,11 @@ const processTranscodeJob = async (job: TranscodeJob): Promise<void> => {
 
     setTranscodeStatus(partyId, 'ready');
   } catch (err) {
-    setTranscodeStatus(partyId, 'failed');
-    throw err; // let the queue handle retry
+    // Don't mark 'failed' here — this attempt may still be retried by the
+    // queue. The queue's 'failed' listener (bootstrap/index.ts) sets the
+    // final status only once all retries are exhausted, so a client polling
+    // status during the backoff window doesn't see a premature failure.
+    throw err;
   }
 };
 
