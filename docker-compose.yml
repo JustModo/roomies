@@ -11,16 +11,16 @@ services:
       - .env
     environment:
       NODE_ENV: production
-      DATABASE_URL: file:/app/data/roomies.db
-      CACHE_DIR: /srv/cache
+      DATABASE_URL: file:/config/roomies.db
+      CACHE_DIR: /cache
       HLS_BASE_URL: http://localhost/hls
       FFMPEG_PATH: ffmpeg
-      MEDIA_ROOT: /srv/media
+      MEDIA_ROOT: /media
       CORS_ORIGIN: http://localhost
     volumes:
-      - ${MEDIA_DIR:-./media}:/srv/media:ro # read-only: source media files
-      - ./cache:/srv/cache # read-write: HLS output
-      - ./data:/app/data # read-write: SQLite database file
+      - ${MEDIA_DIR:-./media}:/media:ro # read-only: source media files
+      - ./cache:/cache # read-write: HLS transcoder output
+      - ./config:/config # read-write: SQLite database + app config
     # No host port published: all traffic must route through Caddy (80/443),
     # which is the only public entrypoint. Use `docker compose exec api sh`
     # or `docker compose logs -f api` for local debugging instead.
@@ -42,7 +42,7 @@ services:
       - "443:443"
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./cache:/srv/cache:ro # read-only: Caddy serves HLS from here
+      - ./cache:/cache:ro # read-only: Caddy serves HLS from here
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

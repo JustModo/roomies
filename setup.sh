@@ -10,8 +10,8 @@ else
   echo "✅ .env file already exists"
 fi
 
-mkdir -p data
-echo "✅ Ensured ./data directory exists for the SQLite database"
+mkdir -p config
+echo "✅ Ensured ./config directory exists for the SQLite database"
 
 echo ""
 echo "Setup complete! You can now start the application with:"
