@@ -1,110 +1,94 @@
-import { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { fetchApi, ApiError } from '../api/client';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { Input } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
+import { HairlinePulse } from '../components/ui/HairlinePulse';
 
 export default function Login() {
-  const [isSetupMode, setIsSetupMode] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const { setToken } = useAuth();
   const navigate = useNavigate();
+
+  React.useEffect(() => {
+    setLoading(true);
+    fetch('/api/auth/status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.needsBootstrap) {
+          navigate('/register');
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setIsLoading(true);
-
+    setLoading(true);
+    
     try {
-      let data;
-      if (isSetupMode) {
-        data = await fetchApi('/auth/setup', {
-          method: 'POST',
-          body: { username, password, inviteCode },
-        });
-      } else {
-        data = await fetchApi('/auth/login', {
-          method: 'POST',
-          body: { username, password },
-        });
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      
+      if (!res.ok) {
+        throw new Error('Incorrect username or password.');
       }
+      
+      const data = await res.json();
       setToken(data.token);
       navigate('/');
-    } catch (err: any) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('An unexpected error occurred.');
-      }
+    } catch (err) {
+      setError('Incorrect username or password.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-      <div className="card" style={{ width: '100%', maxWidth: '400px' }}>
-        <h2 style={{ marginBottom: 'var(--spacing-md)' }}>
-          {isSetupMode ? 'Server Setup' : 'Login'}
-        </h2>
-        
-        {error && (
-          <div style={{ backgroundColor: 'var(--danger-color)', padding: '10px', borderRadius: '4px', marginBottom: '16px' }}>
-            {error}
-          </div>
-        )}
+    <div className="min-h-screen bg-void flex items-center justify-center p-4">
+      <HairlinePulse isLoading={loading} />
+      
+      <div className="w-full max-w-[360px]">
+        <h1 className="text-20 font-semibold uppercase tracking-[0.08em] text-paper text-center mb-12">
+          THE ROOM
+        </h1>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '4px' }}>Username</label>
-            <input 
-              type="text" 
-              value={username} 
-              onChange={e => setUsername(e.target.value)} 
-              required 
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+          <Input 
+            label="USERNAME" 
+            type="text" 
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            required
+            className={error ? '*:border-paper' : ''}
+          />
           
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '4px' }}>Password</label>
-            <input 
-              type="password" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
-              required 
-            />
+          <Input 
+            label="PASSWORD" 
+            type="password" 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+            className={error ? '*:border-paper' : ''}
+          />
+          
+          <div className="pt-4 flex flex-col gap-4">
+            <Button type="submit">ENTER</Button>
+            {error && (
+              <p className="text-14 text-paper text-center">{error}</p>
+            )}
           </div>
-
-          {isSetupMode && (
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '4px' }}>Invite Code</label>
-              <input 
-                type="text" 
-                value={inviteCode} 
-                onChange={e => setInviteCode(e.target.value)} 
-                required 
-              />
-            </div>
-          )}
-
-          <button type="submit" disabled={isLoading} style={{ width: '100%', marginBottom: '16px' }}>
-            {isLoading ? <span className="loader" style={{ width: '16px', height: '16px', borderWidth: '2px' }}></span> : (isSetupMode ? 'Setup Root Account' : 'Login')}
-          </button>
         </form>
-
-        <div style={{ textAlign: 'center', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-          {isSetupMode ? "Already have an account? " : "First time setting up? "}
-          <button 
-            type="button"
-            onClick={() => setIsSetupMode(!isSetupMode)}
-            style={{ background: 'none', border: 'none', color: 'var(--accent-color)', padding: 0, fontSize: '0.9rem', textDecoration: 'underline' }}
-          >
-            {isSetupMode ? 'Login instead' : 'Click here'}
-          </button>
-        </div>
       </div>
     </div>
   );

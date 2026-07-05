@@ -59,19 +59,21 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Configure React Router and global state (Context API).
   - [x] Setup Axios/Fetch wrapper to inject JWT auth headers (`api/client.ts`).
   - [ ] Implement robust WebSocket reconnecting hook (`useWebSocket.ts`).
-- [x] **Auth UI**
-  - [x] Login Form & Root Setup Form.
-  - [x] Persist JWT locally and route to app dashboard.
-- [x] **Library UI** `[DEPENDS_ON: Backend Library Feature]`
-  - [x] Display grid of available `MediaFiles`.
-  - [x] "Start Party" button for a given movie.
-- [x] **Watch Party UI** `[DEPENDS_ON: Backend Playback, Transcoding]`
+- [x] **Auth UI (THE ROOM Spec)**
+  - [x] Login Form & Root Setup Form (centered 360px layout).
+  - [x] Persist JWT locally and route to Lobby.
+- [x] **Lobby UI (THE ROOM Spec)** `[DEPENDS_ON: Backend Library Feature]`
+  - [x] Display minimalist room status and viewer count.
+  - [x] Display currently playing media.
+- [x] **Room / Player UI (THE ROOM Spec)** `[DEPENDS_ON: Backend Playback, Transcoding]`
+  - [x] Integrate custom controls and hairline pulse syncing.
+  - [x] Admin Overlay for Media and User management.
   - [x] Integrate `hls.js` Player to consume Caddy HLS URL.
   - [ ] Connect player events (play/pause/seek) to `useWebSocket` hook to emit `client.*` events.
   - [ ] Listen to `server.*` events and forcefully sync the local Player.
-- [ ] **Social UI**
-  - [ ] Chat sidebar rendering `GET /api/chat/history` and real-time incoming `server.chat` messages.
-  - [ ] Presence indicators (who is in the room, buffering states).
+- [ ] **Social UI (THE ROOM Spec)**
+  - [x] Chat sidebar UI and toast notifications.
+  - [ ] Render `GET /api/chat/history` and real-time incoming `server.chat` messages.
   - [ ] Voice channel toggle (WebRTC audio-only mesh or SFU signaling).
 
 ## 3. Infrastructure & DevOps (See `[LOG:L54]`)

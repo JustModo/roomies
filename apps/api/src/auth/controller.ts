@@ -1,8 +1,13 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from './service';
 import { SetupRootSchema, LoginSchema, LoginRequest } from '@roomies/contracts';
+import { prisma } from '../database/sqlite';
 
 export const AuthController = {
+  async status(req: FastifyRequest, reply: FastifyReply) {
+    const userCount = await prisma.user.count();
+    return reply.send({ needsBootstrap: userCount === 0, hasRoot: userCount > 0 });
+  },
   async setupRoot(req: FastifyRequest, reply: FastifyReply) {
     const parsedBody = SetupRootSchema.safeParse(req.body);
     if (!parsedBody.success) {

@@ -1,102 +1,96 @@
-:root {
-  --bg-primary: #121212;
-  --bg-secondary: #1e1e1e;
-  --bg-hover: #2d2d2d;
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --accent-color: #646cff;
-  --accent-hover: #747bff;
-  --danger-color: #ff4b4b;
-  --border-color: #333333;
-  --border-radius: 8px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
+@import "tailwindcss";
+
+@theme {
+  --color-void: #0A0A0A;
+  --color-ink: #000000;
+  --color-paper: #FFFFFF;
+  --color-fog: #8C8C8C;
+  --color-ash: #3A3A3A;
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  :root {
+    --void: #0A0A0A;
+    --ink: #000000;
+    --paper: #FFFFFF;
+    --fog: #8C8C8C;
+    --ash: #3A3A3A;
+  }
+
+  *, *::before, *::after {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  body {
+    background-color: var(--void);
+    color: var(--paper);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
+/* Hairline Pulse Animation */
+@keyframes pulse-sweep {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
-a {
-  color: var(--accent-color);
-  text-decoration: none;
-}
-
-a:hover {
-  color: var(--accent-hover);
-}
-
-button {
-  background-color: var(--accent-color);
-  color: white;
-  border: none;
-  border-radius: var(--border-radius);
-  padding: 10px 16px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-button:hover {
-  background-color: var(--accent-hover);
-}
-
-button:disabled {
-  background-color: var(--bg-hover);
-  color: var(--text-secondary);
-  cursor: not-allowed;
-}
-
-input {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  border-radius: var(--border-radius);
-  padding: 10px 12px;
-  font-size: 1rem;
+.hairline-pulse {
+  height: 1px;
   width: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--ash) 0%,
+    var(--ash) 45%,
+    var(--paper) 50%,
+    var(--ash) 55%,
+    var(--ash) 100%
+  );
+  background-size: 200% 100%;
 }
 
-input:focus {
-  outline: none;
-  border-color: var(--accent-color);
+.hairline-pulse.loading {
+  animation: pulse-sweep 2.5s linear infinite;
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: var(--spacing-lg);
+.hairline-pulse.error {
+  animation-play-state: paused;
 }
 
-.card {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
-  padding: var(--spacing-md);
+/* Strict typographic scale classes */
+.text-12 { font-size: 12px; }
+.text-14 { font-size: 14px; }
+.text-16 { font-size: 16px; }
+.text-20 { font-size: 20px; }
+.text-28 { font-size: 28px; }
+.text-40 { font-size: 40px; }
+
+/* Motion override */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hairline-pulse {
+    background: var(--ash) !important;
+  }
 }
 
-.loader {
-  display: inline-block;
-  width: 24px;
-  height: 24px;
-  border: 3px solid rgba(255,255,255,.3);
-  border-radius: 50%;
-  border-top-color: #fff;
-  animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+/* Focus ring */
+*:focus-visible {
+  outline: 1px solid var(--paper);
+  outline-offset: 2px;
 }

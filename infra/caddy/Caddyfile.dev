@@ -1,0 +1,42 @@
+# Roomies - Unified Reverse Proxy (DEV MODE)
+
+{
+    admin off
+    log {
+        output stderr
+        format console
+    }
+}
+
+:80 {
+    # --- API Routes (Fastify backend) ---
+    handle /api/* {
+        reverse_proxy api:3000
+    }
+
+    # --- WebSocket Gateway ---
+    handle /ws {
+        reverse_proxy api:3000 {
+            header_up Upgrade {upstream_header.Upgrade}
+            header_up Connection {upstream_header.Connection}
+        }
+    }
+
+    # --- HLS Media Delivery ---
+    handle /hls/* {
+        root * /cache
+        uri strip_prefix /hls
+        file_server
+
+        header {
+            Content-Type "application/vnd.apple.mpegurl"
+            Access-Control-Allow-Origin *
+            Cache-Control "no-cache"
+        }
+    }
+
+    # --- React Frontend (Vite Dev Server) ---
+    handle {
+        reverse_proxy web:5173
+    }
+}

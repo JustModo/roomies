@@ -278,3 +278,55 @@ Renamed the Docker volume mounts to match the familiar Jellyfin convention, per 
 
 **What is Left to do Next**:
 - Everything already pending from the previous entries.
+
+---
+## 2026-07-06: Frontend Design Revamp (THE ROOM Spec)
+
+**Summary of Work Done**:
+- Removed the old dashboard, party, and home routes.
+- Installed `tailwindcss` (v4) and configured it in `vite.config.ts`.
+- Rewrote `src/index.css` to define strict color variables (Void, Ink, Paper, Fog, Ash) and a strict typography base without relying on external UI libraries. Included the global `border-radius: 0` overrides.
+- Added `Inter` and `JetBrains Mono` fonts via Google Fonts in `index.html`.
+- Implemented `/login` and `/register` conforming to the 360px centered constraint. The `/register` acts as the root bootstrap logic (currently mocking the API check).
+- Implemented `/` (Lobby), a minimalist status readout for a single room.
+- Implemented `/room` (Player) with:
+  - Custom auto-hiding video controls.
+  - Chat Sidebar which correctly collapses into toasts.
+  - Admin Overlay covering the viewport silently, with tabs for Users, Media, and Room Settings.
+- Created reusable components under `src/components/ui/` (`Input`, `Button`, `IconButton`, `HairlinePulse`) adhering precisely to the hairline and non-curved visual spec.
+- Deleted all orphaned frontend files: `Dashboard.tsx`, `Home.tsx`, `Party.tsx`, and `WatchParty.tsx`.
+
+**Decisions / Considerations**:
+- Tailwind v4 `@theme` block is used to directly map the specified spec colors (Void, Ink, Paper, Fog, Ash).
+- The `AuthContext` and specific endpoints for checking root status `/api/auth/bootstrap-status` and `/api/auth/register` are still being mocked or assumed present in the API. This will need to be implemented backend-side to fully secure the root bootstrap mechanic.
+
+**What is Left to do Next**:
+- Backend implementation of the root bootstrap API.
+- Actual WebSocket integration for live playback sync and presence in the Lobby and Player.
+
+## 2026-07-06: Frontend Backend Integration Finished
+- Created `useWebSocket` hook in `apps/web/src/hooks/useWebSocket.ts` with connection management and typed event handling via `OutgoingSocketMessageSchema` / `IncomingSocketMessageSchema`.
+- Connected `hls.js` inside `Room.tsx` to the `useTranscodeStatus` hook payload.
+- Mapped player controls (play, pause, seek) to `client.*` WebSocket messages instead of mutating local state.
+- Handled incoming `server.*` websocket events in `Room.tsx` to force local `videoRef` syncing.
+- Integrated `ChatSidebar` with the socket, fetching `/api/chat/history` on mount and appending incoming `server.chat` events.
+- Populated `Lobby` and `AdminOverlay` with real API fetches for `/api/playback/party/active` and `/api/library`.
+
+## 2026-07-06: Fix Vite ESM build error
+- Added `"type": "module"` to `apps/web/package.json` to resolve `@tailwindcss/vite` ESM import error during `pnpm run build`.
+
+## 2026-07-06: Fix First Time Setup Bug
+- Added `GET /api/auth/bootstrap-status` to `apps/api/src/auth/routes.ts` and `controller.ts` since the frontend was expecting it.
+- Fixed `Login.tsx` to actually fetch `/api/auth/bootstrap-status` and redirect to `/register` if `needsBootstrap` is true.
+- Fixed `Register.tsx` to `POST` to `/api/auth/setup` instead of `/api/auth/register` to match the actual backend `setupRoot` endpoint.
+
+## 2026-07-06: Fix UI Loading and Bootstrapping flow
+- Modified `HairlinePulse` and `index.css` to only animate the pulse when `isLoading` is set to true, resolving the issue of it constantly sweeping the screen.
+- Renamed `/api/auth/bootstrap-status` to `/api/auth/status` across the API and frontend to simplify naming.
+- Modified `Register.tsx` to call `setToken` directly and navigate to `/` on successful root setup, bypassing the need to login again.
+
+## 2026-07-06: Fix Hot Reloading with Docker Compose
+- Reverted the local host-based dev workflow and fully migrated to Docker Compose watch mode.
+- Updated `docker-compose.dev.yml` to target the `builder` stage for `api` and `web`, avoiding the production `nginx` and `node:22-alpine` run stages, keeping `pnpm` available for hot-reloading.
+- Configured the API container to automatically run `npx prisma generate` and `npx prisma db push` before booting, ensuring the database inside `/config/roomies.db` is correctly instantiated.
+- Fixed the `PrismaBetterSqlite3` adapter typing error by reverting to passing `{ url }`, which successfully parses since `DATABASE_URL` is properly mounted via `.env_file` inside the Docker environment.

@@ -1,14 +1,15 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Login from '../pages/Login';
-import Dashboard from '../pages/Dashboard';
-import Party from '../pages/Party';
+import Register from '../pages/Register';
+import Lobby from '../pages/Lobby';
+import Room from '../pages/Room'; // I will create this next
 
 const ProtectedRoute = () => {
   const { token, isLoading } = useAuth();
 
   if (isLoading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><span className="loader"></span></div>;
+    return <div className="min-h-screen bg-void" />;
   }
 
   if (!token) {
@@ -22,10 +23,11 @@ export default function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       
       <Route element={<ProtectedRoute />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/party/:partyId" element={<Party />} />
+        <Route path="/" element={<Lobby />} />
+        <Route path="/room" element={<Room />} />
       </Route>
       
       {/* Fallback */}
