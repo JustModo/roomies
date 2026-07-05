@@ -1,10 +1,9 @@
-import { Worker, Job } from 'bullmq';
 import path from 'path';
 import fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { TranscodeJobData, TranscodeStatus, TRANSCODE_QUEUE_NAME, transcodeStatusKey } from './queue';
-import { redis } from '../database/redis';
+import { transcodeQueue, TranscodeJob } from './queue';
+import { setTranscodeStatus } from './status';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,15 +14,10 @@ const execFileAsync = promisify(execFile);
  */
 const FFMPEG_BIN = process.env.FFMPEG_PATH || 'ffmpeg';
 
-const setTranscodeStatus = async (partyId: string, status: TranscodeStatus) => {
-  await redis.set(transcodeStatusKey(partyId), status, { EX: 86400 }); // 24h TTL
-};
-
-const processTranscodeJob = async (job: Job<TranscodeJobData>): Promise<void> => {
+const processTranscodeJob = async (job: TranscodeJob): Promise<void> => {
   const { partyId, inputPath, outputDir } = job.data;
 
-  await setTranscodeStatus(partyId, 'processing');
-  await job.updateProgress(5);
+  setTranscodeStatus(partyId, 'processing');
 
   // Ensure the output directory exists
   await fs.mkdir(outputDir, { recursive: true });
@@ -49,22 +43,16 @@ const processTranscodeJob = async (job: Job<TranscodeJobData>): Promise<void> =>
       outputPlaylist,
     ]);
 
-    await setTranscodeStatus(partyId, 'ready');
-    await job.updateProgress(100);
+    setTranscodeStatus(partyId, 'ready');
   } catch (err) {
-    await setTranscodeStatus(partyId, 'failed');
-    throw err; // let BullMQ handle retry
+    setTranscodeStatus(partyId, 'failed');
+    throw err; // let the queue handle retry
   }
 };
 
-export const createTranscodeWorker = () =>
-  new Worker<TranscodeJobData>(
-    TRANSCODE_QUEUE_NAME,
-    processTranscodeJob,
-    {
-      connection: {
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
-      },
-      concurrency: 2, // max 2 simultaneous transcode jobs
-    }
-  );
+// The queue instance itself is the "worker" (it runs jobs in-process and
+// emits completed/failed), matching the shape bootstrap/index.ts expects.
+export const createTranscodeWorker = () => {
+  transcodeQueue.setProcessor(processTranscodeJob);
+  return transcodeQueue;
+};
