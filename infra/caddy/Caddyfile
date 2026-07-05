@@ -1,23 +1,45 @@
-# Caddy reverse proxy and HLS static server
-:8080 {
-    # HLS Static Files (Caddy File Server)
-    handle_path /hls/* {
-        root * ../../cache
-        file_server
+# Roomies - Unified Reverse Proxy
+# Single entrypoint on :80 routing to all services
+
+{
+    # Global options
+    admin off
+    log {
+        output stderr
+        format console
     }
-    
-    # API Routes (Fastify)
+}
+
+:80 {
+    # --- API Routes (Fastify backend) ---
     handle /api/* {
-        reverse_proxy localhost:3000
+        reverse_proxy api:3000
     }
-    
-    # WebSocket (Fastify)
-    handle /ws/* {
-        reverse_proxy localhost:3000
+
+    # --- WebSocket Gateway ---
+    handle /ws {
+        reverse_proxy api:3000 {
+            header_up Upgrade {upstream_header.Upgrade}
+            header_up Connection {upstream_header.Connection}
+        }
     }
-    
-    # Frontend (React)
-    handle /* {
-        reverse_proxy localhost:5173
+
+    # --- HLS Media Delivery (served from shared cache volume) ---
+    # Caddy serves .m3u8 and .ts files directly — media never passes through Node.js
+    handle /hls/* {
+        root * /srv/cache
+        uri strip_prefix /hls
+        file_server
+
+        header {
+            Content-Type "application/vnd.apple.mpegurl"
+            Access-Control-Allow-Origin *
+            Cache-Control "no-cache"
+        }
+    }
+
+    # --- React Frontend (served by nginx container) ---
+    handle {
+        reverse_proxy web:80
     }
 }

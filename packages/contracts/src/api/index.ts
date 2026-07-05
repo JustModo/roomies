@@ -63,3 +63,21 @@ export const ScanLibraryRequestSchema = z.object({
   path: z.string(),
 });
 export type ScanLibraryRequest = z.infer<typeof ScanLibraryRequestSchema>;
+
+// --- Playback ---
+export const StartPartyRequestSchema = z.object({
+  mediaFileId: z.string().uuid(),
+});
+export type StartPartyRequest = z.infer<typeof StartPartyRequestSchema>;
+
+export const StartPartyResponseSchema = z.object({
+  partyId: z.string(),
+  sessionId: z.string(),
+});
+export type StartPartyResponse = z.infer<typeof StartPartyResponseSchema>;
+
+export const TranscodeStatusResponseSchema = z.object({
+  status: z.enum(['pending', 'processing', 'ready', 'failed']),
+  hlsUrl: z.string().optional(),
+});
+export type TranscodeStatusResponse = z.infer<typeof TranscodeStatusResponseSchema>;

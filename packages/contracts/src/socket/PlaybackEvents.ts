@@ -22,6 +22,21 @@ export const ClientSeekSchema = z.object({
   }),
 });
 
+export const ClientJoinSchema = z.object({
+  event: z.literal('client.join'),
+  payload: z.object({
+    partyId: z.string(),
+  }),
+});
+
+export const ClientHeartbeatSchema = z.object({
+  event: z.literal('client.heartbeat'),
+  payload: z.object({
+    partyId: z.string(),
+    position: z.number(),
+  }),
+});
+
 // Outgoing (Server -> Client)
 export const ServerPlaySchema = z.object({
   event: z.literal('server.play'),
@@ -42,5 +57,15 @@ export const ServerSeekSchema = z.object({
   event: z.literal('server.seek'),
   payload: z.object({
     position: z.number(),
+  }),
+});
+
+export const ServerPartyStateSchema = z.object({
+  event: z.literal('server.party.state'),
+  payload: z.object({
+    partyId: z.string(),
+    position: z.number(),
+    isPaused: z.boolean(),
+    leaderId: z.string(),
   }),
 });

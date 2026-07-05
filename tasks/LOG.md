@@ -59,3 +59,55 @@ All agents must append their progress, decisions, and skipped items here after c
 
 **What is Left to do Next**:
 - Check the `CHECKLIST.md`. Now that the infrastructure is pristine and the WebSocket router is perfectly scalable, we can move forward with **Playback Orchestration**.
+
+---
+
+## [2026-07-05] Playback Orchestration, Transcoding & Full Dockerization
+**Agent**: Antigravity
+**Summary of Work Done**:
+- Added `client.join` and `client.heartbeat` Zod schemas to `packages/contracts/src/socket/PlaybackEvents.ts` and registered them in the discriminated union.
+- Added `StartPartyRequest`, `StartPartyResponse`, and `TranscodeStatusResponse` Zod schemas to `packages/contracts/src/api/index.ts`.
+- Built `apps/api/src/playback/service.ts`: creates `PlaybackSession` in Postgres, seeds Redis OM `playbackState`, enqueues a BullMQ transcode job.
+- Built `apps/api/src/playback/controller.ts`: `POST /api/playback/start` and `GET /api/playback/:partyId` routes.
+- Built `apps/api/src/playback/socket.ts`: full party room management via `Map<partyId, Set<WebSocket>>` decorated on the Fastify instance. Handles `client.join`, `client.play`, `client.pause`, `client.seek`, `client.heartbeat`.
+- Built `apps/api/src/transcoding/queue.ts`: BullMQ `Queue` with typed `TranscodeJobData`, retry config.
+- Built `apps/api/src/transcoding/worker.ts`: BullMQ `Worker` that runs `ffmpeg` via `child_process.execFile` to produce HLS segments into `cache/<partyId>/`. Sets Redis status key.
+- Built `apps/api/src/transcoding/controller.ts`: `GET /api/transcoding/:partyId/status` returns status + Caddy HLS URL.
+- Updated `apps/api/src/websocket/gateway.ts`: decorates app with `rooms` Map, passes typed `SocketContext`, cleans rooms on disconnect.
+- Updated `apps/api/src/websocket/router.ts`: dispatches all new events.
+- Updated `apps/api/src/bootstrap/index.ts`: registers playback and transcoding routes, starts BullMQ worker in-process.
+- Created `apps/api/Dockerfile`: multi-stage build (builder → runner). Runner stage runs `apk add ffmpeg` so the system binary is available to `child_process`.
+- Created `apps/web/Dockerfile`: multi-stage Vite build → nginx runner with SPA fallback.
+- Created `infra/caddy/Caddyfile`: single entrypoint routing `/api/*`, `/ws`, `/hls/*`, and `/*` to respective containers.
+- Rewrote `docker-compose.yml`: full production-grade compose with postgres, redis, api, web, caddy + healthchecks and shared `media/` and `cache/` volumes.
+- Created `apps/api/.env.example` with all environment variables documented.
+- **0 TypeScript errors** after all changes.
+
+**Decisions / Considerations**:
+- `fluent-ffmpeg` was *not* brought back. We continue with native `child_process.execFile` for the same reasons — the npm package is abandoned. The system binary (`apk add ffmpeg`) in Docker and PATH-based binary locally is the correct approach.
+- BullMQ uses the same Redis connection as the rest of the app (no separate broker).
+- Job deduplication via `jobId: partyId` prevents duplicate transcode jobs for the same party.
+- The rooms Map is scoped to a single Fastify instance (single-node). When horizontal scaling is needed, replace with `@socket.io/redis-adapter`.
+
+**What is Left to do Next**:
+- Chat Feature and Voice Signaling (WebRTC) on the backend.
+- Frontend: React Router, auth UI, library UI, Shaka Player integration, chat sidebar.
+- Sync Engine (drift computation using `client.heartbeat`).
+
+---
+
+## [2026-07-05] Codebase Spring Cleaning
+**Agent**: Antigravity
+**Summary of Work Done**:
+- Executed a massive deletion of abandoned scaffolding, specifically removing dummy `streaming`, `health`, `presence`, `settings`, `sync`, and `voice` directories.
+- Cleaned up the `transcoding` directory by deleting abandoned nested subfolders (`cache`, `manager`, `ffmpeg`, `scheduler`, `types`, `worker`).
+- Deleted unused nested `events` and `schemas` from `packages/contracts`.
+- Refactored `database/redis.ts` from a monolithic "God object" by extracting the Redis OM schemas (`playbackState`, `chat`, `presence`, `socketSession`) into their respective feature folders.
+- Verified zero TypeScript compilation errors post-cleanup.
+
+**Decisions / Considerations**:
+- Clean codebase enables proper feature development and mitigates circular dependencies for Redis repositories.
+
+**What is Left to do Next**:
+- Still pending Chat Feature and Voice Signaling on the backend.
+- Still pending Frontend features.

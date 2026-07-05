@@ -27,12 +27,14 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Read basic metadata (name, duration) without TMDB/Internet calls.
   - [x] Store scanned paths into `Library` and `MediaFile` Postgres tables.
   - [x] Expose `GET /api/library` to fetch available media.
-- [ ] **Playback Orchestration** `[DEPENDS_ON: Library Feature]`
-  - [ ] Implement HTTP route to start a party/session.
-  - [ ] Seed Redis `playbackState` with initial movie, leader, and 0 position.
-  - [ ] Map incoming socket `client.play`/`client.pause`/`client.seek` events to Redis updates and broadcast to room.
+- [x] **Playback Orchestration** `[DEPENDS_ON: Library Feature]` (See `[LOG:L54]`)
+  - [x] Implement HTTP route to start a party/session (`POST /api/playback/start`).
+  - [x] Seed Redis `playbackState` with initial movie, leader, and position 0.
+  - [x] `client.join` event registers socket into in-memory party room.
+  - [x] `client.play`/`client.pause`/`client.seek` update Redis state and broadcast `server.*` to all room members.
+  - [x] `client.heartbeat` stub added (Sync Engine hook).
 - [ ] **Sync Engine** `[DEPENDS_ON: Playback Orchestration]`
-  - [ ] Implement drift computation (compare user's reported position against server expected position).
+  - [ ] Implement drift computation (compare `client.heartbeat` position against server expected position).
   - [ ] Dispatch `server.seek` or `server.pause` to out-of-sync clients.
 - [ ] **Chat Feature**
   - [ ] Map `client.chat` socket event.
@@ -42,11 +44,12 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
 - [ ] **Voice Signaling (WebRTC)**
   - [ ] Map WebRTC socket events (`client.voice.offer`, `answer`, `ice`).
   - [ ] Relay signaling events strictly to the target peers. No media processing!
-- [ ] **Transcoding & Media Delivery**
-  - [ ] Implement manager to spawn FFmpeg child processes based on requested media.
-  - [ ] Ensure one worker per media/resolution (prevent redundant transcode streams).
-  - [ ] Generate standard HLS `.m3u8` and `.ts` files into `cache/` directory.
-  - [ ] Create API route to return signed HLS Caddy URLs to the frontend.
+- [x] **Transcoding & Media Delivery** (See `[LOG:L54]`)
+  - [x] BullMQ queue (`transcodeQueue`) with typed job data.
+  - [x] BullMQ worker spawns `ffmpeg` via `child_process.execFile` to produce HLS segments.
+  - [x] Redis transcode status key tracks `pending → processing → ready | failed`.
+  - [x] `GET /api/transcoding/:partyId/status` returns status + Caddy HLS URL when ready.
+  - [x] One job per `partyId` (idempotent BullMQ `jobId`).
 
 ## 2. Frontend Application (React + Vite)
 
@@ -70,9 +73,18 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [ ] Presence indicators (who is in the room, buffering states).
   - [ ] Voice channel toggle (WebRTC audio-only mesh or SFU signaling).
 
-## 3. Infrastructure & DevOps
+## 3. Infrastructure & DevOps (See `[LOG:L54]`)
 
-- [ ] **Caddy Tuning**
-  - [ ] Verify Caddy successfully serves static HLS from `cache/` with correct CORS headers.
-- [ ] **FFmpeg Worker Image**
-  - [ ] Validate the `infra/ffmpeg/Dockerfile` successfully mounts `media/` and `cache/` to run transcode commands.
+- [x] **Dockerization**
+  - [x] `apps/api/Dockerfile` — multi-stage build with `ffmpeg` installed via `apk`.
+  - [x] `apps/web/Dockerfile` — multi-stage Vite build served by nginx with SPA fallback.
+  - [x] `docker-compose.yml` — full stack with Postgres, Redis, API, Web, Caddy + healthchecks and shared volumes.
+- [x] **Caddy Reverse Proxy**
+  - [x] `infra/caddy/Caddyfile` routes `/api/*`, `/ws`, `/hls/*`, and `/*` (React SPA).
+  - [x] HLS served with correct CORS headers and `Cache-Control: no-cache`.
+- [x] **Environment**
+  - [x] `apps/api/.env.example` documents all required environment variables.
+- [ ] **Production Hardening**
+  - [ ] Set `origin` in CORS to actual production domain.
+  - [ ] Rotate JWT secrets via environment variables.
+  - [ ] Add HTTPS auto-cert to Caddyfile for production domain.

@@ -1,7 +1,10 @@
-version: '3.8'
 services:
+  # ─────────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────────
   postgres:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: roomies
       POSTGRES_PASSWORD: password
@@ -10,12 +13,82 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roomies"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # Application
+  # ─────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://roomies:password@postgres:5432/roomies
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-changeme_in_production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-changeme_refresh_in_production}
+      CACHE_DIR: /srv/cache
+      HLS_BASE_URL: http://localhost/hls
+      FFMPEG_PATH: ffmpeg
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./media:/srv/media:ro       # read-only: source media files
+      - ./cache:/srv/cache          # read-write: HLS output
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+
+  # ─────────────────────────────────────────────
+  # Reverse Proxy (single entrypoint)
+  # ─────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./cache:/srv/cache:ro       # read-only: Caddy serves HLS from here
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:
