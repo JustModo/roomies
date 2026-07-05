@@ -2,12 +2,14 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { verifyJwt, requireRole } from '../common/authMiddleware';
 import { PlaybackService } from './service';
 import { StartPartyRequestSchema } from '@roomies/contracts';
+import { prisma } from '../database/sqlite';
+import { getRoomSize } from './socket';
 
 export const playbackRoutes = async (app: FastifyInstance) => {
   /**
    * POST /api/playback/start
-   * Starts a party, seeds in-memory playback state, enqueues transcode.
-   * Returns { partyId, sessionId }
+   * Starts a party: seeds in-memory playback state, starts live FFmpeg
+   * transcoding, and returns { partyId, hlsUrl } immediately.
    * Root-only: only the household admin picks what plays for everyone.
    */
   app.post(
@@ -22,6 +24,15 @@ export const playbackRoutes = async (app: FastifyInstance) => {
       const userId = (req as any).user.userId as string;
 
       const result = await PlaybackService.startParty(parsed.data.mediaFileId, userId);
+      
+      const msg = { event: 'server.party.started', payload: { partyId: result.partyId } };
+      const room = (req.server as any).rooms?.get(result.partyId);
+      if (room) {
+        for (const socket of room) {
+          if (socket.readyState === 1) socket.send(JSON.stringify(msg));
+        }
+      }
+
       return reply.status(201).send(result);
     }
   );
@@ -38,7 +49,18 @@ export const playbackRoutes = async (app: FastifyInstance) => {
       if (!activeParty) {
         return reply.send({ partyId: null });
       }
-      return reply.send({ partyId: activeParty.partyId, mediaFileId: activeParty.currentMovieId });
+      
+      const media = activeParty.currentMovieId 
+        ? await prisma.mediaFile.findUnique({ where: { id: activeParty.currentMovieId } })
+        : null;
+      
+      return reply.send({ 
+        partyId: activeParty.partyId, 
+        mediaFileId: activeParty.currentMovieId,
+        mediaTitle: media?.title,
+        viewersCount: getRoomSize(req.server, activeParty.partyId),
+        state: activeParty.isPaused ? 'paused' : 'playing',
+      });
     }
   );
 
@@ -54,7 +76,10 @@ export const playbackRoutes = async (app: FastifyInstance) => {
       if (!state) {
         return reply.status(404).send({ error: 'Party not found' });
       }
-      return reply.send(state);
+      return reply.send({
+        ...state,
+        viewersCount: getRoomSize(req.server, req.params.partyId),
+      });
     }
   );
 };

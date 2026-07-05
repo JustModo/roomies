@@ -86,9 +86,9 @@ export const LibraryService = {
     }));
   },
 
-  async scanLibrary(name: string, rootPath: string): Promise<Library> {
-    // Constrain the scan to MEDIA_ROOT before touching the filesystem or DB.
-    const safeRootPath = resolveScanPath(rootPath);
+  async scanLibrary(): Promise<Library> {
+    const name = "Library";
+    const safeRootPath = MEDIA_ROOT;
 
     // Upsert the library
     let library = await prisma.library.findFirst({ where: { path: safeRootPath } });

@@ -14,7 +14,17 @@ export interface PlaybackState {
 // schema. The app only ever supports one globally active party, so a single
 // module-level variable is sufficient — no persistence across restarts, same
 // as the Redis-backed version provided (nothing snapshotted it to the DB).
-let currentState: PlaybackState | null = null;
+let currentState: PlaybackState | null = {
+  partyId: 'main',
+  currentMovieId: '',
+  leaderId: 'system',
+  position: 0,
+  speed: 1,
+  isPaused: true,
+  subtitleTrack: '',
+  audioTrack: '',
+  updatedAt: Date.now(),
+};
 
 export const playbackStateStore = {
   get(): PlaybackState | null {

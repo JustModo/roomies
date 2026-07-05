@@ -14,7 +14,7 @@ type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'client.heartbea
  * The room map lives on the app instance.
  */
 const broadcastToRoom = (ctx: SocketContext, partyId: string, message: OutgoingSocketMessage) => {
-  const room = (ctx.app as any).rooms.get(partyId) as Set<WebSocket> | undefined;
+  const room = (ctx.app as any).rooms?.get(partyId) as Set<WebSocket> | undefined;
   if (!room) return;
 
   const serialized = JSON.stringify(message);
@@ -23,6 +23,20 @@ const broadcastToRoom = (ctx: SocketContext, partyId: string, message: OutgoingS
       socket.send(serialized);
     }
   }
+};
+
+export const getRoomSize = (app: any, partyId: string): number => {
+  const room = app.rooms?.get(partyId) as Set<WebSocket> | undefined;
+  return room ? room.size : 0;
+};
+
+const broadcastViewersCount = (ctx: SocketContext, partyId: string) => {
+  const count = getRoomSize(ctx.app, partyId);
+  const msg: OutgoingSocketMessage = {
+    event: 'server.viewers',
+    payload: { count },
+  };
+  broadcastToRoom(ctx, partyId, msg);
 };
 
 export const handleClientJoin = async (payload: JoinPayload, ctx: SocketContext) => {
@@ -54,6 +68,9 @@ export const handleClientJoin = async (payload: JoinPayload, ctx: SocketContext)
   }
 
   ctx.app.log.info({ userId: ctx.userId, partyId }, 'User joined party room');
+  
+  // Broadcast updated viewers count
+  broadcastViewersCount(ctx, partyId);
 };
 
 /**
@@ -146,9 +163,10 @@ export const removeFromRoom = (ctx: SocketContext) => {
   if (!partyId) return;
 
   const rooms: Map<string, Set<WebSocket>> = (ctx.app as any).rooms;
-  const room = rooms.get(partyId);
+  const room = rooms?.get(partyId);
   if (room) {
     room.delete(ctx.socket);
     if (room.size === 0) rooms.delete(partyId);
+    broadcastViewersCount(ctx, partyId);
   }
 };

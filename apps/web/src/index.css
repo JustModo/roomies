@@ -36,37 +36,7 @@
   }
 }
 
-/* Hairline Pulse Animation */
-@keyframes pulse-sweep {
-  0% {
-    background-position: 200% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
 
-.hairline-pulse {
-  height: 1px;
-  width: 100%;
-  background: linear-gradient(
-    90deg,
-    var(--ash) 0%,
-    var(--ash) 45%,
-    var(--paper) 50%,
-    var(--ash) 55%,
-    var(--ash) 100%
-  );
-  background-size: 200% 100%;
-}
-
-.hairline-pulse.loading {
-  animation: pulse-sweep 2.5s linear infinite;
-}
-
-.hairline-pulse.error {
-  animation-play-state: paused;
-}
 
 /* Strict typographic scale classes */
 .text-12 { font-size: 12px; }
@@ -76,16 +46,12 @@
 .text-28 { font-size: 28px; }
 .text-40 { font-size: 40px; }
 
-/* Motion override */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-  .hairline-pulse {
-    background: var(--ash) !important;
   }
 }
 

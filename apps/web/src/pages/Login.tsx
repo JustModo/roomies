@@ -3,18 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
-import { HairlinePulse } from '../components/ui/HairlinePulse';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const { setToken } = useAuth();
   const navigate = useNavigate();
 
   React.useEffect(() => {
-    setLoading(true);
     fetch('/api/auth/status')
       .then(res => res.json())
       .then(data => {
@@ -22,14 +19,12 @@ export default function Login() {
           navigate('/register');
         }
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .catch(console.error);
   }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
     
     try {
       const res = await fetch('/api/auth/login', {
@@ -47,23 +42,21 @@ export default function Login() {
       navigate('/');
     } catch (err) {
       setError('Incorrect username or password.');
-    } finally {
-      setLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-void flex items-center justify-center p-4">
-      <HairlinePulse isLoading={loading} />
       
       <div className="w-full max-w-[360px]">
         <h1 className="text-20 font-semibold uppercase tracking-[0.08em] text-paper text-center mb-12">
-          THE ROOM
+          ROOMIES
         </h1>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
           <Input 
-            label="USERNAME" 
+            label="USERNAME"
+            name="username" 
             type="text" 
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -74,6 +67,7 @@ export default function Login() {
           
           <Input 
             label="PASSWORD" 
+            name="password"
             type="password" 
             value={password}
             onChange={(e) => setPassword(e.target.value)}

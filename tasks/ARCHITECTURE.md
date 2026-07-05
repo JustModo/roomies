@@ -23,7 +23,7 @@ This is a living document of the entire architecture plan for the Watch Party mo
                  │
       ┌──────────┼─────────────┐
       │          │             │
-   SQLite    In-Memory State  FFmpeg (in-process job runner)
+    SQLite    In-Memory State  TranscodeSessionManager (live FFmpeg)
       │          │
       └──────────┼─────────────┘
                  │
@@ -62,7 +62,7 @@ watch-party/
 
 ## Database Philosophy
 **SQLite Tables**: `User`, `Library`, `MediaFile`, `RefreshToken`, `ServerConfig`.
-**In-Memory State** (module-level `Map`s/variables, one per feature): `playbackState` (`apps/api/src/playback/store.ts`), `chat history` (`apps/api/src/chat/store.ts`, capped ring buffer per party), `socket sessions` (`apps/api/src/websocket/store.ts`), `transcode status` (`apps/api/src/transcoding/status.ts`, self-expiring after 24h).
+**In-Memory State** (module-level `Map`s/variables, one per feature): `playbackState` (`apps/api/src/playback/store.ts`), `chat history` (`apps/api/src/chat/store.ts`, capped ring buffer per party), `socket sessions` (`apps/api/src/websocket/store.ts`), `active transcode session` (`apps/api/src/transcoding/manager.ts`, tracks live FFmpeg child processes).
 
 There is no chat table or presence table in SQLite. Those are intentionally ephemeral and live only in memory — none of it is expected to survive an API process restart, matching how this data behaved even when it was Redis-backed.
 
@@ -85,9 +85,19 @@ The **Sync Engine** (`handleClientHeartbeat` in `apps/api/src/playback/socket.ts
 The WebSocket layer operates entirely on a Feature-Oriented router pattern (`apps/api/src/websocket/router.ts`). The gateway purely handles JSON parsing (via strict Zod discriminated unions) and passes the strongly-typed payload to feature-specific handlers (e.g., `chat/socket.ts`, `playback/socket.ts`). This ensures the gateway never becomes a monolithic switch statement and makes adding new modules seamless.
 
 ### 3. Media Transcoding Manager (FFmpeg)
-To handle broad device compatibility, an in-process job runner (`apps/api/src/transcoding/queue.ts`, `worker.ts` — a concurrency-limited queue with retry/backoff, no external broker) manages FFmpeg jobs.
-When a user requests a media file, the API checks if a Transcoded HLS `.m3u8` playlist exists in the `cache/` directory. If not, it spawns an FFmpeg process to transcode the raw `.mp4/.mkv` into HLS segments in real-time. 
-Crucially, **media never flows through Node.js**. Once the `.m3u8` playlist is available on disk, the backend simply signs a URL pointing to the Caddy reverse-proxy. Caddy statically serves the chunks at high speed directly to the frontend's Shaka Player.
+To handle broad device compatibility and adaptive quality, a **TranscodeSessionManager** (`apps/api/src/transcoding/manager.ts`) manages live FFmpeg child processes — one per quality variant (360p/720p/1080p by default, configurable via `TRANSCODE_PROFILES`).
+
+When a user starts a party, the API:
+1. Kills any existing FFmpeg processes and cleans the cache directory (solving EBUSY/lock errors by ensuring FFmpeg is dead before touching its files)
+2. Spawns one FFmpeg process per quality variant, each writing HLS segments to disk in **real-time** (`-hls_flags append_list+independent_segments`)
+3. Writes a static HLS master playlist (`master.m3u8`) listing all variant streams
+4. Returns the HLS URL immediately — no waiting for transcoding to complete
+
+The client (Shaka Player / hls.js) loads `master.m3u8`, picks a variant based on bandwidth, and starts playing as soon as the first few segments appear on disk (~5-10 seconds). Adaptive bitrate switching happens automatically as network conditions change.
+
+Quality profiles (`apps/api/src/transcoding/profiles.ts`) define resolution, bitrate, and buffer sizes for each variant. Crucially, **media never flows through Node.js** — Caddy statically serves the segments at high speed directly to the frontend player.
+
+If an FFmpeg variant process crashes during a session, the `TranscodeSessionManager` fires an error callback that broadcasts a `server.transcode.error` WebSocket event to all connected clients in the party room.
 
 ### 4. Ephemeral Chat
 SQLite is strictly avoided for high-throughput ephemeral data.

@@ -14,8 +14,7 @@ export const LibraryController = {
 
   async scan(req: FastifyRequest<{ Body: ScanLibraryRequest }>, reply: FastifyReply) {
     try {
-      const { name, path } = req.body;
-      const updatedLibrary = await LibraryService.scanLibrary(name, path);
+      const updatedLibrary = await LibraryService.scanLibrary();
       return reply.send(updatedLibrary);
     } catch (e) {
       req.log.error(e, 'Failed to scan library');

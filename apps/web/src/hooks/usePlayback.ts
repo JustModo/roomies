@@ -1,43 +1,14 @@
 import { useState, useEffect } from 'react';
 import { fetchApi } from '../api/client';
-import { TranscodeStatusResponse } from '@roomies/contracts';
 
-export function useTranscodeStatus(partyId: string | undefined) {
-  const [statusResponse, setStatusResponse] = useState<TranscodeStatusResponse>({ status: 'pending' });
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!partyId) return;
-
-    let intervalId: any;
-
-    const checkStatus = async () => {
-      try {
-        const data: TranscodeStatusResponse = await fetchApi(`/transcoding/${partyId}/status`);
-        setStatusResponse(data);
-
-        // If ready or failed, stop polling
-        if (data.status === 'ready' || data.status === 'failed') {
-          clearInterval(intervalId);
-        }
-      } catch (err: any) {
-        setError(err.message);
-        clearInterval(intervalId);
-      }
-    };
-
-    // Initial check
-    checkStatus();
-
-    // Poll every 2 seconds
-    intervalId = setInterval(checkStatus, 2000);
-
-    return () => clearInterval(intervalId);
-  }, [partyId]);
-
-  return { statusResponse, error };
-}
-
+/**
+ * Hook to fetch the current party state.
+ *
+ * Note: The old `useTranscodeStatus` hook (which polled /api/transcoding/:partyId/status)
+ * is removed. With live transcoding, the HLS URL is returned directly from
+ * POST /api/playback/start and the client can start playing immediately —
+ * no polling needed.
+ */
 export function usePartyState(partyId: string | undefined) {
   const [partyState, setPartyState] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);

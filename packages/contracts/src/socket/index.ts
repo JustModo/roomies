@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ClientPlaySchema, ClientPauseSchema, ClientSeekSchema, ClientJoinSchema, ClientHeartbeatSchema, ServerPlaySchema, ServerPauseSchema, ServerSeekSchema, ServerPartyStateSchema } from './PlaybackEvents';
+import { ClientPlaySchema, ClientPauseSchema, ClientSeekSchema, ClientJoinSchema, ClientHeartbeatSchema, ServerPlaySchema, ServerPauseSchema, ServerSeekSchema, ServerPartyStateSchema, ServerViewersSchema, ServerPartyStartedSchema, ServerTranscodeErrorSchema } from './PlaybackEvents';
 import { ClientChatSchema, ServerChatSchema } from './ChatEvents';
 
 // Export individual schemas
@@ -22,6 +22,9 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerSeekSchema,
   ServerPartyStateSchema,
   ServerChatSchema,
+  ServerViewersSchema,
+  ServerPartyStartedSchema,
+  ServerTranscodeErrorSchema,
 ]);
 
 export type IncomingSocketMessage = z.infer<typeof IncomingSocketMessageSchema>;

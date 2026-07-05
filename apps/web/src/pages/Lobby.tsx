@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
-import { HairlinePulse } from '../components/ui/HairlinePulse';
 import { LogOut } from 'lucide-react';
 
 export default function Lobby() {
@@ -25,29 +24,26 @@ export default function Lobby() {
   }, []);
 
   const status = party?.state === 'playing' ? 'WATCHING' : (party?.state === 'paused' ? 'PAUSED' : 'WAITING');
-  const viewersCount = party?.viewers?.length || 0;
-  const currentMedia = party?.media?.title || 'Unknown';
-  const roomName = party?.name || 'Friday Movie Night';
+  const viewersCount = party?.viewersCount || 0;
+  const currentMedia = party?.mediaTitle || 'Unknown';
 
   if (loading) return <div className="min-h-screen bg-void" />;
 
   return (
     <div className="min-h-screen bg-void flex flex-col relative">
-      <HairlinePulse isLoading={loading} />
 
       <main className="flex-1 flex items-center justify-center p-4">
-        <div className="w-full max-w-[480px] border-y border-ash py-12 flex flex-col items-center">
-          <p className="text-14 font-semibold uppercase tracking-[0.08em] text-fog mb-6">
-            ROOM
-          </p>
+        <div className="w-full max-w-[480px] flex flex-col items-center">
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <div className="w-2 h-2 rounded-full bg-paper animate-pulse" />
+            <h1 className="text-20 font-medium uppercase tracking-[0.08em] text-paper">
+              LIVE ROOM
+            </h1>
+          </div>
 
-          <h1 className="text-28 font-medium text-paper mb-10 text-center">
-            {roomName}
-          </h1>
-
-          <div className="flex flex-col items-center gap-2 mb-10">
-            <p className="text-14 text-paper uppercase tracking-[0.08em] flex items-center gap-2">
-              <span className="font-mono text-16">{viewersCount}</span> WATCHING · {status}
+          <div className="flex flex-col items-center gap-2 mb-8">
+            <p className="text-14 text-fog uppercase tracking-[0.08em] flex items-center gap-2">
+              <span className="font-mono text-16 text-paper">{viewersCount}</span> PEOPLE · {status}
             </p>
             {status !== 'WAITING' && (
               <p className="text-14 text-fog">
@@ -56,8 +52,8 @@ export default function Lobby() {
             )}
           </div>
 
-          <Button onClick={() => navigate(`/room?id=${party?.id || ''}`)}>
-            JOIN
+          <Button onClick={() => navigate(`/room`)}>
+            JOIN ROOM
           </Button>
         </div>
       </main>

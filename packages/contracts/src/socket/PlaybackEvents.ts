@@ -69,3 +69,26 @@ export const ServerPartyStateSchema = z.object({
     leaderId: z.string(),
   }),
 });
+
+export const ServerViewersSchema = z.object({
+  event: z.literal('server.viewers'),
+  payload: z.object({
+    count: z.number(),
+  }),
+});
+
+export const ServerPartyStartedSchema = z.object({
+  event: z.literal('server.party.started'),
+  payload: z.object({
+    partyId: z.string(),
+  }),
+});
+
+export const ServerTranscodeErrorSchema = z.object({
+  event: z.literal('server.transcode.error'),
+  payload: z.object({
+    partyId: z.string(),
+    profileName: z.string(),
+    error: z.string(),
+  }),
+});

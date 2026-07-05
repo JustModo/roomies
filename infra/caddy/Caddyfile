@@ -25,14 +25,14 @@
     }
 
     # --- HLS Media Delivery (served from shared cache volume) ---
-    # Caddy serves .m3u8 and .ts files directly — media never passes through Node.js
+    # Caddy serves .m3u8 and .ts files directly — media never passes through Node.js.
+    # MIME types are auto-detected by Caddy's file_server (m3u8 → mpegurl, ts → MP2T).
     handle /hls/* {
         root * /cache
         uri strip_prefix /hls
         file_server
 
         header {
-            Content-Type "application/vnd.apple.mpegurl"
             Access-Control-Allow-Origin *
             Cache-Control "no-cache"
         }

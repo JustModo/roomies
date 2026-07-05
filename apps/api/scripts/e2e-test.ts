@@ -153,34 +153,22 @@ async function main() {
     });
     check('3b. guest denied playback start (403)', guestStartRes.status === 403);
 
-    // 4. Root starts the party; poll transcoding to completion
+    // 4. Root starts the party — with live transcoding, no polling needed
     const startRes = await fetch(`${BASE_URL}/api/playback/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${rootToken}` },
       body: JSON.stringify({ mediaFileId }),
     });
     const startBody: any = await startRes.json();
-    check('4a. playback start succeeds', startRes.status === 201 && !!startBody.partyId, startBody);
+    check('4a. playback start succeeds and returns hlsUrl', startRes.status === 201 && !!startBody.partyId && !!startBody.hlsUrl, startBody);
     const partyId = startBody.partyId;
 
-    let statusBody: any = null;
-    const deadline = Date.now() + 30000;
-    while (Date.now() < deadline) {
-      const statusRes = await fetch(`${BASE_URL}/api/transcoding/${partyId}/status`, {
-        headers: { Authorization: `Bearer ${rootToken}` },
-      });
-      statusBody = await statusRes.json();
-      if (statusBody.status === 'ready' || statusBody.status === 'failed') break;
-      await sleep(1000);
-    }
-    check('4b. transcoding completes (status=ready)', statusBody?.status === 'ready', statusBody);
+    // Give FFmpeg a moment to start writing the variant playlists
+    await sleep(3000);
 
-    const unauthStatusRes = await fetch(`${BASE_URL}/api/transcoding/${partyId}/status`);
-    check('4c. unauthenticated transcoding status rejected (401)', unauthStatusRes.status === 401);
-
-    const playlistPath = path.join(cacheDir, partyId, 'index.m3u8');
+    const playlistPath = path.join(cacheDir, partyId, 'master.m3u8');
     const playlistExists = await fs.access(playlistPath).then(() => true).catch(() => false);
-    check('4d. HLS playlist file exists on disk', playlistExists, playlistPath);
+    check('4b. HLS master playlist file exists on disk', playlistExists, playlistPath);
 
     // 5. WebSocket leader-only enforcement
     const rootWs = new WebSocket(`ws://localhost:${PORT}/ws?token=${rootToken}`);

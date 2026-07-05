@@ -1,9 +1,7 @@
 import path from 'path';
-import { randomUUID } from 'crypto';
 import { prisma } from '../database/sqlite';
 import { playbackStateStore, PlaybackState } from './store';
-import { transcodeQueue } from '../transcoding/queue';
-import { setTranscodeStatus } from '../transcoding/status';
+import { TranscodeSessionManager } from '../transcoding/manager';
 import { chatStore } from '../chat/store';
 import { StartPartyResponse } from '@roomies/contracts';
 
@@ -13,7 +11,12 @@ const CACHE_DIR = process.env.CACHE_DIR || path.join(process.cwd(), '..', '..', 
 export const PlaybackService = {
   /**
    * Start a new party for a given media file.
-   * Creates a PlaybackSession record, seeds in-memory state, and enqueues a transcode job.
+   *
+   * 1. Validates the media file exists in the library
+   * 2. Stops any prior transcode session (kills FFmpeg, cleans cache)
+   * 3. Seeds in-memory playback state
+   * 4. Starts live FFmpeg transcoding (non-blocking — returns immediately)
+   * 5. Returns the HLS URL so the client can start playing right away
    */
   async startParty(mediaFileId: string, leaderId: string): Promise<StartPartyResponse> {
     // Validate the media file exists
@@ -21,7 +24,7 @@ export const PlaybackService = {
       where: { id: mediaFileId },
     });
 
-    const partyId = randomUUID();
+    const partyId = 'main';
     const outputDir = path.join(CACHE_DIR, partyId);
 
     // Only one active party is supported globally — this replaces any prior
@@ -38,28 +41,24 @@ export const PlaybackService = {
       leaderId,
       position: 0,
       speed: 1,
-      isPaused: true,
+      isPaused: false,
       subtitleTrack: '',
       audioTrack: '',
       updatedAt: Date.now(),
     };
     playbackStateStore.set(state);
 
-    // Set initial transcode status so callers don't get null
-    setTranscodeStatus(partyId, 'pending');
-
-    // Enqueue the transcode job (non-blocking)
-    await transcodeQueue.add(
-      'hls-transcode',
-      {
-        partyId,
-        inputPath: mediaFile.path,
-        outputDir,
-      },
-      { jobId: partyId } // idempotent: same partyId = same job
+    // Start live transcoding — this kills any prior FFmpeg processes,
+    // cleans the cache directory, spawns new FFmpeg processes for each
+    // quality variant, and returns immediately with the HLS URL.
+    // No waiting for transcoding to finish!
+    const { hlsUrl } = await TranscodeSessionManager.startSession(
+      partyId,
+      mediaFile.path,
+      outputDir,
     );
 
-    return { partyId };
+    return { partyId, hlsUrl };
   },
 
   /**
@@ -94,5 +93,14 @@ export const PlaybackService = {
     current.updatedAt = Date.now();
 
     playbackStateStore.set(current);
+  },
+
+  /**
+   * Stop the active party and kill all transcoding processes.
+   * Called when the party is explicitly ended or the server shuts down.
+   */
+  async stopParty(): Promise<void> {
+    await TranscodeSessionManager.stopSession();
+    playbackStateStore.clear();
   },
 };

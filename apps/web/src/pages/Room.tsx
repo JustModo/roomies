@@ -1,18 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, MessageSquare, Settings2 } from 'lucide-react';
 import Hls from 'hls.js';
-import { HairlinePulse } from '../components/ui/HairlinePulse';
 import { IconButton } from '../components/ui/IconButton';
 import { ChatSidebar } from '../components/room/ChatSidebar';
 import { AdminOverlay } from '../components/room/AdminOverlay';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { useTranscodeStatus, usePartyState } from '../hooks/usePlayback';
+import { usePartyState } from '../hooks/usePlayback';
 
 export default function Room() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const partyId = searchParams.get('id') || undefined;
+  const [partyId, setPartyId] = useState<string | undefined>(undefined);
+  const [viewersCount, setViewersCount] = useState<number>(0);
+
+  useEffect(() => {
+    fetch('/api/playback/party/active', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.partyId) setPartyId(data.partyId);
+      })
+      .catch(console.error);
+  }, [navigate]);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -26,23 +36,38 @@ export default function Room() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
-  const { isConnected, error: wsError, sendMessage, addMessageHandler } = useWebSocket(partyId);
-  const { statusResponse } = useTranscodeStatus(partyId);
+  const { isConnected, sendMessage, addMessageHandler } = useWebSocket(partyId);
   const { partyState } = usePartyState(partyId);
 
-  // Setup HLS
+  // Construct HLS master playlist URL from the partyId.
+  // With live transcoding, the master.m3u8 is written immediately when a
+  // party starts — no polling for "ready" status needed.
+  const hlsUrl = partyId ? `/hls/${partyId}/master.m3u8` : undefined;
+
+  const partyStateRef = useRef(partyState);
+  useEffect(() => { 
+    partyStateRef.current = partyState; 
+    if (partyState?.viewersCount !== undefined) {
+      setViewersCount(partyState.viewersCount);
+    }
+  }, [partyState]);
+
+  // Setup HLS — starts immediately when partyId is available
   useEffect(() => {
-    if (!videoRef.current || !statusResponse || statusResponse.status !== 'ready' || !statusResponse.hlsUrl) return;
+    if (!videoRef.current || !hlsUrl) return;
 
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
       });
-      hls.loadSource(statusResponse.hlsUrl);
+      hls.loadSource(hlsUrl);
       hls.attachMedia(videoRef.current);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        // Ready to play
+        if (!partyStateRef.current?.isPaused) {
+          videoRef.current?.play().catch(console.error);
+          setIsPlaying(true);
+        }
       });
       hlsRef.current = hls;
 
@@ -50,9 +75,9 @@ export default function Room() {
         hls.destroy();
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = statusResponse.hlsUrl;
+      videoRef.current.src = hlsUrl;
     }
-  }, [statusResponse]);
+  }, [hlsUrl]);
 
   // Handle Socket Events
   useEffect(() => {
@@ -67,6 +92,19 @@ export default function Room() {
         setIsPlaying(false);
       } else if (msg.event === 'server.seek') {
         videoRef.current.currentTime = msg.payload.position;
+      } else if (msg.event === 'server.party.state') {
+        videoRef.current.currentTime = msg.payload.position;
+        if (msg.payload.isPaused) {
+          videoRef.current.pause();
+          setIsPlaying(false);
+        } else {
+          videoRef.current.play().catch(console.error);
+          setIsPlaying(true);
+        }
+      } else if (msg.event === 'server.viewers') {
+        setViewersCount(msg.payload.count);
+      } else if (msg.event === 'server.party.started') {
+        window.location.reload();
       }
     });
     return () => removeHandler();
@@ -186,16 +224,23 @@ export default function Room() {
         muted={isMuted}
       />
 
+      {!isPlaying && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+          <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/80 animate-pulse">
+            HANG TIGHT!
+          </h2>
+        </div>
+      )}
+
       {/* Top Bar */}
       <div className={`absolute top-0 left-0 w-full z-30 transition-opacity duration-200 ${idle && isPlaying ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-        <HairlinePulse hasError={!isConnected || wsError !== null} />
         <div className="flex justify-between items-center px-4 py-3 bg-gradient-to-b from-ink/80 to-transparent">
           <button onClick={() => navigate('/')} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">
             <ChevronLeft size={16} className="mr-1" /> Exit
           </button>
           
           <div className="text-14 uppercase tracking-[0.08em] flex items-center gap-2">
-            {partyState?.name || 'ROOM'} · <span className="font-mono text-14">{partyState?.viewers?.length || 0}</span> WATCHING
+            {partyState?.name || 'ROOM'} · <span className="font-mono text-14">{viewersCount}</span> WATCHING
           </div>
           
           <button onClick={() => setShowAdmin(true)} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">
@@ -245,7 +290,7 @@ export default function Room() {
       </div>
 
       {partyId && (
-        <ChatSidebar isOpen={showChat} onClose={() => setShowChat(false)} viewersCount={partyState?.viewers?.length || 0} partyId={partyId} sendMessage={sendMessage} addMessageHandler={addMessageHandler} />
+        <ChatSidebar isOpen={showChat} onClose={() => setShowChat(false)} viewersCount={viewersCount} partyId={partyId} sendMessage={sendMessage} addMessageHandler={addMessageHandler} />
       )}
       <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} />
     </div>

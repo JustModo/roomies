@@ -57,10 +57,7 @@ export const LibrarySchema = z.object({
 });
 export type Library = z.infer<typeof LibrarySchema>;
 
-export const ScanLibraryRequestSchema = z.object({
-  name: z.string(),
-  path: z.string(),
-});
+export const ScanLibraryRequestSchema = z.object({});
 export type ScanLibraryRequest = z.infer<typeof ScanLibraryRequestSchema>;
 
 // --- Playback ---
@@ -71,20 +68,22 @@ export type StartPartyRequest = z.infer<typeof StartPartyRequestSchema>;
 
 export const StartPartyResponseSchema = z.object({
   partyId: z.string(),
+  hlsUrl: z.string(),
 });
 export type StartPartyResponse = z.infer<typeof StartPartyResponseSchema>;
 
 export const ActivePartyResponseSchema = z.object({
   partyId: z.string().nullable(),
   mediaFileId: z.string().optional(),
+  mediaTitle: z.string().optional(),
+  viewersCount: z.number().optional(),
+  state: z.string().optional(),
 });
 export type ActivePartyResponse = z.infer<typeof ActivePartyResponseSchema>;
 
-export const TranscodeStatusResponseSchema = z.object({
-  status: z.enum(['pending', 'processing', 'ready', 'failed']),
-  hlsUrl: z.string().optional(),
-});
-export type TranscodeStatusResponse = z.infer<typeof TranscodeStatusResponseSchema>;
+// TranscodeStatusResponse removed — live transcoding eliminates the
+// polling status dance. The HLS URL is returned in StartPartyResponse
+// and the client starts playing immediately.
 
 // --- Chat ---
 export const ChatMessageResponseSchema = z.object({

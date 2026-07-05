@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
-import { HairlinePulse } from '../components/ui/HairlinePulse';
 
 export default function Register() {
   const [username, setUsername] = useState('');
@@ -12,7 +11,6 @@ export default function Register() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [loading, setLoading] = useState(false);
   const { setToken } = useAuth();
   const navigate = useNavigate();
 
@@ -41,7 +39,6 @@ export default function Register() {
     }
     
     try {
-      setLoading(true);
       const res = await fetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,8 +57,6 @@ export default function Register() {
       setTimeout(() => navigate('/'), 2000);
     } catch (err) {
       setError('Failed to create account.');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -69,7 +64,6 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-void flex items-center justify-center p-4">
-      <HairlinePulse isLoading={checking || loading} />
       
       <div className="w-full max-w-[360px]">
         {success ? (
@@ -88,29 +82,34 @@ export default function Register() {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <Input 
                 label="USERNAME" 
+                name="username"
                 type="text" 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                autoComplete="off"
+                autoComplete="username"
                 required
               />
               
               <Input 
                 label="PASSWORD" 
+                name="password"
                 type="password" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
                 required
               />
 
               <Input 
                 label="CONFIRM PASSWORD" 
+                name="confirm-password"
                 type="password" 
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
                 required
               />
               
