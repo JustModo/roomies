@@ -56,9 +56,19 @@ export const handleClientJoin = async (payload: JoinPayload, ctx: SocketContext)
   ctx.app.log.info({ userId: ctx.userId, partyId }, 'User joined party room');
 };
 
+/**
+ * Only the party leader (the user who started the party) may drive playback.
+ * Guards against any joined member hijacking play/pause/seek for the room.
+ */
+const isLeader = async (partyId: string, userId: string): Promise<boolean> => {
+  const state = await PlaybackService.getPartyState(partyId);
+  return !!state && state.leaderId === userId;
+};
+
 export const handleClientPlay = async (payload: PlayPayload, ctx: SocketContext) => {
   const partyId: string = (ctx.socket as any).__partyId;
   if (!partyId) return;
+  if (!(await isLeader(partyId, ctx.userId))) return;
 
   await PlaybackService.updatePlaybackState(partyId, { position: payload.position, isPaused: false });
 
@@ -72,6 +82,7 @@ export const handleClientPlay = async (payload: PlayPayload, ctx: SocketContext)
 export const handleClientPause = async (payload: PausePayload, ctx: SocketContext) => {
   const partyId: string = (ctx.socket as any).__partyId;
   if (!partyId) return;
+  if (!(await isLeader(partyId, ctx.userId))) return;
 
   await PlaybackService.updatePlaybackState(partyId, { position: payload.position, isPaused: true });
 
@@ -85,6 +96,7 @@ export const handleClientPause = async (payload: PausePayload, ctx: SocketContex
 export const handleClientSeek = async (payload: SeekPayload, ctx: SocketContext) => {
   const partyId: string = (ctx.socket as any).__partyId;
   if (!partyId) return;
+  if (!(await isLeader(partyId, ctx.userId))) return;
 
   await PlaybackService.updatePlaybackState(partyId, { position: payload.position });
 
