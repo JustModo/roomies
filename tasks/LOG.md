@@ -192,3 +192,48 @@ All agents must append their progress, decisions, and skipped items here after c
 
 **What is Left to do Next**:
 - Implement the Social UI (WebSockets for chat, presence, playback synchronization).
+
+---
+
+## [2026-07-05] Backend Security Audit & Hardening
+**Agent**: Claude
+**Summary of Work Done**:
+Ran a focused security audit of `apps/api` (auth, library scanner, transcoding, WebSocket gateway, infra config) and fixed every finding:
+- **Critical**: `GET /api/transcoding/:partyId/status` had zero auth (`transcoding/controller.ts`) — added `verifyJwt`. CORS was `origin: '*'` + `credentials: true` (`bootstrap/index.ts`) — replaced with an explicit `CORS_ORIGIN`-driven allow-list and dropped `credentials` (JWT travels via `Authorization` header, not cookies). Library scan (`library/service.ts`) accepted any filesystem path with no containment check — added a `MEDIA_ROOT`-anchored resolver that rejects absolute-path/`..` escapes and skips symlinks during the walk.
+- **High**: Added a `requireRole()` middleware (`common/authMiddleware.ts`) and applied `root`-only gating to library scan and `POST /api/playback/start`; added a party-leader check in `playback/socket.ts` so only the user who started the party can drive `client.play`/`pause`/`seek`. Closed a race in `AuthService.setupRoot` (`auth/service.ts`) where concurrent `POST /api/auth/setup` calls could create two root accounts — now guarded by an atomic `ServerConfig` unique-key insert inside a transaction. Redis had no password on the shared Docker network — added `REDIS_PASSWORD` (`docker-compose.yml`, `.env.example`, `setup.sh` now auto-generates it like `POSTGRES_PASSWORD`).
+- **Medium**: Pinned `jwt.verify(..., { algorithms: ['HS256'] })` in both `authMiddleware.ts` and `websocket/auth.ts` instead of relying on library defaults. WS auth now prefers a `Sec-WebSocket-Protocol: bearer.<token>` header over the `?token=` query string (falls back to query string for simplicity), avoiding proxy/access-log token leakage. Added a per-connection sliding-window rate limit (20 msgs/sec) on the WebSocket gateway (`websocket/gateway.ts`) to stop `client.seek`/`heartbeat` flooding. Closed a similar bootstrap race for the JWT secrets themselves by switching `config/index.ts` to an atomic `prisma.serverConfig.upsert`.
+- **Low**: Bumped bcrypt cost factor 10 → 12; `AuthService.login` now always calls `bcrypt.compare` (against a dummy hash when the user doesn't exist) to remove a username-enumeration timing side-channel. Removed the `3001:3000` host port publish for the `api` service in `docker-compose.yml` — all traffic must now go through Caddy.
+
+**Decisions / Considerations**:
+- Did not implement per-party membership authorization on the transcoding status endpoint (an authenticated user can still query any `partyId`'s HLS URL) — this app currently has a single global active party with no invite/membership model, so it's a smaller residual risk than the fixes above; left as an open item since it would need a real membership concept to do properly.
+- Kept `?token=` as a WS auth fallback rather than removing it outright, since the frontend WebSocket client (`useWebSocket` hook) hasn't been implemented yet — the header-based path is ready for whoever builds that hook next.
+- `redis-om` and using two Redis client libraries (`redis` + `ioredis`) were flagged as maintenance/attack-surface concerns but left as-is; not a live vulnerability.
+
+**What is Left to do Next**:
+- Add party-membership authorization to the transcoding status endpoint once a real party-invite model exists.
+- HTTPS auto-cert in the Caddyfile for production domains.
+- Everything already pending from the previous entry: Social UI (chat/presence/voice), frontend WebSocket wiring.
+
+---
+
+## [2026-07-05] SQLite Migration, Redis Removal, Chat & Sync Engine Complete
+**Agent**: Claude
+**Summary of Work Done**:
+Migrated the backend off PostgreSQL and Redis entirely (single-node, no horizontal scaling requirement — an external DB server and broker were unnecessary complexity), and finished the two half-built realtime features:
+- **PostgreSQL → SQLite**: `apps/api/prisma/schema.prisma` datasource switched to `sqlite`; `apps/api/src/database/postgres.ts` replaced by `database/sqlite.ts` using `@prisma/adapter-better-sqlite3` (`better-sqlite3` under the hood, no separate DB process). All 6 importers (`auth`, `bootstrap`, `config`, `library`, `playback`, `users`) repointed. No raw SQL existed anywhere, so no query rewriting was needed. Verified the SQLite adapter works at runtime (not just typechecks): ran `prisma db push` and live queries against a real `.db` file, and confirmed the `ServerConfig`-unique-key race guards added in the security-audit session (root bootstrap, JWT secret upsert) still throw `P2002`/behave idempotently on SQLite.
+- **Redis removed entirely**: `playbackState` (Redis OM) → `playback/store.ts` (single in-memory variable — app only ever supports one global active party). `chat` (Redis OM, was write-only) → `chat/store.ts` (capped 500-message ring buffer per party). `socketSession` (Redis OM) → `websocket/store.ts` (plain `Map`). `presence` (Redis OM) was confirmed fully dead code (nothing read/wrote it) — deleted along with its empty `service.ts` stub. Transcode status key (`redis.set(..., {EX: 86400})`) → `transcoding/status.ts` (`Map` + `setTimeout`-based 24h expiry). BullMQ → `transcoding/queue.ts` rewritten as an in-process `EventEmitter`-based queue (array + `Set<jobId>` dedup, concurrency limit 2, retry with exponential backoff) — same public shape (`.add(name, data, {jobId})`, `'completed'`/`'failed'` events) so `bootstrap/index.ts` and `playback/service.ts` didn't need call-site changes beyond the import path.
+- **Chat feature completed**: the realtime path (schemas, `handleClientChat`, broadcast) already worked; added the missing piece — `GET /api/chat/history?partyId=` (`chat/controller.ts` + `chat/routes.ts`, new `chat/index.ts` export, registered in `bootstrap/index.ts`), plus a `ChatHistoryResponse`/`ChatMessageResponse` Zod schema in `packages/contracts`.
+- **Sync Engine completed**: `handleClientHeartbeat` in `playback/socket.ts` was a no-op; now computes expected server position (`state.position + elapsed * state.speed`) and, if a client's reported position drifts more than 2 seconds, sends a `server.seek` correction directly to that one socket (not a room broadcast) — matches `tasks/ARCHITECTURE.md`'s spec exactly, per user confirmation during planning.
+- **Infra**: `docker-compose.yml` — removed the `postgres` and `redis` services entirely; added a bind-mounted `./data:/app/data` volume for the SQLite file; `DATABASE_URL` is now `file:/app/data/roomies.db`. `apps/api/Dockerfile` — build-time `prisma generate` now uses a dummy `file:` URL; added `python3 make g++` to the base stage so `better-sqlite3`'s native binding compiles on Alpine/musl (no prebuilt binary available there). `.env.example`/`setup.sh` — removed `POSTGRES_PASSWORD`/`REDIS_PASSWORD` generation entirely (no more infra secrets needed); `setup.sh` now just ensures `./data` exists.
+- Updated `tasks/ARCHITECTURE.md`, `tasks/CHECKLIST.md`, and `tasks/references/api-integration.md` to match (removed Postgres/Redis/BullMQ language throughout, documented the new chat-history endpoint and the WS auth subprotocol option added in the prior security session).
+
+**Decisions / Considerations**:
+- Per user confirmation: state is fully ephemeral/in-memory (chat history, playback state, transcode job state) — a restart of the API wipes it, which is an accepted tradeoff for single-node simplicity and matches how this data already behaved on Redis (nothing snapshotted it to Postgres either).
+- Sync Engine only corrects position (`server.seek`), not play/pause state, per the documented 2-second-threshold, single-client-only rubberbanding behavior — also per user confirmation.
+- Kept the in-process transcode queue's public API (`.add(name, data, {jobId})`, `on('completed'|'failed')`) intentionally identical to BullMQ's so no call sites outside `transcoding/` needed to change.
+- Did not add SQLite-backed persistence for chat/transcode job state — user explicitly chose the fully-ephemeral option over that.
+
+**What is Left to do Next**:
+- Add party-membership authorization to the transcoding status endpoint (still an open item from the prior session).
+- HTTPS auto-cert in the Caddyfile for production domains.
+- Voice Signaling (WebRTC), frontend Social UI (chat sidebar, presence indicators), frontend `useWebSocket` hook and player↔socket wiring.

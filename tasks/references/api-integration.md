@@ -14,13 +14,16 @@ All interactions begin with HTTP REST authentication. We use a strict root/guest
 ## 2. Active Party (HTTP)
 Before establishing a websocket, guests should check if there is an active party.
 - **GET /api/playback/party/active**: Returns `{ partyId, mediaFileId }` (or `partyId: null` if none).
-- **POST /api/playback/start**: (Root only) Send `{ mediaFileId }`. Starts a new active party in Redis and returns `{ partyId }`.
+- **POST /api/playback/start**: (Root only) Send `{ mediaFileId }`. Starts a new active party (in-memory state) and returns `{ partyId }`.
+
+## 2a. Chat History (HTTP)
+- **GET /api/chat/history?partyId=**: Returns the last 500 chat messages for that party (in-memory, so this resets on an API restart).
 
 ## 3. Realtime Control Plane (WebSocket)
 Once authenticated, the frontend should immediately establish a WebSocket connection to the backend. This socket handles **everything** except media playback (e.g., chat, presence, sync).
 
 ### Connecting
-Connect to `ws://localhost:3000/ws?token=YOUR_JWT_TOKEN`.
+Preferred: connect to `ws://localhost:3000/ws` passing the JWT as a WebSocket subprotocol: `new WebSocket(url, ['bearer.YOUR_JWT_TOKEN'])` — this avoids the token appearing in proxy/access logs. A `?token=YOUR_JWT_TOKEN` query-string fallback is also still accepted.
 
 ### Event Architecture
 All socket events should map to the shared types defined in `packages/contracts`.
@@ -43,7 +46,7 @@ All socket events should map to the shared types defined in `packages/contracts`
 ## 4. Media Plane (HLS via Caddy)
 **Video never travels through WebSockets or Fastify.** 
 
-1. The Fastify backend generates HLS playlists and segments via BullMQ + FFmpeg.
+1. The Fastify backend generates HLS playlists and segments via an in-process FFmpeg job queue.
 2. The React player (e.g., hls.js or Shaka Player) requests the HLS URL: `http://localhost:8080/hls/<partyId>/master.m3u8`
 3. Caddy directly serves the static `.m3u8` playlists and `.ts` chunks straight from the `cache/` directory.
 
