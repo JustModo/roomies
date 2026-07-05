@@ -10,6 +10,7 @@ import { libraryRoutes } from '../library';
 import { playbackRoutes } from '../playback/controller';
 import { transcodingRoutes } from '../transcoding/controller';
 import { createTranscodeWorker } from '../transcoding/worker';
+import { initializeConfig } from '../config';
 
 export const bootstrap = async (app: FastifyInstance) => {
   // 1. Register Plugins
@@ -25,10 +26,12 @@ export const bootstrap = async (app: FastifyInstance) => {
     },
   });
 
-  // 2. Connect Databases
+  // 2. Connect Databases & Config
   try {
     await prisma.$connect();
     app.log.info('Connected to PostgreSQL via Prisma');
+
+    await initializeConfig(app.log);
 
     await connectRedis();
     await initializeRedisIndices();

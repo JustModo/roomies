@@ -25,6 +25,7 @@ COPY packages/ packages/
 COPY apps/api/ apps/api/
 
 # Build the API
+RUN cd apps/api && npx prisma generate
 RUN pnpm --filter api build
 
 # ---- Runner Stage ----
@@ -53,11 +54,13 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/apps/api/dist apps/api/dist
 COPY --from=builder /app/packages packages/
 
-# Prisma client needs schema to run migrations
+# Prisma client needs schema and config to run migrations and queries
 COPY apps/api/prisma apps/api/prisma
+COPY apps/api/prisma.config.ts apps/api/prisma.config.ts
+RUN cd apps/api && npx prisma generate
 
 ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD ["node", "apps/api/dist/index.js"]
+CMD ["sh", "-c", "cd apps/api && npx prisma db push --accept-data-loss && node dist/index.js"]

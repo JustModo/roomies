@@ -5,12 +5,12 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       POSTGRES_USER: roomies
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: roomies
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,8 +23,6 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: redis-server --save 60 1
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -41,19 +39,17 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://roomies:password@postgres:5432/roomies
+      DATABASE_URL: postgresql://roomies:${POSTGRES_PASSWORD}@postgres:5432/roomies
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-changeme_in_production}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-changeme_refresh_in_production}
       CACHE_DIR: /srv/cache
       HLS_BASE_URL: http://localhost/hls
       FFMPEG_PATH: ffmpeg
-    ports:
-      - "3000:3000"
     volumes:
-      - ./media:/srv/media:ro       # read-only: source media files
+      - ${MEDIA_DIR:-./media}:/srv/media:ro       # read-only: source media files
       - ./cache:/srv/cache          # read-write: HLS output
     depends_on:
       postgres:
@@ -66,8 +62,6 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
-    ports:
-      - "5173:80"
 
   # ─────────────────────────────────────────────
   # Reverse Proxy (single entrypoint)

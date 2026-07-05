@@ -1,17 +1,42 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../database/postgres';
-import { LoginRequest, RegisterRequest, AuthResponse } from '@roomies/contracts';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'secret';
-const JWT_EXPIRES_IN = '7d';
+import { SetupRootRequest, CreateGuestRequest, LoginRequest } from '@roomies/contracts';
+import { Config } from '../config';
 
 export const AuthService = {
-  async register(data: RegisterRequest): Promise<AuthResponse> {
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ email: data.email }, { username: data.username }],
+  async setupRoot(data: SetupRootRequest) {
+    const userCount = await prisma.user.count();
+    if (userCount > 0) {
+      throw new Error('Root user already exists. Use the guest endpoint to create additional users.');
+    }
+
+    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const user = await prisma.user.create({
+      data: {
+        username: data.username,
+        password: hashedPassword,
+        role: 'root',
       },
+    });
+
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      Config.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    const refreshToken = jwt.sign(
+      { userId: user.id },
+      Config.JWT_REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return { token, refreshToken, user: { id: user.id, username: user.username, role: user.role } };
+  },
+
+  async createGuest(data: CreateGuestRequest) {
+    const existingUser = await prisma.user.findFirst({
+      where: { username: data.username },
     });
 
     if (existingUser) {
@@ -21,43 +46,40 @@ export const AuthService = {
     const hashedPassword = await bcrypt.hash(data.password, 10);
     const user = await prisma.user.create({
       data: {
-        email: data.email,
         username: data.username,
         password: hashedPassword,
+        role: 'guest',
       },
     });
 
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN,
-    });
-
-    return {
-      token,
-      user: { id: user.id, email: user.email, username: user.username },
-    };
+    return { id: user.id, username: user.username, role: user.role };
   },
 
-  async login(data: LoginRequest): Promise<AuthResponse> {
+  async login(data: LoginRequest) {
     const user = await prisma.user.findUnique({
-      where: { email: data.email },
+      where: { username: data.username },
     });
 
     if (!user) {
       throw new Error('Invalid credentials');
     }
 
-    const validPassword = await bcrypt.compare(data.password, user.password);
-    if (!validPassword) {
+    const isValid = await bcrypt.compare(data.password, user.password);
+    if (!isValid) {
       throw new Error('Invalid credentials');
     }
 
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN,
-    });
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      Config.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    const refreshToken = jwt.sign(
+      { userId: user.id },
+      Config.JWT_REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
 
-    return {
-      token,
-      user: { id: user.id, email: user.email, username: user.username },
-    };
+    return { token, refreshToken, user: { id: user.id, username: user.username, role: user.role } };
   },
 };

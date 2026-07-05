@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
 import { JWTPayload } from '@roomies/shared/src/types';
+import { Config } from '../config';
 
 export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {
   try {
@@ -10,7 +11,7 @@ export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as JWTPayload;
+    const decoded = jwt.verify(token, Config.JWT_SECRET) as JWTPayload;
     
     // Attach decoded user payload to request for downstream handlers
     (req as any).user = decoded;

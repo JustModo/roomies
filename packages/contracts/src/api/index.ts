@@ -1,41 +1,40 @@
 import { z } from 'zod';
 
 export const LoginSchema = z.object({
-  email: z.string().email(),
+  username: z.string().min(3),
   password: z.string().min(6),
 });
 
-export const RegisterSchema = z.object({
-  email: z.string().email(),
+export const SetupRootSchema = z.object({
+  username: z.string().min(3),
+  password: z.string().min(6),
+});
+
+export const CreateGuestSchema = z.object({
   username: z.string().min(3),
   password: z.string().min(6),
 });
 
 export type LoginRequest = z.infer<typeof LoginSchema>;
-export type RegisterRequest = z.infer<typeof RegisterSchema>;
+export type SetupRootRequest = z.infer<typeof SetupRootSchema>;
+export type CreateGuestRequest = z.infer<typeof CreateGuestSchema>;
 
 export const AuthResponseSchema = z.object({
   token: z.string(),
+  refreshToken: z.string(),
   user: z.object({
     id: z.string(),
-    email: z.string(),
     username: z.string(),
+    role: z.string(),
   })
 });
 
 export type AuthResponse = z.infer<typeof AuthResponseSchema>;
 
-// --- User Profile & Settings ---
-export const UserSettingsSchema = z.object({
-  theme: z.string(),
-});
-export type UserSettings = z.infer<typeof UserSettingsSchema>;
-
 export const UserProfileSchema = z.object({
   id: z.string(),
-  email: z.string(),
   username: z.string(),
-  settings: UserSettingsSchema.nullable(),
+  role: z.string(),
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 

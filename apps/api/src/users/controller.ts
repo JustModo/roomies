@@ -1,7 +1,8 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { UsersService } from './service';
-import { UserSettings } from '@roomies/contracts';
+import { CreateGuestSchema } from '@roomies/contracts';
 import { JWTPayload } from '@roomies/shared/src/types';
+import { AuthService } from '../auth/service';
 
 export const UsersController = {
   async getMe(req: FastifyRequest, reply: FastifyReply) {
@@ -17,12 +18,26 @@ export const UsersController = {
     }
   },
 
-  async updateSettings(req: FastifyRequest<{ Body: UserSettings }>, reply: FastifyReply) {
+  async createGuest(req: FastifyRequest, reply: FastifyReply) {
+    const userPayload = (req as any).user as JWTPayload;
+    
+    // Only root users can create accounts
+    if (userPayload.role !== 'root') {
+      return reply.status(403).send({ error: 'Forbidden: Only root users can create guest accounts.' });
+    }
+
+    const parsedBody = CreateGuestSchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      return reply.status(400).send({ error: 'Invalid input', details: parsedBody.error.format() });
+    }
+
     try {
-      const userPayload = (req as any).user as JWTPayload;
-      const newSettings = await UsersService.updateSettings(userPayload.userId, req.body);
-      return reply.send(newSettings);
-    } catch (e) {
+      const guest = await AuthService.createGuest(parsedBody.data);
+      return reply.status(201).send(guest);
+    } catch (e: any) {
+      if (e.message.includes('already exists')) {
+        return reply.status(409).send({ error: e.message });
+      }
       return reply.status(500).send({ error: 'Internal Server Error' });
     }
   }

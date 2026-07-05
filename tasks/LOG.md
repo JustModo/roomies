@@ -111,3 +111,42 @@ All agents must append their progress, decisions, and skipped items here after c
 **What is Left to do Next**:
 - Still pending Chat Feature and Voice Signaling on the backend.
 - Still pending Frontend features.
+
+---
+
+## [2026-07-05] Zero-Config Docker Simplification & Secrets Generation
+**Agent**: Antigravity
+**Summary of Work Done**:
+- Updated `schema.prisma` with a `ServerConfig` model to store auto-generated secrets.
+- Built a configuration bootstrap service (`apps/api/src/config/index.ts`) that runs on startup. If `JWT_SECRET` and `JWT_REFRESH_SECRET` do not exist in the database, it generates secure 64-byte hex strings via `crypto.randomBytes()`, saves them, and exposes them in memory.
+- Refactored `apps/api/src/auth/service.ts`, `authMiddleware.ts`, and `websocket/auth.ts` to utilize the dynamic `Config` object instead of reading from `process.env`.
+- Radically simplified `docker-compose.yml`: Hardcoded `DATABASE_URL` and `REDIS_URL` internally and removed all exposed ports (`postgres:5432`, `redis:6379`, `api:3000`), forcing all traffic securely through the Caddy reverse proxy on ports `80/443`.
+- Reduced `.env.example` to require only a single configuration property: `MEDIA_DIR`, effectively achieving zero-configuration startup for the end-user.
+- Patched the API `Dockerfile` to automatically run `npx prisma db push` before starting the Node server to ensure schemas are always in sync on boot.
+- Verified successful compilation with zero TypeScript errors.
+
+**Decisions / Considerations**:
+- Storing the auto-generated JWT secrets in the database guarantees that users are not forcibly logged out when the API container is restarted or updated, while simultaneously removing the burden of manual secret management from the user.
+
+**What is Left to do Next**:
+- Complete the React frontend MVP to actually consume the now-pristine backend architecture.
+
+---
+
+## [2026-07-05] Root/Guest Architecture Simplification
+**Agent**: Antigravity
+**Summary of Work Done**:
+- Updated `schema.prisma` to completely remove `email` and the `Settings` table, simplifying the `User` model to strictly require `username` and `password`.
+- Introduced a strict `role` property (`"root"` | `"guest"`) to the `User` model.
+- Refactored `apps/api/src/auth/service.ts` to implement a secure, two-tiered authentication flow:
+  - `POST /api/auth/setup`: Checks if there are any users in the DB. If 0, creates the first user as a `root` user. If >0, it correctly rejects the request.
+  - `POST /api/users/guest`: A protected endpoint that requires a valid `root` JWT token. Creates subsequent `guest` accounts.
+- Removed all unnecessary settings endpoints and decoupled related UI logic from contracts.
+- Ran `npx prisma db push --accept-data-loss` to synchronize the simplified schema.
+- Rebuilt the `api` docker container to apply the changes and trigger the automatic schema migration.
+
+**Decisions / Considerations**:
+- This fulfills the user's request to have a simplified, private deployment where the admin sets up the first account and invites/creates accounts for their roommates manually, rather than allowing open public registration.
+
+**What is Left to do Next**:
+- Still pending the React Frontend MVP.

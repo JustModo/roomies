@@ -1,23 +1,33 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from './service';
-import { LoginRequest, RegisterRequest } from '@roomies/contracts';
+import { SetupRootSchema, LoginSchema, LoginRequest } from '@roomies/contracts';
 
 export const AuthController = {
-  async register(req: FastifyRequest<{ Body: RegisterRequest }>, reply: FastifyReply) {
+  async setupRoot(req: FastifyRequest, reply: FastifyReply) {
+    const parsedBody = SetupRootSchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      return reply.status(400).send({ error: 'Invalid input', details: parsedBody.error.format() });
+    }
+
     try {
-      const response = await AuthService.register(req.body);
-      return reply.status(201).send(response);
-    } catch (e: any) {
-      if (e.message === 'User already exists') {
-        return reply.status(409).send({ error: e.message });
+      const response = await AuthService.setupRoot(parsedBody.data);
+      return reply.send(response);
+    } catch (err: any) {
+      if (err.message.includes('already exists')) {
+        return reply.status(403).send({ error: err.message });
       }
-      return reply.status(500).send({ error: 'Internal Server Error' });
+      return reply.status(400).send({ error: err.message });
     }
   },
 
-  async login(req: FastifyRequest<{ Body: LoginRequest }>, reply: FastifyReply) {
+  async login(req: FastifyRequest, reply: FastifyReply) {
+    const parsedBody = LoginSchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      return reply.status(400).send({ error: 'Invalid input', details: parsedBody.error.format() });
+    }
+
     try {
-      const response = await AuthService.login(req.body);
+      const response = await AuthService.login(parsedBody.data);
       return reply.send(response);
     } catch (e: any) {
       if (e.message === 'Invalid credentials') {
