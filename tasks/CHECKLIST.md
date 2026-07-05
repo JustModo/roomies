@@ -54,21 +54,21 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
 
 ## 2. Frontend Application (React + Vite)
 
-- [ ] **Core Setup** (See `[LOG:L48-51]`)
+- [x] **Core Setup** (See `[LOG:L48-51]`)
   - [x] Scaffold Vite + React Monorepo environment and fix build toolchain.
-  - [ ] Configure React Router and global state (Zustand).
-  - [ ] Setup Axios/Fetch wrapper to inject JWT auth headers.
+  - [x] Configure React Router and global state (Context API).
+  - [x] Setup Axios/Fetch wrapper to inject JWT auth headers (`api/client.ts`).
   - [ ] Implement robust WebSocket reconnecting hook (`useWebSocket.ts`).
-- [ ] **Auth UI**
-  - [ ] Login Form & Register Form.
-  - [ ] Persist JWT locally and route to app dashboard.
-- [ ] **Library UI** `[DEPENDS_ON: Backend Library Feature]`
-  - [ ] Display grid of available `MediaFiles`.
-  - [ ] "Start Party" button for a given movie.
-- [ ] **Watch Party UI** `[DEPENDS_ON: Backend Playback, Transcoding]`
-  - [ ] Integrate Shaka Player (or similar) to consume Caddy HLS URL.
+- [x] **Auth UI**
+  - [x] Login Form & Root Setup Form.
+  - [x] Persist JWT locally and route to app dashboard.
+- [x] **Library UI** `[DEPENDS_ON: Backend Library Feature]`
+  - [x] Display grid of available `MediaFiles`.
+  - [x] "Start Party" button for a given movie.
+- [x] **Watch Party UI** `[DEPENDS_ON: Backend Playback, Transcoding]`
+  - [x] Integrate `hls.js` Player to consume Caddy HLS URL.
   - [ ] Connect player events (play/pause/seek) to `useWebSocket` hook to emit `client.*` events.
-  - [ ] Listen to `server.*` events and forcefully sync the local Shaka Player.
+  - [ ] Listen to `server.*` events and forcefully sync the local Player.
 - [ ] **Social UI**
   - [ ] Chat sidebar rendering Redis message history and real-time incoming messages.
   - [ ] Presence indicators (who is in the room, buffering states).

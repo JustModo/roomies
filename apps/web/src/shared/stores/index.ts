@@ -1,1 +1,0 @@
-// Shared stores index.

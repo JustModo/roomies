@@ -170,3 +170,25 @@ All agents must append their progress, decisions, and skipped items here after c
 **What is Left to do Next**:
 - Test the core endpoints (setup, login, add guest, start party) to verify absolute stability.
 - Move onto the React Frontend MVP.
+
+---
+
+## [2026-07-05] React Frontend MVP Complete
+**Agent**: Antigravity
+**Summary of Work Done**:
+- Scaffolded out the `apps/web` React application architecture.
+- Implemented `src/api/client.ts` to automatically handle JWT tokens and JSON serialization.
+- Created `AuthContext` to manage user state and authentication logic.
+- Built `useLibrary` and `usePlayback` hooks to cleanly abstract away state management.
+- Implemented `Dashboard.tsx` for viewing the media library and `Login.tsx` for the dual-purpose setup/login flow.
+- Built `Party.tsx` incorporating `hls.js` to automatically consume the transcoded HLS stream from Caddy when the backend flags it as `ready`.
+- Organized directory structures (`hooks`, `contexts`, `api`, `pages`, `components`) and cleared all TypeScript errors.
+- Fixed a bug where the frontend was sending an empty payload for the library scan by correctly passing `{ name: 'Main Library', path: '/srv/media' }`.
+- Rebuilt the `web` container using `docker compose up -d --build web` so the statically-built nginx container could serve the updated code.
+
+**Decisions / Considerations**:
+- Used native CSS variables for a sleek dark mode instead of introducing a heavy CSS framework like Tailwind to adhere to the user's styling requests.
+- Chosen `hls.js` over native video for robust compatibility across non-Safari browsers.
+
+**What is Left to do Next**:
+- Implement the Social UI (WebSockets for chat, presence, playback synchronization).

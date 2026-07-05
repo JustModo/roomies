@@ -1,32 +1,32 @@
-# ---- Builder Stage ----
-FROM node:22-alpine AS builder
-
+# ---- Base Stage ----
+FROM node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN apk add --no-cache libc6-compat
 
+# ---- Pruner Stage ----
+FROM base AS pruner
 WORKDIR /app
+RUN npm install -g turbo
+COPY . .
+RUN turbo prune web --docker
 
-COPY pnpm-workspace.yaml turbo.json ./
-COPY package.json pnpm-lock.yaml ./
-COPY packages/contracts/package.json packages/contracts/
-COPY packages/shared/package.json packages/shared/
-COPY packages/config/package.json packages/config/
-COPY packages/logger/package.json packages/logger/
-COPY apps/web/package.json apps/web/
-
+# ---- Installer Stage ----
+FROM base AS installer
+WORKDIR /app
+COPY --from=pruner /app/out/json/ .
+COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 RUN pnpm install --frozen-lockfile
 
-COPY packages/ packages/
-COPY apps/web/ apps/web/
-
-RUN pnpm --filter web build
+# ---- Builder Stage ----
+FROM base AS builder
+WORKDIR /app
+COPY --from=installer /app/ .
+COPY --from=pruner /app/out/full/ .
+RUN pnpm turbo run build --filter=web
 
 # ---- Runner Stage ----
 FROM nginx:1.27-alpine AS runner
-
-# Copy built React app
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
-
-# SPA fallback: all routes → index.html
 RUN printf 'server {\n\
   listen 80;\n\
   root /usr/share/nginx/html;\n\

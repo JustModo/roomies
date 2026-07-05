@@ -1,1 +1,0 @@
-// Settings Panel component plan.

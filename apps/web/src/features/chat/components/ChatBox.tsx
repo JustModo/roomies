@@ -1,1 +1,0 @@
-// Chat Box component plan.
