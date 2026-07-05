@@ -1,1 +1,1 @@
-// Export Chat feature modules.
+export { chatRoutes } from './routes';

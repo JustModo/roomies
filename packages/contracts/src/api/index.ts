@@ -85,3 +85,14 @@ export const TranscodeStatusResponseSchema = z.object({
   hlsUrl: z.string().optional(),
 });
 export type TranscodeStatusResponse = z.infer<typeof TranscodeStatusResponseSchema>;
+
+// --- Chat ---
+export const ChatMessageResponseSchema = z.object({
+  userId: z.string(),
+  message: z.string(),
+  timestamp: z.string(),
+});
+export type ChatMessageResponse = z.infer<typeof ChatMessageResponseSchema>;
+
+export const ChatHistoryResponseSchema = z.array(ChatMessageResponseSchema);
+export type ChatHistoryResponse = z.infer<typeof ChatHistoryResponseSchema>;
