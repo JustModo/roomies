@@ -27,7 +27,7 @@ export function useLibrary() {
       setIsScanning(true);
       await fetchApi('/library/scan', { 
         method: 'POST', 
-        body: { name: 'Main Library', path: '/srv/media' } 
+        body: { name: 'Main Library', path: '/media' }
       });
       await fetchLibrary(); // Refresh after scan
     } catch (err: any) {

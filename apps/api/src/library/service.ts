@@ -43,15 +43,15 @@ const runWithConcurrency = async <T>(items: T[], worker: (item: T) => Promise<vo
 };
 
 // All library scans must stay within this root. Matches the read-only media
-// mount configured in docker-compose.yml (/srv/media).
-const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/srv/media');
+// mount configured in docker-compose.yml (/media).
+const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
 
 /**
  * Resolves a user-supplied scan path and verifies it stays within MEDIA_ROOT.
  * Rejects absolute escapes, `..` traversal, and paths outside the allowed root.
  */
 const resolveScanPath = (rootPath: string): string => {
-  // Absolute paths (e.g. "/srv/media", matching the container mount) are
+  // Absolute paths (e.g. "/media", matching the container mount) are
   // resolved as-is; relative paths resolve against MEDIA_ROOT. Either way,
   // the result must land inside MEDIA_ROOT — this rejects both an absolute
   // escape like "/etc" and a traversal like "../../etc".
