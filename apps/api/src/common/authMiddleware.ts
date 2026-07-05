@@ -11,11 +11,24 @@ export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, Config.JWT_SECRET) as JWTPayload;
-    
+    const decoded = jwt.verify(token, Config.JWT_SECRET, { algorithms: ['HS256'] }) as JWTPayload;
+
     // Attach decoded user payload to request for downstream handlers
     (req as any).user = decoded;
   } catch (err) {
     return reply.status(401).send({ error: 'Unauthorized' });
   }
+};
+
+/**
+ * Must run after `verifyJwt` (relies on `req.user` being populated).
+ * Rejects the request unless the authenticated user's role is in `roles`.
+ */
+export const requireRole = (...roles: string[]) => {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const user = (req as any).user as JWTPayload | undefined;
+    if (!user || !roles.includes(user.role)) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+  };
 };
