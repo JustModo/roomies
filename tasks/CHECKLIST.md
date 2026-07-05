@@ -19,14 +19,14 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
 
 ## 1. Backend Modules (Fastify API)
 
-- [ ] **Users Feature**
-  - [ ] Implement `GET /api/users/me` to fetch current user profile.
-  - [ ] Implement user settings update (theme, etc) via Prisma `Settings` table.
-- [ ] **Library Feature**
-  - [ ] Implement file scanner service (recursive folder scan).
-  - [ ] Read basic metadata (name, duration) without TMDB/Internet calls.
-  - [ ] Store scanned paths into `Library` and `MediaFile` Postgres tables.
-  - [ ] Expose `GET /api/library` to fetch available media.
+- [x] **Users Feature** (See `[LOG:L32-34]`)
+  - [x] Implement `GET /api/users/me` to fetch current user profile.
+  - [x] Implement user settings update (theme, etc) via Prisma `Settings` table.
+- [x] **Library Feature** (See `[LOG:L35-37]`)
+  - [x] Implement file scanner service (recursive folder scan).
+  - [x] Read basic metadata (name, duration) without TMDB/Internet calls.
+  - [x] Store scanned paths into `Library` and `MediaFile` Postgres tables.
+  - [x] Expose `GET /api/library` to fetch available media.
 - [ ] **Playback Orchestration** `[DEPENDS_ON: Library Feature]`
   - [ ] Implement HTTP route to start a party/session.
   - [ ] Seed Redis `playbackState` with initial movie, leader, and 0 position.
@@ -50,7 +50,8 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
 
 ## 2. Frontend Application (React + Vite)
 
-- [ ] **Core Setup**
+- [ ] **Core Setup** (See `[LOG:L48-51]`)
+  - [x] Scaffold Vite + React Monorepo environment and fix build toolchain.
   - [ ] Configure React Router and global state (Zustand).
   - [ ] Setup Axios/Fetch wrapper to inject JWT auth headers.
   - [ ] Implement robust WebSocket reconnecting hook (`useWebSocket.ts`).

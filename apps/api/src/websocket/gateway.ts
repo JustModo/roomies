@@ -1,17 +1,18 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { SocketStream } from '@fastify/websocket';
+import { WebSocket } from '@fastify/websocket';
 import { authenticateWebSocket } from './auth';
 import { socketSessionRepository } from '../database/redis';
 import { IncomingSocketMessageSchema } from '@roomies/contracts/src/socket';
+import { dispatchSocketEvent } from './router';
 
 export const setupWebsocketGateway = (app: FastifyInstance) => {
-  app.get('/ws', { websocket: true }, async (connection: SocketStream, req: FastifyRequest) => {
+  app.get('/ws', { websocket: true }, async (connection: WebSocket, req: FastifyRequest) => {
     // 1. Authenticate WS connection
     const userPayload = authenticateWebSocket(req);
     
     if (!userPayload) {
-      connection.socket.send(JSON.stringify({ error: 'Unauthorized' }));
-      connection.socket.close();
+      connection.send(JSON.stringify({ error: 'Unauthorized' }));
+      connection.close();
       return;
     }
 
@@ -28,7 +29,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
     app.log.info({ userId, socketId }, 'User connected via WebSocket');
 
     // 3. Handle incoming messages
-    connection.socket.on('message', (message: string) => {
+    connection.on('message', async (message: string) => {
       try {
         const rawData = JSON.parse(message.toString());
         
@@ -42,28 +43,20 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
 
         const validMessage = parsedData.data;
 
-        // TypeScript now perfectly infers the payload based on the event!
-        switch (validMessage.event) {
-          case 'client.play':
-            // validMessage.payload.position is inferred as number
-            app.log.info({ position: validMessage.payload.position }, 'Play event received');
-            break;
-          case 'client.pause':
-            app.log.info({ position: validMessage.payload.position }, 'Pause event received');
-            break;
-          case 'client.chat':
-            app.log.info({ message: validMessage.payload.message }, 'Chat event received');
-            break;
-          default:
-            app.log.info({ event: validMessage }, 'Unhandled event');
-        }
+        // Dispatch to the feature-oriented socket router
+        await dispatchSocketEvent(validMessage, {
+          app,
+          socket: connection,
+          userId,
+          socketId,
+        });
       } catch (e) {
         app.log.error(e, 'Failed to parse WS message JSON');
       }
     });
 
     // 4. Handle disconnect
-    connection.socket.on('close', async () => {
+    connection.on('close', async () => {
       app.log.info({ userId, socketId }, 'User disconnected from WebSocket');
       // Remove from Redis OM
       // Note: We'd need to search and delete by socketId

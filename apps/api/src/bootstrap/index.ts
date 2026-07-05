@@ -5,6 +5,8 @@ import { connectRedis, initializeRedisIndices } from '../database/redis';
 import { prisma } from '../database/postgres';
 import { setupWebsocketGateway } from '../websocket/gateway';
 import { authRoutes } from '../auth';
+import { userRoutes } from '../users';
+import { libraryRoutes } from '../library';
 
 export const bootstrap = async (app: FastifyInstance) => {
   // 1. Register Plugins
@@ -38,5 +40,6 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   // 4. Register Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
-  // TODO: Add app.register(userRoutes, { prefix: '/api/users' })
+  await app.register(userRoutes, { prefix: '/api/users' });
+  await app.register(libraryRoutes, { prefix: '/api/library' });
 };

@@ -5,7 +5,7 @@ export const redis = createClient({
   url: process.env.REDIS_URL || 'redis://localhost:6379'
 });
 
-redis.on('error', (err) => console.error('Redis Client Error', err));
+redis.on('error', (err: any) => console.error('Redis Client Error', err));
 
 export const connectRedis = async () => {
   if (!redis.isOpen) {
@@ -47,10 +47,10 @@ const socketSessionSchema = new Schema('socketSession', {
 
 // --- Repositories ---
 
-export const presenceRepository = new Repository(presenceSchema, redis);
-export const chatRepository = new Repository(chatSchema, redis);
-export const playbackStateRepository = new Repository(playbackStateSchema, redis);
-export const socketSessionRepository = new Repository(socketSessionSchema, redis);
+export const presenceRepository = new Repository(presenceSchema, redis as any);
+export const chatRepository = new Repository(chatSchema, redis as any);
+export const playbackStateRepository = new Repository(playbackStateSchema, redis as any);
+export const socketSessionRepository = new Repository(socketSessionSchema, redis as any);
 
 export const initializeRedisIndices = async () => {
   await presenceRepository.createIndex();

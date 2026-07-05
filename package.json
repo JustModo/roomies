@@ -11,7 +11,7 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
-    "turbo": "^1.11.0",
+    "turbo": "^2.10.3",
     "typescript": "^5.0.0"
   },
   "packageManager": "pnpm@8.15.0"
