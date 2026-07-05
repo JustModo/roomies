@@ -80,6 +80,7 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] `apps/api/Dockerfile` — multi-stage build with `ffmpeg` installed via `apk`.
   - [x] `apps/web/Dockerfile` — multi-stage Vite build served by nginx with SPA fallback.
   - [x] `docker-compose.yml` — API (with embedded SQLite + in-memory state), Web, Caddy + healthchecks and shared volumes. Postgres and Redis services removed `[LOG:L220]`.
+  - [x] Jellyfin-style volume layout: `/media` (read-only source library), `/config` (SQLite DB + app config), `/cache` (disk-backed transcoder output, shared read-only with Caddy) `[LOG:L264]`.
 - [x] **Caddy Reverse Proxy**
   - [x] `infra/caddy/Caddyfile` routes `/api/*`, `/ws`, `/hls/*`, and `/*` (React SPA).
   - [x] HLS served with correct CORS headers and `Cache-Control: no-cache`.

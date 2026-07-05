@@ -237,3 +237,44 @@ Migrated the backend off PostgreSQL and Redis entirely (single-node, no horizont
 - Add party-membership authorization to the transcoding status endpoint (still an open item from the prior session).
 - HTTPS auto-cert in the Caddyfile for production domains.
 - Voice Signaling (WebRTC), frontend Social UI (chat sidebar, presence indicators), frontend `useWebSocket` hook and player↔socket wiring.
+
+---
+
+## [2026-07-05] In-Process Queue Correctness Review + End-to-End Test
+**Agent**: Claude
+**Summary of Work Done**:
+Reviewed the SQLite/in-memory migration for event-loop blocking and correctness bugs, then wrote and ran a real end-to-end test.
+- **Event-loop blocking**: confirmed `better-sqlite3` is synchronous, but every query in this app is a tiny point-lookup — not a real problem at this app's scale. `chat/store.ts`'s per-party message map, however, never evicted an entry once a party ended — fixed by adding `chatStore.remove(partyId)` and calling it from `playback/service.ts`'s `startParty` for the *previous* party before overwriting global state.
+- **Transcode queue (`transcoding/queue.ts`)**: found and fixed a real bug — `drain()` called `runJob(job)` without awaiting/catching it, and a throwing `'completed'`/`'failed'` listener would become an unhandled promise rejection, crashing the whole server. Wrapped both `emit()` calls in a new `emitSafely()` helper so a broken listener only logs, never crashes or gets miscategorized as a job failure. Verified with a standalone repro script (a throwing listener no longer crashes the process).
+- **Premature failure status (`transcoding/worker.ts`)**: `setTranscodeStatus(partyId, 'failed')` fired on the *first* ffmpeg failure even when a retry would still succeed, so a polling client could see `'failed'` mid-backoff. Moved the final-status write to the queue's `'failed'` listener in `bootstrap/index.ts`, which only fires once retries are exhausted. Verified with a standalone repro script (status stays `'pending'` through a successful retry).
+- **Library scan (`library/service.ts`)**: the file-processing loop was fully sequential (one `ffprobe` process at a time) — replaced with a small in-file bounded-concurrency helper (`runWithConcurrency`, concurrency 4), no new dependency.
+- **Real bug found via the E2E test itself**: `transcoding/worker.ts` never specified `-c:v`, so it silently depended on ffmpeg's default H.264 encoder, and hardcoded `-profile:v baseline -level 3.0` — syntax specific to `libx264`. On this dev machine (and potentially Alpine builds without `libx264`), the default encoder is `libopenh264`, which rejects that exact syntax and fails outright — meaning transcoding, and therefore playback, would never have worked in that environment. Fixed by making the codec and its options explicit and configurable via `FFMPEG_VIDEO_CODEC`/`FFMPEG_VIDEO_CODEC_ARGS` (documented in `.env.example`), defaulting to the original `libx264`/`baseline` behavior.
+- **End-to-end test**: added `apps/api/scripts/e2e-test.ts` (no new dependencies — Node 22's native `fetch`/`WebSocket`), which boots the real server against a temp SQLite DB and a real ffmpeg-generated test video, then drives it through setup → guest role-gating → library scan → party start → real transcoding to `ready` → leader-only WebSocket controls → chat broadcast + history → Sync Engine drift correction. All 14 checks pass.
+
+**Decisions / Considerations**:
+- Kept `apps/api/scripts/e2e-test.ts` in the repo rather than deleting it as originally planned "throwaway" — it caught a real, otherwise-invisible production bug (the ffmpeg encoder issue), so it has ongoing value as a regression test even without a formal test framework in place.
+- Did not add a guard against `transcodeQueue.add()` being called before `setProcessor()` — currently impossible given `bootstrap/index.ts`'s call order, so it would be speculative hardening for a scenario that can't happen today.
+
+**What is Left to do Next**:
+- Everything already pending from the previous entry.
+- Consider whether `apps/api/scripts/e2e-test.ts` should be wired into CI once a CI pipeline exists.
+
+---
+
+## [2026-07-05] Jellyfin-style Docker Volume Layout
+**Agent**: Claude
+**Summary of Work Done**:
+Renamed the Docker volume mounts to match the familiar Jellyfin convention, per user request:
+- `docker-compose.yml`: `/srv/media` → `/media`, `/srv/cache` → `/cache` (kept disk-backed — user confirmed they didn't want a RAM-backed tmpfs switch, just the rename, matching Jellyfin's own default), `/app/data` → `/config` (holds the SQLite DB, and any future config files). Caddy's own `./cache:/srv/cache:ro` mount updated to `./cache:/cache:ro` to match, since both containers read the same HLS output directory.
+- `infra/caddy/Caddyfile`: updated the hardcoded `root * /srv/cache` to `root * /cache`.
+- `setup.sh`: `mkdir -p data` → `mkdir -p config`. `.gitignore`: `data/*`/`!data/.keep` → `config/*`/`!config/.keep`. Renamed the tracked `data/.keep` to `config/.keep` via `git mv` to preserve history.
+- No application source changes were needed for `library/service.ts`, `playback/service.ts`, or `database/sqlite.ts` — all three already read paths from env vars (`MEDIA_ROOT`, `CACHE_DIR`, `DATABASE_URL`) with no hardcoded `/srv`/`/app` assumptions, so only the compose-supplied values changed.
+- Caught two real breakages while sweeping for stale `/srv/media` references that weren't anticipated in the plan: `apps/web/src/hooks/useLibrary.ts` hardcoded `/srv/media` as the scan-request path (the frontend's scan button would have silently failed post-rename, since that path no longer resolves inside the new `/media` root) — fixed to `/media`. `library/service.ts`'s local-dev fallback default (used only when `MEDIA_ROOT` isn't set, e.g. running outside Docker) also still said `/srv/media` — updated to `/media` for consistency.
+- Re-ran `apps/api/scripts/e2e-test.ts` after the rename (still passes all 14 checks) to confirm the app genuinely doesn't care about the specific path names, only that its env vars are set correctly.
+
+**Decisions / Considerations**:
+- `/cache` stays disk-backed rather than tmpfs, per explicit user confirmation — matches Jellyfin's own actual default, avoids a RAM budget to manage and losing in-progress HLS output on a container restart.
+- Host-side `./config`/`./cache` paths remain hardcoded (not env-configurable) in `docker-compose.yml`, matching the existing asymmetry where only `MEDIA_DIR` (likely pointing at a large external library elsewhere on the host) is user-overridable.
+
+**What is Left to do Next**:
+- Everything already pending from the previous entries.
