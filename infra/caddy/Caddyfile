@@ -1,0 +1,23 @@
+# Caddy reverse proxy and HLS static server
+:8080 {
+    # HLS Static Files (Caddy File Server)
+    handle_path /hls/* {
+        root * ../../cache
+        file_server
+    }
+    
+    # API Routes (Fastify)
+    handle /api/* {
+        reverse_proxy localhost:3000
+    }
+    
+    # WebSocket (Fastify)
+    handle /ws/* {
+        reverse_proxy localhost:3000
+    }
+    
+    # Frontend (React)
+    handle /* {
+        reverse_proxy localhost:5173
+    }
+}

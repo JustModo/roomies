@@ -1,0 +1,1 @@
+// Shared WebSocket hook plan.

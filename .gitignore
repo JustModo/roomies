@@ -1,0 +1,9 @@
+node_modules
+dist
+.turbo
+.next
+.env
+media/*
+!media/.keep
+cache/*
+!cache/.keep
