@@ -7,3 +7,7 @@ media/*
 !media/.keep
 cache/*
 !cache/.keep
+data/*
+!data/.keep
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
