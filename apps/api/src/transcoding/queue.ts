@@ -57,7 +57,23 @@ class InProcessTranscodeQueue extends EventEmitter {
     if (!this.processor) return;
     while (this.activeJobIds.size < CONCURRENCY && this.pending.length > 0) {
       const job = this.pending.shift()!;
-      this.runJob(job);
+      // Fire-and-forget: runJob never rejects (see try/catch below), but a
+      // defensive .catch() is kept here so a future change to runJob can't
+      // turn this into an unhandled promise rejection that crashes the process.
+      this.runJob(job).catch((err) => {
+        this.emitSafely('failed', job, err);
+      });
+    }
+  }
+
+  // Listener exceptions must never crash the process or be mistaken for a
+  // job failure — isolate each emit() so a broken listener only logs, here
+  // via a last-resort console.error since there's no logger at this layer.
+  private emitSafely(event: 'completed' | 'failed', ...args: unknown[]) {
+    try {
+      this.emit(event, ...args);
+    } catch (err) {
+      console.error(`Unhandled error in '${event}' listener`, err);
     }
   }
 
@@ -65,8 +81,8 @@ class InProcessTranscodeQueue extends EventEmitter {
     this.activeJobIds.add(job.id);
     try {
       await this.processor!(job);
-      this.emit('completed', job);
       this.knownJobIds.delete(job.id);
+      this.emitSafely('completed', job);
     } catch (err) {
       job.attemptsMade += 1;
       if (job.attemptsMade < MAX_ATTEMPTS) {
@@ -77,8 +93,8 @@ class InProcessTranscodeQueue extends EventEmitter {
         }, delay);
         timer.unref();
       } else {
-        this.emit('failed', job, err);
         this.knownJobIds.delete(job.id);
+        this.emitSafely('failed', job, err);
       }
     } finally {
       this.activeJobIds.delete(job.id);
