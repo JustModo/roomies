@@ -25,6 +25,23 @@ const getMediaDuration = async (filePath: string): Promise<number> => {
 
 const SUPPORTED_EXTENSIONS = ['.mp4', '.mkv', '.webm'];
 
+// Bound how many ffprobe subprocesses run at once during a scan. A fully
+// sequential loop over a large library (thousands of files) can take tens of
+// minutes for one scan request; a small worker pool speeds this up without
+// spawning an unbounded number of subprocesses at once.
+const SCAN_CONCURRENCY = 4;
+
+const runWithConcurrency = async <T>(items: T[], worker: (item: T) => Promise<void>): Promise<void> => {
+  let cursor = 0;
+  const runNext = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      await worker(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, items.length) }, runNext));
+};
+
 // All library scans must stay within this root. Matches the read-only media
 // mount configured in docker-compose.yml (/srv/media).
 const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/srv/media');
@@ -104,8 +121,9 @@ export const LibraryService = {
 
     const mediaFiles = await walk(safeRootPath);
 
-    // Process each file
-    for (const file of mediaFiles) {
+    // Process files with a small bounded concurrency so scanning a large
+    // library doesn't take one ffprobe-process-at-a-time to complete.
+    await runWithConcurrency(mediaFiles, async (file) => {
       const existing = await prisma.mediaFile.findFirst({ where: { path: file, libraryId: library.id } });
       if (!existing) {
         try {
@@ -122,7 +140,7 @@ export const LibraryService = {
           console.error(`Failed to process media file: ${file}`, err);
         }
       }
-    }
+    });
 
     // Fetch updated library
     const updatedLibrary = await prisma.library.findUniqueOrThrow({
