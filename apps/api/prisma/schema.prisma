@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  settings        Settings?
+  refreshTokens   RefreshToken[]
+  PlaybackSession PlaybackSession[]
+}
+
+model Library {
+  id        String   @id @default(uuid())
+  name      String
+  path      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mediaFiles MediaFile[]
+}
+
+model MediaFile {
+  id        String   @id @default(uuid())
+  libraryId String
+  library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  title     String
+  path      String
+  duration  Int      @default(0) // Duration in seconds
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  playbackSessions PlaybackSession[]
+}
+
+model PlaybackSession {
+  id          String    @id @default(uuid())
+  mediaFileId String
+  mediaFile   MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  leaderId    String
+  leader      User      @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  status      String    @default("playing") // "playing", "paused"
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Settings {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme     String   @default("dark")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
