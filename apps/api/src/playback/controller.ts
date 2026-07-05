@@ -1,17 +1,18 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { verifyJwt } from '../common/authMiddleware';
+import { verifyJwt, requireRole } from '../common/authMiddleware';
 import { PlaybackService } from './service';
 import { StartPartyRequestSchema } from '@roomies/contracts';
 
 export const playbackRoutes = async (app: FastifyInstance) => {
   /**
    * POST /api/playback/start
-   * Starts a party, seeds Redis, enqueues transcode.
+   * Starts a party, seeds in-memory playback state, enqueues transcode.
    * Returns { partyId, sessionId }
+   * Root-only: only the household admin picks what plays for everyone.
    */
   app.post(
     '/start',
-    { preHandler: verifyJwt },
+    { preHandler: [verifyJwt, requireRole('root')] },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const parsed = StartPartyRequestSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -43,7 +44,7 @@ export const playbackRoutes = async (app: FastifyInstance) => {
 
   /**
    * GET /api/playback/:partyId
-   * Returns the current Redis playback state for a party.
+   * Returns the current playback state for a party.
    */
   app.get<{ Params: { partyId: string } }>(
     '/:partyId',

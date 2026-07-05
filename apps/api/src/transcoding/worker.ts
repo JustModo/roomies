@@ -1,10 +1,9 @@
-import { Worker, Job } from 'bullmq';
 import path from 'path';
 import fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { TranscodeJobData, TranscodeStatus, TRANSCODE_QUEUE_NAME, transcodeStatusKey } from './queue';
-import { redis } from '../database/redis';
+import { transcodeQueue, TranscodeJob } from './queue';
+import { setTranscodeStatus } from './status';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,15 +14,24 @@ const execFileAsync = promisify(execFile);
  */
 const FFMPEG_BIN = process.env.FFMPEG_PATH || 'ffmpeg';
 
-const setTranscodeStatus = async (partyId: string, status: TranscodeStatus) => {
-  await redis.set(transcodeStatusKey(partyId), status, { EX: 86400 }); // 24h TTL
-};
+// The H.264 encoder to use, and any encoder-specific options, are both
+// configurable: ffmpeg builds vary in which H.264 encoder is available (the
+// bundled software `libx264` isn't present in every distro/ffmpeg build —
+// e.g. Fedora ships none by default, only hardware encoders + `libopenh264`),
+// and `-profile:v`/`-level` option *values* are encoder-specific syntax
+// (libx264 accepts "baseline"; libopenh264 requires "constrained_baseline").
+// Explicitly selecting the codec instead of relying on ffmpeg's default
+// avoids silently depending on whichever encoder a given build happens to
+// pick, and lets a deployment override it to match its actual ffmpeg build.
+const FFMPEG_VIDEO_CODEC = process.env.FFMPEG_VIDEO_CODEC || 'libx264';
+const FFMPEG_VIDEO_CODEC_ARGS = process.env.FFMPEG_VIDEO_CODEC_ARGS
+  ? process.env.FFMPEG_VIDEO_CODEC_ARGS.split(' ').filter(Boolean)
+  : ['-profile:v', 'baseline', '-level', '3.0'];
 
-const processTranscodeJob = async (job: Job<TranscodeJobData>): Promise<void> => {
+const processTranscodeJob = async (job: TranscodeJob): Promise<void> => {
   const { partyId, inputPath, outputDir } = job.data;
 
-  await setTranscodeStatus(partyId, 'processing');
-  await job.updateProgress(5);
+  setTranscodeStatus(partyId, 'processing');
 
   // Ensure the output directory exists
   await fs.mkdir(outputDir, { recursive: true });
@@ -33,14 +41,14 @@ const processTranscodeJob = async (job: Job<TranscodeJobData>): Promise<void> =>
   try {
     /**
      * HLS transcoding args:
-     *  - Baseline H.264 profile for maximum device compatibility
+     *  - Explicit H.264 encoder + baseline-equivalent profile for maximum device compatibility
      *  - 10-second segments, no playlist size limit
      *  - Segment filename pattern inside the outputDir
      */
     await execFileAsync(FFMPEG_BIN, [
       '-i', inputPath,
-      '-profile:v', 'baseline',
-      '-level', '3.0',
+      '-c:v', FFMPEG_VIDEO_CODEC,
+      ...FFMPEG_VIDEO_CODEC_ARGS,
       '-start_number', '0',
       '-hls_time', '10',
       '-hls_list_size', '0',
@@ -49,22 +57,19 @@ const processTranscodeJob = async (job: Job<TranscodeJobData>): Promise<void> =>
       outputPlaylist,
     ]);
 
-    await setTranscodeStatus(partyId, 'ready');
-    await job.updateProgress(100);
+    setTranscodeStatus(partyId, 'ready');
   } catch (err) {
-    await setTranscodeStatus(partyId, 'failed');
-    throw err; // let BullMQ handle retry
+    // Don't mark 'failed' here — this attempt may still be retried by the
+    // queue. The queue's 'failed' listener (bootstrap/index.ts) sets the
+    // final status only once all retries are exhausted, so a client polling
+    // status during the backoff window doesn't see a premature failure.
+    throw err;
   }
 };
 
-export const createTranscodeWorker = () =>
-  new Worker<TranscodeJobData>(
-    TRANSCODE_QUEUE_NAME,
-    processTranscodeJob,
-    {
-      connection: {
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
-      },
-      concurrency: 2, // max 2 simultaneous transcode jobs
-    }
-  );
+// The queue instance itself is the "worker" (it runs jobs in-process and
+// emits completed/failed), matching the shape bootstrap/index.ts expects.
+export const createTranscodeWorker = () => {
+  transcodeQueue.setProcessor(processTranscodeJob);
+  return transcodeQueue;
+};

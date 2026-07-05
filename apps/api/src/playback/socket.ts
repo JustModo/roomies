@@ -56,9 +56,19 @@ export const handleClientJoin = async (payload: JoinPayload, ctx: SocketContext)
   ctx.app.log.info({ userId: ctx.userId, partyId }, 'User joined party room');
 };
 
+/**
+ * Only the party leader (the user who started the party) may drive playback.
+ * Guards against any joined member hijacking play/pause/seek for the room.
+ */
+const isLeader = async (partyId: string, userId: string): Promise<boolean> => {
+  const state = await PlaybackService.getPartyState(partyId);
+  return !!state && state.leaderId === userId;
+};
+
 export const handleClientPlay = async (payload: PlayPayload, ctx: SocketContext) => {
   const partyId: string = (ctx.socket as any).__partyId;
   if (!partyId) return;
+  if (!(await isLeader(partyId, ctx.userId))) return;
 
   await PlaybackService.updatePlaybackState(partyId, { position: payload.position, isPaused: false });
 
@@ -72,6 +82,7 @@ export const handleClientPlay = async (payload: PlayPayload, ctx: SocketContext)
 export const handleClientPause = async (payload: PausePayload, ctx: SocketContext) => {
   const partyId: string = (ctx.socket as any).__partyId;
   if (!partyId) return;
+  if (!(await isLeader(partyId, ctx.userId))) return;
 
   await PlaybackService.updatePlaybackState(partyId, { position: payload.position, isPaused: true });
 
@@ -85,6 +96,7 @@ export const handleClientPause = async (payload: PausePayload, ctx: SocketContex
 export const handleClientSeek = async (payload: SeekPayload, ctx: SocketContext) => {
   const partyId: string = (ctx.socket as any).__partyId;
   if (!partyId) return;
+  if (!(await isLeader(partyId, ctx.userId))) return;
 
   await PlaybackService.updatePlaybackState(partyId, { position: payload.position });
 
@@ -95,10 +107,35 @@ export const handleClientSeek = async (payload: SeekPayload, ctx: SocketContext)
   broadcastToRoom(ctx, partyId, msg);
 };
 
+// Clients drifting more than this many seconds from the server-expected
+// position get force-corrected via a direct server.seek, per
+// tasks/ARCHITECTURE.md's Sync Engine spec.
+const DRIFT_THRESHOLD_SECONDS = 2;
+
 export const handleClientHeartbeat = async (payload: HeartbeatPayload, ctx: SocketContext) => {
-  // Heartbeat is used by the Sync Engine (future).
-  // For now, just keep the log quiet — heartbeats are high-frequency.
   ctx.app.log.trace({ userId: ctx.userId, position: payload.position }, 'Heartbeat received');
+
+  const state = await PlaybackService.getPartyState(payload.partyId);
+  if (!state) return;
+
+  // Expected server-side position, extrapolated from the last known state.
+  const elapsedSeconds = state.isPaused ? 0 : (Date.now() - state.updatedAt) / 1000;
+  const expectedPosition = state.position + elapsedSeconds * state.speed;
+
+  const drift = Math.abs(expectedPosition - payload.position);
+  if (drift <= DRIFT_THRESHOLD_SECONDS) return;
+
+  // Rubberband only the drifting client — everyone else is left alone.
+  const correction: OutgoingSocketMessage = {
+    event: 'server.seek',
+    payload: { position: expectedPosition },
+  };
+  ctx.socket.send(JSON.stringify(correction));
+
+  ctx.app.log.info(
+    { userId: ctx.userId, partyId: payload.partyId, drift, expectedPosition, reportedPosition: payload.position },
+    'Sync Engine: corrected drifting client'
+  );
 };
 
 /**

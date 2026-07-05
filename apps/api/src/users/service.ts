@@ -1,4 +1,4 @@
-import { prisma } from '../database/postgres';
+import { prisma } from '../database/sqlite';
 import { UserProfile } from '@roomies/contracts';
 
 export const UsersService = {

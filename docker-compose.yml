@@ -1,36 +1,5 @@
 services:
   # ─────────────────────────────────────────────
-  # Infrastructure
-  # ─────────────────────────────────────────────
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      POSTGRES_USER: roomies
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: roomies
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U roomies" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis/redis-stack-server:latest
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ─────────────────────────────────────────────
   # Application
   # ─────────────────────────────────────────────
   api:
@@ -42,21 +11,19 @@ services:
       - .env
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://roomies:${POSTGRES_PASSWORD}@postgres:5432/roomies
-      REDIS_URL: redis://redis:6379
-      CACHE_DIR: /srv/cache
+      DATABASE_URL: file:/config/roomies.db
+      CACHE_DIR: /cache
       HLS_BASE_URL: http://localhost/hls
       FFMPEG_PATH: ffmpeg
+      MEDIA_ROOT: /media
+      CORS_ORIGIN: http://localhost
     volumes:
-      - ${MEDIA_DIR:-./media}:/srv/media:ro # read-only: source media files
-      - ./cache:/srv/cache # read-write: HLS output
-    ports:
-      - "3001:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - ${MEDIA_DIR:-./media}:/media:ro # read-only: source media files
+      - ./cache:/cache # read-write: HLS transcoder output
+      - ./config:/config # read-write: SQLite database + app config
+    # No host port published: all traffic must route through Caddy (80/443),
+    # which is the only public entrypoint. Use `docker compose exec api sh`
+    # or `docker compose logs -f api` for local debugging instead.
 
   web:
     build:
@@ -75,7 +42,7 @@ services:
       - "443:443"
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./cache:/srv/cache:ro # read-only: Caddy serves HLS from here
+      - ./cache:/cache:ro # read-only: Caddy serves HLS from here
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -83,7 +50,5 @@ services:
       - web
 
 volumes:
-  postgres_data:
-  redis_data:
   caddy_data:
   caddy_config:

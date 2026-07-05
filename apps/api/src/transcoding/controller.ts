@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { TranscodeStatusResponse } from '@roomies/contracts';
-import { redis } from '../database/redis';
-import { transcodeStatusKey, TranscodeStatus } from './queue';
+import { getTranscodeStatus } from './status';
+import { verifyJwt } from '../common/authMiddleware';
 
 interface PartyParams {
   partyId: string;
@@ -17,17 +17,16 @@ export const transcodingRoutes = async (app: FastifyInstance) => {
    */
   app.get<{ Params: PartyParams }>(
     '/:partyId/status',
+    { preHandler: verifyJwt },
     async (req: FastifyRequest<{ Params: PartyParams }>, reply: FastifyReply) => {
       const { partyId } = req.params;
 
-      const rawStatus = await redis.get(transcodeStatusKey(partyId));
+      const status = getTranscodeStatus(partyId);
 
-      if (!rawStatus) {
+      if (!status) {
         const response: TranscodeStatusResponse = { status: 'pending' };
         return reply.send(response);
       }
-
-      const status = rawStatus as TranscodeStatus;
 
       const response: TranscodeStatusResponse = {
         status,
