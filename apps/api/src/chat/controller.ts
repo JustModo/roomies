@@ -3,17 +3,11 @@ import { ChatHistoryResponse } from '@roomies/contracts';
 import { chatStore } from './store';
 
 interface HistoryQuery {
-  partyId: string;
 }
 
 export const ChatController = {
   async getHistory(req: FastifyRequest<{ Querystring: HistoryQuery }>, reply: FastifyReply) {
-    const { partyId } = req.query;
-    if (!partyId) {
-      return reply.status(400).send({ error: 'partyId query parameter is required' });
-    }
-
-    const messages = chatStore.getHistory(partyId);
+    const messages = chatStore.getHistory();
 
     const response: ChatHistoryResponse = messages.map((m) => ({
       userId: m.userId,

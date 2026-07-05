@@ -8,6 +8,7 @@ export const AuthController = {
     const userCount = await prisma.user.count();
     return reply.send({ needsBootstrap: userCount === 0, hasRoot: userCount > 0 });
   },
+  
   async setupRoot(req: FastifyRequest, reply: FastifyReply) {
     const parsedBody = SetupRootSchema.safeParse(req.body);
     if (!parsedBody.success) {

@@ -1,5 +1,5 @@
 import { WebSocket } from '@fastify/websocket';
-import { SocketContext } from '../websocket/router';
+import { SocketContext, registerSocketEvent } from '../websocket/router';
 import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
 import { PlaybackService } from './service';
 
@@ -11,10 +11,10 @@ type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'client.heartbea
 
 /**
  * Broadcast an outgoing socket message to all sockets in the party room.
- * The room map lives on the app instance.
+ * The room set lives on the app instance.
  */
-const broadcastToRoom = (ctx: SocketContext, partyId: string, message: OutgoingSocketMessage) => {
-  const room = (ctx.app as any).rooms?.get(partyId) as Set<WebSocket> | undefined;
+const broadcastToRoom = (ctx: SocketContext, message: OutgoingSocketMessage) => {
+  const room = (ctx.app as any).room as Set<WebSocket> | undefined;
   if (!room) return;
 
   const serialized = JSON.stringify(message);
@@ -25,103 +25,73 @@ const broadcastToRoom = (ctx: SocketContext, partyId: string, message: OutgoingS
   }
 };
 
-export const getRoomSize = (app: any, partyId: string): number => {
-  const room = app.rooms?.get(partyId) as Set<WebSocket> | undefined;
+export const getRoomSize = (app: any): number => {
+  const room = app.room as Set<WebSocket> | undefined;
   return room ? room.size : 0;
 };
 
-const broadcastViewersCount = (ctx: SocketContext, partyId: string) => {
-  const count = getRoomSize(ctx.app, partyId);
+const broadcastViewersCount = (ctx: SocketContext) => {
+  const count = getRoomSize(ctx.app);
   const msg: OutgoingSocketMessage = {
     event: 'server.viewers',
     payload: { count },
   };
-  broadcastToRoom(ctx, partyId, msg);
+  broadcastToRoom(ctx, msg);
 };
 
 export const handleClientJoin = async (payload: JoinPayload, ctx: SocketContext) => {
-  const { partyId } = payload;
 
   // Register this socket in the room
-  const rooms: Map<string, Set<WebSocket>> = (ctx.app as any).rooms;
-  if (!rooms.has(partyId)) {
-    rooms.set(partyId, new Set());
-  }
-  rooms.get(partyId)!.add(ctx.socket);
-
-  // Also store the partyId on the socket context for cleanup on disconnect
-  (ctx.socket as any).__partyId = partyId;
+  const room: Set<WebSocket> = (ctx.app as any).room;
+  room.add(ctx.socket);
 
   // Send current state back to the joining client
-  const state = await PlaybackService.getPartyState(partyId);
+  const state = await PlaybackService.getPartyState();
   if (state) {
     const msg: OutgoingSocketMessage = {
       event: 'server.party.state',
       payload: {
-        partyId,
         position: state.position as number,
         isPaused: state.isPaused as boolean,
-        leaderId: state.leaderId as string,
       },
     };
     ctx.socket.send(JSON.stringify(msg));
   }
 
-  ctx.app.log.info({ userId: ctx.userId, partyId }, 'User joined party room');
+  ctx.app.log.info({ userId: ctx.userId }, 'User joined party room');
   
   // Broadcast updated viewers count
-  broadcastViewersCount(ctx, partyId);
-};
-
-/**
- * Only the party leader (the user who started the party) may drive playback.
- * Guards against any joined member hijacking play/pause/seek for the room.
- */
-const isLeader = async (partyId: string, userId: string): Promise<boolean> => {
-  const state = await PlaybackService.getPartyState(partyId);
-  return !!state && state.leaderId === userId;
+  broadcastViewersCount(ctx);
 };
 
 export const handleClientPlay = async (payload: PlayPayload, ctx: SocketContext) => {
-  const partyId: string = (ctx.socket as any).__partyId;
-  if (!partyId) return;
-  if (!(await isLeader(partyId, ctx.userId))) return;
-
-  await PlaybackService.updatePlaybackState(partyId, { position: payload.position, isPaused: false });
+  await PlaybackService.updatePlaybackState({ position: payload.position, isPaused: false });
 
   const msg: OutgoingSocketMessage = {
     event: 'server.play',
     payload: { position: payload.position, timestamp: Date.now() },
   };
-  broadcastToRoom(ctx, partyId, msg);
+  broadcastToRoom(ctx, msg);
 };
 
 export const handleClientPause = async (payload: PausePayload, ctx: SocketContext) => {
-  const partyId: string = (ctx.socket as any).__partyId;
-  if (!partyId) return;
-  if (!(await isLeader(partyId, ctx.userId))) return;
-
-  await PlaybackService.updatePlaybackState(partyId, { position: payload.position, isPaused: true });
+  await PlaybackService.updatePlaybackState({ position: payload.position, isPaused: true });
 
   const msg: OutgoingSocketMessage = {
     event: 'server.pause',
     payload: { position: payload.position },
   };
-  broadcastToRoom(ctx, partyId, msg);
+  broadcastToRoom(ctx, msg);
 };
 
 export const handleClientSeek = async (payload: SeekPayload, ctx: SocketContext) => {
-  const partyId: string = (ctx.socket as any).__partyId;
-  if (!partyId) return;
-  if (!(await isLeader(partyId, ctx.userId))) return;
-
-  await PlaybackService.updatePlaybackState(partyId, { position: payload.position });
+  await PlaybackService.updatePlaybackState({ position: payload.position });
 
   const msg: OutgoingSocketMessage = {
     event: 'server.seek',
     payload: { position: payload.position },
   };
-  broadcastToRoom(ctx, partyId, msg);
+  broadcastToRoom(ctx, msg);
 };
 
 // Clients drifting more than this many seconds from the server-expected
@@ -132,7 +102,7 @@ const DRIFT_THRESHOLD_SECONDS = 2;
 export const handleClientHeartbeat = async (payload: HeartbeatPayload, ctx: SocketContext) => {
   ctx.app.log.trace({ userId: ctx.userId, position: payload.position }, 'Heartbeat received');
 
-  const state = await PlaybackService.getPartyState(payload.partyId);
+  const state = await PlaybackService.getPartyState();
   if (!state) return;
 
   // Expected server-side position, extrapolated from the last known state.
@@ -150,7 +120,7 @@ export const handleClientHeartbeat = async (payload: HeartbeatPayload, ctx: Sock
   ctx.socket.send(JSON.stringify(correction));
 
   ctx.app.log.info(
-    { userId: ctx.userId, partyId: payload.partyId, drift, expectedPosition, reportedPosition: payload.position },
+    { userId: ctx.userId, drift, expectedPosition, reportedPosition: payload.position },
     'Sync Engine: corrected drifting client'
   );
 };
@@ -159,14 +129,17 @@ export const handleClientHeartbeat = async (payload: HeartbeatPayload, ctx: Sock
  * Called from the gateway on socket close — removes socket from its party room.
  */
 export const removeFromRoom = (ctx: SocketContext) => {
-  const partyId: string | undefined = (ctx.socket as any).__partyId;
-  if (!partyId) return;
-
-  const rooms: Map<string, Set<WebSocket>> = (ctx.app as any).rooms;
-  const room = rooms?.get(partyId);
+  const room = (ctx.app as any).room as Set<WebSocket> | undefined;
   if (room) {
     room.delete(ctx.socket);
-    if (room.size === 0) rooms.delete(partyId);
-    broadcastViewersCount(ctx, partyId);
+    broadcastViewersCount(ctx);
   }
+};
+
+export const registerPlaybackSocketEvents = () => {
+  registerSocketEvent('client.join', handleClientJoin);
+  registerSocketEvent('client.play', handleClientPlay);
+  registerSocketEvent('client.pause', handleClientPause);
+  registerSocketEvent('client.seek', handleClientSeek);
+  registerSocketEvent('client.heartbeat', handleClientHeartbeat);
 };

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { LibraryController } from './controller';
 import { ScanLibraryRequestSchema } from '@roomies/contracts';
-import { verifyJwt, requireRole } from '../common/authMiddleware';
+import { verifyJwt, requireRole } from '../auth/middleware';
 
 export const libraryRoutes = async (app: FastifyInstance) => {
   // Protect library routes

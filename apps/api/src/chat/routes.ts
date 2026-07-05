@@ -1,10 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { ChatController } from './controller';
-import { verifyJwt } from '../common/authMiddleware';
+import { verifyJwt } from '../auth/middleware';
 
 export const chatRoutes = async (app: FastifyInstance) => {
   app.addHook('preHandler', verifyJwt);
 
-  // GET /api/chat/history?partyId=... — last 500 messages for the party.
+  // GET /api/chat/history — last 500 messages
   app.get('/history', ChatController.getHistory);
 };

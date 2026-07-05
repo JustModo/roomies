@@ -17,8 +17,8 @@ const MAX_MESSAGES_PER_WINDOW = 20;
  * rooms: Map<partyId, Set<WebSocket>> — lightweight in-memory room registry.
  */
 export const setupWebsocketGateway = (app: FastifyInstance) => {
-  // Register the rooms map as a Fastify decoration
-  app.decorate('rooms', new Map<string, Set<WebSocket>>());
+  // Register the global room as a Fastify decoration
+  app.decorate('room', new Set<WebSocket>());
 
   app.get('/ws', { websocket: true }, async (connection: WebSocket, req: FastifyRequest) => {
     // 1. Authenticate WS connection

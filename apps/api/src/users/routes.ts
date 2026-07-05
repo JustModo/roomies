@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { UsersController } from './controller';
-import { verifyJwt } from '../common/authMiddleware';
+import { verifyJwt } from '../auth/middleware';
 
 export const userRoutes = async (app: FastifyInstance) => {
   // Apply JWT verification middleware to all routes in this plugin

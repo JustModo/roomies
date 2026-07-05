@@ -1,4 +1,4 @@
-import { SocketContext } from '../websocket/router';
+import { SocketContext, registerSocketEvent } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { chatStore } from './store';
 
@@ -11,15 +11,13 @@ export const handleClientChat = async (payload: ChatPayload, ctx: SocketContext)
 
   // 1. Persist to the in-memory chat store
   chatStore.append({
-    partyId: payload.partyId,
     userId: ctx.userId,
     message: payload.message,
     timestamp,
   });
 
   // 2. Broadcast to the party room
-  const rooms = (ctx.app as any).rooms as Map<string, Set<any>>;
-  const room = rooms.get(payload.partyId);
+  const room = (ctx.app as any).room as Set<any>;
   if (room) {
     const serverMessage = JSON.stringify({
       event: 'server.chat',
@@ -31,7 +29,11 @@ export const handleClientChat = async (payload: ChatPayload, ctx: SocketContext)
     });
 
     for (const client of room) {
-      client.send(serverMessage);
+      if (client.readyState === 1) client.send(serverMessage);
     }
   }
+};
+
+export const registerChatSocketEvents = () => {
+  registerSocketEvent('client.chat', handleClientChat);
 };

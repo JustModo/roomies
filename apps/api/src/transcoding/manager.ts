@@ -24,7 +24,6 @@ const FFMPEG_VIDEO_CODEC_ARGS = process.env.FFMPEG_VIDEO_CODEC_ARGS
 const KILL_GRACE_MS = 3_000;
 
 interface TranscodeSession {
-  partyId: string;
   /** One FFmpeg child process per quality variant */
   processes: Map<string, ChildProcess>;
   outputDir: string;
@@ -40,7 +39,7 @@ let activeSession: TranscodeSession | null = null;
  * Error callback: called when an FFmpeg variant process exits unexpectedly.
  * Set by the bootstrap/playback layer so it can broadcast an error to clients.
  */
-let onErrorCallback: ((partyId: string, profileName: string, error: string) => void) | null = null;
+let onErrorCallback: ((profileName: string, error: string) => void) | null = null;
 
 export const TranscodeSessionManager = {
   /**
@@ -48,7 +47,7 @@ export const TranscodeSessionManager = {
    * a session. The playback layer uses this to push error events over the
    * WebSocket to connected clients.
    */
-  onError(cb: (partyId: string, profileName: string, error: string) => void) {
+  onError(cb: (profileName: string, error: string) => void) {
     onErrorCallback = cb;
   },
 
@@ -66,7 +65,6 @@ export const TranscodeSessionManager = {
    * within seconds as FFmpeg begins writing.
    */
   async startSession(
-    partyId: string,
     inputPath: string,
     outputDir: string,
   ): Promise<{ hlsUrl: string }> {
@@ -97,7 +95,7 @@ export const TranscodeSessionManager = {
         if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGKILL') {
           const msg = `FFmpeg ${profile.name} exited with code ${code}`;
           console.error(`[TranscodeSessionManager] ${msg}`);
-          onErrorCallback?.(partyId, profile.name, msg);
+          onErrorCallback?.(profile.name, msg);
         }
       });
 
@@ -116,10 +114,10 @@ export const TranscodeSessionManager = {
     // playlist.m3u8 on its own as it encodes.
     await writeMasterPlaylist(outputDir, profiles);
 
-    activeSession = { partyId, processes, outputDir };
+    activeSession = { processes, outputDir };
 
     const hlsBaseUrl = process.env.HLS_BASE_URL || 'http://localhost:80/hls';
-    return { hlsUrl: `${hlsBaseUrl}/${partyId}/master.m3u8` };
+    return { hlsUrl: `${hlsBaseUrl}/main/master.m3u8` };
   },
 
   /**
@@ -152,14 +150,9 @@ export const TranscodeSessionManager = {
     }
   },
 
-  /** Returns true if a session is currently active for the given partyId */
-  isActive(partyId: string): boolean {
-    return activeSession?.partyId === partyId;
-  },
-
-  /** Returns the active session's partyId, or null */
-  getActivePartyId(): string | null {
-    return activeSession?.partyId ?? null;
+  /** Returns true if a session is currently active */
+  isActive(): boolean {
+    return activeSession !== null;
   },
 };
 

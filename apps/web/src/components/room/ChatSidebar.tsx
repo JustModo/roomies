@@ -58,7 +58,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
 
   useEffect(() => {
     // Fetch initial chat history
-    fetch(`/api/chat/history?partyId=${partyId}`, {
+    fetch(`/api/chat/history`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
     .then(res => res.json())
@@ -82,7 +82,6 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
     sendMessage({
       event: 'client.chat',
       payload: {
-        partyId,
         message: newMessage
       }
     });

@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { verifyJwt, requireRole } from '../common/authMiddleware';
+import { verifyJwt, requireRole } from '../auth/middleware';
 import { PlaybackService } from './service';
 import { StartPartyRequestSchema } from '@roomies/contracts';
 import { prisma } from '../database/sqlite';
@@ -21,12 +21,10 @@ export const playbackRoutes = async (app: FastifyInstance) => {
         return reply.status(400).send({ error: parsed.error.flatten() });
       }
 
-      const userId = (req as any).user.userId as string;
+      const result = await PlaybackService.startParty(parsed.data.mediaFileId);
 
-      const result = await PlaybackService.startParty(parsed.data.mediaFileId, userId);
-      
-      const msg = { event: 'server.party.started', payload: { partyId: result.partyId } };
-      const room = (req.server as any).rooms?.get(result.partyId);
+      const msg = { event: 'server.party.started', payload: {} };
+      const room = (req.server as any).room;
       if (room) {
         for (const socket of room) {
           if (socket.readyState === 1) socket.send(JSON.stringify(msg));
@@ -38,48 +36,30 @@ export const playbackRoutes = async (app: FastifyInstance) => {
   );
 
   /**
-   * GET /api/playback/party/active
+   * GET /api/playback/active
    * Returns the globally active party, if any exists.
    */
   app.get(
-    '/party/active',
+    '/active',
     { preHandler: verifyJwt },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const activeParty = await PlaybackService.getActiveParty();
       if (!activeParty) {
-        return reply.send({ partyId: null });
+        return reply.send({});
       }
-      
-      const media = activeParty.currentMovieId 
+
+      const media = activeParty.currentMovieId
         ? await prisma.mediaFile.findUnique({ where: { id: activeParty.currentMovieId } })
         : null;
-      
-      return reply.send({ 
-        partyId: activeParty.partyId, 
+
+      return reply.send({
         mediaFileId: activeParty.currentMovieId,
         mediaTitle: media?.title,
-        viewersCount: getRoomSize(req.server, activeParty.partyId),
+        viewersCount: getRoomSize(req.server),
         state: activeParty.isPaused ? 'paused' : 'playing',
       });
     }
   );
 
-  /**
-   * GET /api/playback/:partyId
-   * Returns the current playback state for a party.
-   */
-  app.get<{ Params: { partyId: string } }>(
-    '/:partyId',
-    { preHandler: verifyJwt },
-    async (req: FastifyRequest<{ Params: { partyId: string } }>, reply: FastifyReply) => {
-      const state = await PlaybackService.getPartyState(req.params.partyId);
-      if (!state) {
-        return reply.status(404).send({ error: 'Party not found' });
-      }
-      return reply.send({
-        ...state,
-        viewersCount: getRoomSize(req.server, req.params.partyId),
-      });
-    }
-  );
+
 };

@@ -18,27 +18,21 @@ export const PlaybackService = {
    * 4. Starts live FFmpeg transcoding (non-blocking — returns immediately)
    * 5. Returns the HLS URL so the client can start playing right away
    */
-  async startParty(mediaFileId: string, leaderId: string): Promise<StartPartyResponse> {
+  async startParty(mediaFileId: string): Promise<StartPartyResponse> {
     // Validate the media file exists
     const mediaFile = await prisma.mediaFile.findUniqueOrThrow({
       where: { id: mediaFileId },
     });
 
-    const partyId = 'main';
-    const outputDir = path.join(CACHE_DIR, partyId);
+    const outputDir = path.join(CACHE_DIR, 'main');
 
     // Only one active party is supported globally — this replaces any prior
     // state. Evict the previous party's chat history so the in-memory store
     // doesn't accumulate one entry per party for the life of the process.
-    const previousPartyId = playbackStateStore.get()?.partyId;
-    if (previousPartyId) {
-      chatStore.remove(previousPartyId);
-    }
+    chatStore.clear();
 
     const state: PlaybackState = {
-      partyId,
       currentMovieId: mediaFileId,
-      leaderId,
       position: 0,
       speed: 1,
       isPaused: false,
@@ -53,12 +47,11 @@ export const PlaybackService = {
     // quality variant, and returns immediately with the HLS URL.
     // No waiting for transcoding to finish!
     const { hlsUrl } = await TranscodeSessionManager.startSession(
-      partyId,
       mediaFile.path,
       outputDir,
     );
 
-    return { partyId, hlsUrl };
+    return { hlsUrl };
   },
 
   /**
@@ -69,22 +62,14 @@ export const PlaybackService = {
     return playbackStateStore.get();
   },
 
-  /**
-   * Get the current party state.
-   * Returns null if no state exists (party not started).
-   */
-  async getPartyState(partyId: string): Promise<PlaybackState | null> {
-    return playbackStateStore.getByPartyId(partyId);
+  async getPartyState(): Promise<PlaybackState | null> {
+    return playbackStateStore.get();
   },
 
-  /**
-   * Update playback state (position, isPaused, etc.)
-   */
   async updatePlaybackState(
-    partyId: string,
     update: { position?: number; isPaused?: boolean; speed?: number }
   ) {
-    const current = playbackStateStore.getByPartyId(partyId);
+    const current = playbackStateStore.get();
     if (!current) return;
 
     if (update.position !== undefined) current.position = update.position;

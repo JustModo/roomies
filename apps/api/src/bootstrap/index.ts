@@ -12,6 +12,9 @@ import { TranscodeSessionManager } from '../transcoding/manager';
 import { initializeConfig } from '../config';
 import { OutgoingSocketMessage } from '@roomies/contracts';
 import { WebSocket } from '@fastify/websocket';
+import { playbackStateStore } from '../playback/store';
+import { registerChatSocketEvents } from '../chat/socket';
+import { registerPlaybackSocketEvents } from '../playback/socket';
 
 export const bootstrap = async (app: FastifyInstance) => {
   // 1. Register Plugins
@@ -48,20 +51,22 @@ export const bootstrap = async (app: FastifyInstance) => {
     process.exit(1);
   }
 
+  // Seed the empty playback session
+  playbackStateStore.initEmptySession();
+
   // 3. Wire up live transcoding error callback
   // When an FFmpeg variant process crashes during a live session, broadcast
   // the error to all connected clients in the party room so the player UI
   // can react (e.g. fall back to another quality, show an error message).
-  TranscodeSessionManager.onError((partyId, profileName, error) => {
-    app.log.error({ partyId, profileName, error }, 'Transcode variant failed');
+  TranscodeSessionManager.onError((profileName, error) => {
+    app.log.error({ profileName, error }, 'Transcode variant failed');
 
-    const rooms: Map<string, Set<WebSocket>> = (app as any).rooms;
-    const room = rooms?.get(partyId);
+    const room = (app as any).room as Set<WebSocket>;
     if (!room) return;
 
     const msg: OutgoingSocketMessage = {
       event: 'server.transcode.error',
-      payload: { partyId, profileName, error },
+      payload: { profileName, error },
     };
     const serialized = JSON.stringify(msg);
     for (const socket of room) {
@@ -70,6 +75,8 @@ export const bootstrap = async (app: FastifyInstance) => {
   });
 
   // 4. Register Global Hooks & Gateway
+  registerChatSocketEvents();
+  registerPlaybackSocketEvents();
   setupWebsocketGateway(app);
 
   // 5. Register Routes

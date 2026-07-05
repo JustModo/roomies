@@ -67,13 +67,11 @@ export const StartPartyRequestSchema = z.object({
 export type StartPartyRequest = z.infer<typeof StartPartyRequestSchema>;
 
 export const StartPartyResponseSchema = z.object({
-  partyId: z.string(),
   hlsUrl: z.string(),
 });
 export type StartPartyResponse = z.infer<typeof StartPartyResponseSchema>;
 
 export const ActivePartyResponseSchema = z.object({
-  partyId: z.string().nullable(),
   mediaFileId: z.string().optional(),
   mediaTitle: z.string().optional(),
   viewersCount: z.number().optional(),

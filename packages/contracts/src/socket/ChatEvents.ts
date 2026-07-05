@@ -3,7 +3,6 @@ import { z } from 'zod';
 export const ClientChatSchema = z.object({
   event: z.literal('client.chat'),
   payload: z.object({
-    partyId: z.string(),
     message: z.string().min(1).max(500),
   }),
 });

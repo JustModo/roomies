@@ -110,24 +110,23 @@ export default function Room() {
     return () => removeHandler();
   }, [addMessageHandler]);
 
-  // Heartbeat loop
+  // Heartbeat loop for drift correction
   useEffect(() => {
-    if (!isConnected || !partyId) return;
+    if (!isConnected) return;
     
     const interval = setInterval(() => {
       if (videoRef.current) {
         sendMessage({
           event: 'client.heartbeat',
           payload: {
-            partyId,
             position: videoRef.current.currentTime
           }
         });
       }
-    }, 5000);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [isConnected, partyId, sendMessage]);
+  }, [isConnected, sendMessage]);
 
   // Idle Timer
   useEffect(() => {
