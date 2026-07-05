@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U roomies"]
+      test: [ "CMD-SHELL", "pg_isready -U roomies" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,7 +26,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,8 +49,10 @@ services:
       HLS_BASE_URL: http://localhost/hls
       FFMPEG_PATH: ffmpeg
     volumes:
-      - ${MEDIA_DIR:-./media}:/srv/media:ro       # read-only: source media files
-      - ./cache:/srv/cache          # read-write: HLS output
+      - ${MEDIA_DIR:-./media}:/srv/media:ro # read-only: source media files
+      - ./cache:/srv/cache # read-write: HLS output
+    ports:
+      - "3001:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,7 +76,7 @@ services:
       - "443:443"
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./cache:/srv/cache:ro       # read-only: Caddy serves HLS from here
+      - ./cache:/srv/cache:ro # read-only: Caddy serves HLS from here
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

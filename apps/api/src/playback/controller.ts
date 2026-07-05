@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { verifyJwt } from '../common/authMiddleware';
 import { PlaybackService } from './service';
-import { StartPartyRequestSchema } from '@roomies/contracts/src/api';
+import { StartPartyRequestSchema } from '@roomies/contracts';
 
 export const playbackRoutes = async (app: FastifyInstance) => {
   /**
@@ -22,6 +22,22 @@ export const playbackRoutes = async (app: FastifyInstance) => {
 
       const result = await PlaybackService.startParty(parsed.data.mediaFileId, userId);
       return reply.status(201).send(result);
+    }
+  );
+
+  /**
+   * GET /api/playback/party/active
+   * Returns the globally active party, if any exists.
+   */
+  app.get(
+    '/party/active',
+    { preHandler: verifyJwt },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const activeParty = await PlaybackService.getActiveParty();
+      if (!activeParty) {
+        return reply.send({ partyId: null });
+      }
+      return reply.send({ partyId: activeParty.partyId, mediaFileId: activeParty.currentMovieId });
     }
   );
 

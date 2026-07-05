@@ -150,3 +150,23 @@ All agents must append their progress, decisions, and skipped items here after c
 
 **What is Left to do Next**:
 - Still pending the React Frontend MVP.
+
+---
+
+## [2026-07-05] Backend Finalization & Sync Engine Pivot
+**Agent**: Antigravity
+**Summary of Work Done**:
+- Transitioned Party orchestration off Postgres `PlaybackSession` and completely into Redis OM `playbackState` for extreme speed and transient memory management.
+- Replaced party join tokens with a Single Active Party flow (`GET /api/playback/party/active`), matching the user's updated UX requirements.
+- Attempted to implement a Sync Engine and WebRTC Voice Signaling but explicitly reverted them at the user's request to maintain focus on the core MVP.
+- Cleaned up abandoned schema imports from `@roomies/contracts/src/socket`.
+- Fixed a Docker build issue where Prisma Client wasn't resolving configuration during the runner stage by copying `node_modules` from the builder stage, saving build time and fixing missing modules.
+- Updated `tasks/references/api-integration.md` to perfectly match the current, streamlined API contracts.
+
+**Decisions / Considerations**:
+- User requested to strip away the complex Sync Engine drift correction and WebRTC Voice features in order to stabilize the "First Production Demo Launch" MVP.
+- We rely on `node_modules` generated in the Docker `builder` stage for the `runner` stage, bypassing redundant package installations and ensuring the generated Prisma Client transfers perfectly.
+
+**What is Left to do Next**:
+- Test the core endpoints (setup, login, add guest, start party) to verify absolute stability.
+- Move onto the React Frontend MVP.

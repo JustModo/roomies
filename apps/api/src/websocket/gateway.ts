@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
 import { authenticateWebSocket } from './auth';
 import { socketSessionRepository } from './redis';
-import { IncomingSocketMessageSchema } from '@roomies/contracts/src/socket';
+import { IncomingSocketMessageSchema } from '@roomies/contracts';
 import { dispatchSocketEvent, SocketContext } from './router';
 import { removeFromRoom } from '../playback/socket';
 
@@ -33,6 +33,8 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
       socketId,
       connectedAt: new Date(),
     });
+
+    (connection as any).__userId = userId;
 
     app.log.info({ userId, socketId }, 'User connected via WebSocket');
 

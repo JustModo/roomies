@@ -5,9 +5,6 @@ import { ClientChatSchema, ServerChatSchema } from './ChatEvents';
 // Export individual schemas
 export * from './PlaybackEvents';
 export * from './ChatEvents';
-// export * from './VoiceEvents';
-// export * from './PresenceEvents';
-// export * from './SyncEvents';
 
 // Master Discriminated Unions for automatic narrowing
 export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [

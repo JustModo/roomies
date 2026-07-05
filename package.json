@@ -5,6 +5,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "start": "docker compose up -d --build",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",

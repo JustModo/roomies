@@ -71,9 +71,14 @@ export type StartPartyRequest = z.infer<typeof StartPartyRequestSchema>;
 
 export const StartPartyResponseSchema = z.object({
   partyId: z.string(),
-  sessionId: z.string(),
 });
 export type StartPartyResponse = z.infer<typeof StartPartyResponseSchema>;
+
+export const ActivePartyResponseSchema = z.object({
+  partyId: z.string().nullable(),
+  mediaFileId: z.string().optional(),
+});
+export type ActivePartyResponse = z.infer<typeof ActivePartyResponseSchema>;
 
 export const TranscodeStatusResponseSchema = z.object({
   status: z.enum(['pending', 'processing', 'ready', 'failed']),

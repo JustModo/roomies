@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { TranscodeStatusResponse } from '@roomies/contracts/src/api';
+import { TranscodeStatusResponse } from '@roomies/contracts';
 import { redis } from '../database/redis';
 import { transcodeStatusKey, TranscodeStatus } from './queue';
 

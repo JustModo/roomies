@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { UsersService } from './service';
 import { CreateGuestSchema } from '@roomies/contracts';
-import { JWTPayload } from '@roomies/shared/src/types';
+import { JWTPayload } from '@roomies/shared';
 import { AuthService } from '../auth/service';
 
 export const UsersController = {

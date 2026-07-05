@@ -29,6 +29,7 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Expose `GET /api/library` to fetch available media.
 - [x] **Playback Orchestration** `[DEPENDS_ON: Library Feature]` (See `[LOG:L54]`)
   - [x] Implement HTTP route to start a party/session (`POST /api/playback/start`).
+  - [x] Implement Single Active Party endpoint (`GET /api/playback/party/active`).
   - [x] Seed Redis `playbackState` with initial movie, leader, and position 0.
   - [x] `client.join` event registers socket into in-memory party room.
   - [x] `client.play`/`client.pause`/`client.seek` update Redis state and broadcast `server.*` to all room members.

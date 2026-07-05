@@ -1,5 +1,5 @@
 import { SocketContext } from '../websocket/router';
-import { IncomingSocketMessage } from '@roomies/contracts/src/socket';
+import { IncomingSocketMessage } from '@roomies/contracts';
 import { chatRepository } from './redis';
 
 type ChatPayload = Extract<IncomingSocketMessage, { event: 'client.chat' }>['payload'];

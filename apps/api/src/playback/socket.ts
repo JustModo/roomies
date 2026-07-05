@@ -1,6 +1,6 @@
 import { WebSocket } from '@fastify/websocket';
 import { SocketContext } from '../websocket/router';
-import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts/src/socket';
+import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
 import { PlaybackService } from './service';
 
 type PlayPayload = Extract<IncomingSocketMessage, { event: 'client.play' }>['payload'];

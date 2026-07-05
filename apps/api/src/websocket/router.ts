@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
-import { IncomingSocketMessage } from '@roomies/contracts/src/socket';
+import { IncomingSocketMessage } from '@roomies/contracts';
 import { handleClientChat } from '../chat/socket';
 import {
   handleClientJoin,

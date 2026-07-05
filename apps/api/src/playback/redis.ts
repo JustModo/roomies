@@ -10,6 +10,7 @@ export const playbackStateSchema = new Schema('playbackState', {
   isPaused: { type: 'boolean' },
   subtitleTrack: { type: 'string' },
   audioTrack: { type: 'string' },
+  updatedAt: { type: 'number' },
 });
 
 export const playbackStateRepository = new Repository(playbackStateSchema, redis as any);

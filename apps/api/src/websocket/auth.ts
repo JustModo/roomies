@@ -1,6 +1,6 @@
 import { FastifyRequest } from 'fastify';
 import jwt from 'jsonwebtoken';
-import { JWTPayload } from '@roomies/shared/src/types';
+import { JWTPayload } from '@roomies/shared';
 import { Config } from '../config';
 
 export const authenticateWebSocket = (req: FastifyRequest): JWTPayload | null => {

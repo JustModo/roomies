@@ -1,9 +1,10 @@
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { prisma } from '../database/postgres';
 import { redis } from '../database/redis';
 import { playbackStateRepository } from './redis';
 import { transcodeQueue, transcodeStatusKey } from '../transcoding/queue';
-import { StartPartyResponse } from '@roomies/contracts/src/api';
+import { StartPartyResponse } from '@roomies/contracts';
 
 // Directory that Caddy serves HLS from
 const CACHE_DIR = process.env.CACHE_DIR || path.join(process.cwd(), '..', '..', 'cache');
@@ -19,17 +20,14 @@ export const PlaybackService = {
       where: { id: mediaFileId },
     });
 
-    // Create a persistent session in Postgres
-    const session = await prisma.playbackSession.create({
-      data: {
-        mediaFileId,
-        leaderId,
-        status: 'paused',
-      },
-    });
-
-    const partyId = session.id;
+    const partyId = randomUUID();
     const outputDir = path.join(CACHE_DIR, partyId);
+
+    // Clear any existing active parties
+    const existingStates = await playbackStateRepository.search().return.all();
+    for (const state of existingStates) {
+      await playbackStateRepository.remove(state.entityId);
+    }
 
     // Seed the playback state in Redis OM
     await playbackStateRepository.save({
@@ -41,6 +39,7 @@ export const PlaybackService = {
       isPaused: true,
       subtitleTrack: '',
       audioTrack: '',
+      updatedAt: Date.now(),
     });
 
     // Set initial transcode status so callers don't get null
@@ -57,7 +56,16 @@ export const PlaybackService = {
       { jobId: partyId } // idempotent: same partyId = same job
     );
 
-    return { partyId, sessionId: partyId };
+    return { partyId };
+  },
+
+  /**
+   * Get the globally active party.
+   * Since there's only one active party per server in this architecture.
+   */
+  async getActiveParty() {
+    const states = await playbackStateRepository.search().return.first();
+    return states ?? null;
   },
 
   /**
@@ -93,6 +101,7 @@ export const PlaybackService = {
     if (update.position !== undefined) current.position = update.position;
     if (update.isPaused !== undefined) current.isPaused = update.isPaused;
     if (update.speed !== undefined) current.speed = update.speed;
+    current.updatedAt = Date.now();
 
     await playbackStateRepository.save(current);
   },
