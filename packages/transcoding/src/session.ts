@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { FfmpegPreset, HwAccelMode } from '@roomies/contracts';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
+import { MAX_CONCURRENT_VARIANTS } from './config';
 
 /**
  * Manages all transcoding variants for a single media file.
@@ -27,13 +29,6 @@ export class TranscodeSession {
   }
 
   /**
-   * Returns the URL to the master playlist served by the API.
-   */
-  get masterPlaylistUrl(): string {
-    return `/api/playback/hls/${this.mediaFileId}/master.m3u8`;
-  }
-
-  /**
    * Registers an error callback for variant failures.
    */
   onError(callback: (resolution: Resolution, error: Error) => void): void {
@@ -44,7 +39,12 @@ export class TranscodeSession {
    * Ensures a variant for the given resolution exists and is running.
    * Resolves only when the variant is ready (first segment written).
    */
-  async ensureVariantReady(resolution: Resolution, startPosition: number = 0): Promise<void> {
+  async ensureVariantReady(
+    resolution: Resolution,
+    startPosition: number = 0,
+    preset: FfmpegPreset = 'veryfast',
+    hwAccelMode: HwAccelMode = 'auto'
+  ): Promise<void> {
     const existing = this.variants.get(resolution);
     if (existing) {
       if (existing.isReady) {
@@ -54,6 +54,11 @@ export class TranscodeSession {
       return new Promise((resolve) => {
         existing.once('ready', resolve);
       });
+    }
+
+    if (this.variants.size >= MAX_CONCURRENT_VARIANTS) {
+      console.error(`[session:${this.mediaFileId}] Refusing to spawn variant ${resolution}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
+      throw new Error('Maximum concurrent transcode variants reached');
     }
 
     // Spawn a new FFmpeg process
@@ -78,9 +83,9 @@ export class TranscodeSession {
     });
 
     this.variants.set(resolution, variant);
-    
+
     // Start the FFmpeg process (non-blocking)
-    variant.start(this.inputPath, startPosition);
+    variant.start(this.inputPath, startPosition, preset, hwAccelMode);
 
     return new Promise((resolve) => {
       variant.once('ready', resolve);

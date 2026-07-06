@@ -2,13 +2,25 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
-import { Resolution } from './types';
+import { FfmpegPreset, HwAccelMode } from '@roomies/contracts';
+import { Resolution, HardwareEncoder } from './types';
 import {
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
+  HLS_LIST_SIZE,
   FFMPEG_PATH,
   VIDEO_CODEC,
 } from './config';
+import { getDetectedHardwareEncoder } from './hwaccel';
+
+/** Maps the software x264-style preset name to the closest NVENC preset. */
+const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
+  ultrafast: 'p1',
+  veryfast: 'p2',
+  fast: 'p3',
+  medium: 'p4',
+  slow: 'p6',
+};
 
 /**
  * Manages a single FFmpeg child process that transcodes one resolution variant.
@@ -19,7 +31,7 @@ import {
  *
  * Events:
  *   'ready'  — first .ts segment written to disk (client can start fetching)
- *   'error'  — ffmpeg process error
+ *   'error'  — ffmpeg process error (only emitted after the CPU fallback, if any, also fails)
  *   'exit'   — ffmpeg process exited (code, signal)
  */
 export class TranscodeVariant extends EventEmitter {
@@ -32,6 +44,10 @@ export class TranscodeVariant extends EventEmitter {
   private _isRunning = false;
   private _isSuspended = false;
   private startPosition: number = 0;
+  private preset: FfmpegPreset = 'veryfast';
+  private hwAccelMode: HwAccelMode = 'auto';
+  private inputPath: string = '';
+  private hwFallbackAttempted = false;
 
   constructor(resolution: Resolution, outputDir: string) {
     super();
@@ -50,58 +66,111 @@ export class TranscodeVariant extends EventEmitter {
   /**
    * Spawns the FFmpeg process to transcode the input file into HLS segments.
    * Non-blocking — returns immediately, segments are written asynchronously.
-   * 
+   *
    * @param startPosition The time in seconds to start transcoding from
    */
-  start(inputPath: string, startPosition: number = 0): void {
+  start(
+    inputPath: string,
+    startPosition: number = 0,
+    preset: FfmpegPreset = 'veryfast',
+    hwAccelMode: HwAccelMode = 'auto'
+  ): void {
     if (this._isRunning) return;
+    this.inputPath = inputPath;
     this.startPosition = startPosition;
+    this.preset = preset;
+    this.hwAccelMode = hwAccelMode;
 
-    // Ensure the output directory exists
-    fs.mkdirSync(this.outputDir, { recursive: true });
+    this.spawnProcess(this.shouldUseHardware());
+  }
 
+  private shouldUseHardware(): HardwareEncoder | null {
+    if (this.hwAccelMode !== 'auto' || this.hwFallbackAttempted) return null;
+    const detected = getDetectedHardwareEncoder();
+    return detected === 'cpu' ? null : detected;
+  }
+
+  private buildArgs(hw: HardwareEncoder | null): string[] {
     const preset = RESOLUTION_PRESETS[this.resolution];
     const playlistPath = path.join(this.outputDir, 'stream.m3u8');
     const segmentPattern = path.join(this.outputDir, 'seg_%05d.ts');
+    const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`;
 
-    const args = [
-      // Fast seek (before input)
-      ...(startPosition > 0 ? ['-ss', startPosition.toString()] : []),
-      
+    let videoArgs: string[];
+    if (hw === 'vaapi' || hw === 'qsv') {
+      // Software decode + scale, then upload to the VAAPI device for hardware
+      // encoding. QSV on Linux typically layers on the same VAAPI device path.
+      videoArgs = [
+        '-vf', `${scaleFilter},format=nv12,hwupload`,
+        '-vaapi_device', '/dev/dri/renderD128',
+        '-c:v', 'h264_vaapi',
+      ];
+    } else if (hw === 'nvenc') {
+      videoArgs = [
+        '-vf', scaleFilter,
+        '-c:v', 'h264_nvenc',
+        '-preset', NVENC_PRESET_MAP[this.preset],
+      ];
+    } else {
+      videoArgs = [
+        '-vf', scaleFilter,
+        '-c:v', VIDEO_CODEC,
+        '-preset', this.preset,
+      ];
+    }
+
+    return [
+      // Fast seek (before input) — seeks to the nearest keyframe before
+      // decoding, which is far faster than seeking after -i for large jumps.
+      ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString()] : []),
+
       // Input
-      '-i', inputPath,
+      '-i', this.inputPath,
 
       // Preserve original timestamps so the player's internal time matches the actual media time
-      ...(startPosition > 0 ? ['-copyts'] : []),
+      ...(this.startPosition > 0 ? ['-copyts'] : []),
 
       // Video encoding
-      '-vf', `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`,
-      '-c:v', VIDEO_CODEC,
-      '-preset', 'veryfast',
+      ...videoArgs,
       '-b:v', preset.videoBitrate,
       '-maxrate', preset.maxRate,
       '-bufsize', preset.bufSize,
+
+      // Disable scene-cut adaptive keyframes so nothing conflicts with the
+      // explicit segment-boundary keyframes forced below.
+      '-sc_threshold', '0',
 
       // Audio encoding
       '-c:a', 'aac',
       '-b:a', preset.audioBitrate,
       '-ac', '2',
 
-      // HLS output
+      // HLS output — short segments + a bounded rolling live window. Every
+      // client in a party watches the same live position (no per-user
+      // rewind into already-transcoded regions — seeks fully restart
+      // encoding at the new position), so a live-style rolling playlist is
+      // a correct fit, not just an optimization.
       '-f', 'hls',
       '-hls_time', String(SEGMENT_DURATION),
-      '-hls_list_size', '0',
+      '-hls_list_size', String(HLS_LIST_SIZE),
       '-hls_segment_type', 'mpegts',
       '-hls_flags', 'delete_segments+append_list+independent_segments',
       '-hls_segment_filename', segmentPattern,
 
-      // Force keyframe alignment at segment boundaries
+      // Force keyframe alignment at segment boundaries. Time-based (not
+      // frame-count-based like `-g`/`-keyint_min`) so it stays correct
+      // regardless of the source's frame rate.
       '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
 
       // Output playlist
       playlistPath,
     ];
+  }
 
+  private spawnProcess(hw: HardwareEncoder | null): void {
+    fs.mkdirSync(this.outputDir, { recursive: true });
+
+    const args = this.buildArgs(hw);
     const proc = spawn(FFMPEG_PATH, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -123,20 +192,37 @@ export class TranscodeVariant extends EventEmitter {
     proc.on('error', (err) => {
       this._isRunning = false;
       this.stopWatcher();
-      this.emit('error', err);
+      this.handleFailure(hw, err);
     });
 
     proc.on('exit', (code, signal) => {
       this._isRunning = false;
       this.stopWatcher();
       if (code !== 0 && signal !== 'SIGTERM') {
-        this.emit('error', new Error(`FFmpeg exited with code ${code}, signal ${signal}`));
+        this.handleFailure(hw, new Error(`FFmpeg exited with code ${code}, signal ${signal}`));
+        return;
       }
       this.emit('exit', code, signal);
     });
 
     // Watch for the first .ts segment to appear → emit 'ready'
     this.watchForFirstSegment();
+  }
+
+  /**
+   * If a hardware-encoded attempt fails before ever becoming ready, retry
+   * once via the plain CPU path instead of surfacing the error — hardware
+   * detection can still be wrong (permissions, half-supported drivers), and
+   * this must never break playback for it. Only ever retries once.
+   */
+  private handleFailure(hw: HardwareEncoder | null, err: Error): void {
+    if (hw !== null && !this._isReady && !this.hwFallbackAttempted) {
+      this.hwFallbackAttempted = true;
+      console.error(`[transcode:${this.resolution}] Hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
+      this.spawnProcess(null);
+      return;
+    }
+    this.emit('error', err);
   }
 
   /**
@@ -158,8 +244,11 @@ export class TranscodeVariant extends EventEmitter {
   }
 
   /**
-   * Manages the rolling cache and throttles FFmpeg.
-   * Deletes old segments and suspends/resumes FFmpeg to cap disk/cpu usage.
+   * Throttles FFmpeg based on how far ahead of the playhead it's encoded.
+   * Segment file deletion/rotation is handled natively by ffmpeg itself now
+   * (`-hls_list_size` + `hls_flags delete_segments`), so this only needs to
+   * manage the SIGSTOP/SIGCONT throttle to cap CPU/disk use when a viewer is
+   * paused or lagging far behind the live edge.
    */
   manageCache(currentPlayhead: number): void {
     if (!this._isReady) return;
@@ -175,18 +264,8 @@ export class TranscodeVariant extends EventEmitter {
         if (match) {
           const index = parseInt(match[1], 10);
           const segmentTime = this.startPosition + (index * SEGMENT_DURATION);
-          
           if (segmentTime > newestSegmentTime) {
             newestSegmentTime = segmentTime;
-          }
-
-          // Prune segments > 60 seconds behind the playhead
-          if (segmentTime + SEGMENT_DURATION < currentPlayhead - 60) {
-            try {
-              fs.unlinkSync(path.join(this.outputDir, file));
-            } catch (err) {
-              console.error(`Failed to delete old segment ${file}:`, err);
-            }
           }
         }
       }
@@ -194,7 +273,7 @@ export class TranscodeVariant extends EventEmitter {
       // Throttle FFmpeg based on how far ahead it is
       if (this.process && this._isRunning) {
         const aheadBy = newestSegmentTime - currentPlayhead;
-        
+
         if (aheadBy > 180 && !this._isSuspended) {
           console.log(`[transcode:${this.resolution}] Suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGSTOP');

@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { Resolution, TranscodeErrorCallback } from './types';
+import { TranscodeErrorCallback } from './types';
 import { TranscodeSession } from './session';
 import { CACHE_DIR } from './config';
-import { roomStore } from '../room/store';
 
 /**
  * Singleton manager for the active transcoding session.
@@ -11,20 +10,15 @@ import { roomStore } from '../room/store';
  * Only one media file can be actively transcoding at a time (matching the
  * single-room model). When a new media file is selected, the old session
  * is stopped and its FFmpeg processes are killed.
+ *
+ * This class has no knowledge of "the room" or "the current playhead" — the
+ * consuming app is responsible for calling `manageActiveCaches(playhead)` on
+ * whatever schedule it wants, passing in whatever it considers the current
+ * playback position to be.
  */
 class TranscodeSessionManagerImpl {
   private currentSession: TranscodeSession | null = null;
   private errorCallbacks: TranscodeErrorCallback[] = [];
-
-  constructor() {
-    // Background loop to manage cache sizes and throttle FFmpeg
-    setInterval(() => {
-      if (this.currentSession) {
-        const playhead = roomStore.getCurrentPosition();
-        this.manageActiveCaches(playhead);
-      }
-    }, 5000);
-  }
 
   /**
    * Starts a new transcoding session for the given media file.
@@ -64,10 +58,10 @@ class TranscodeSessionManagerImpl {
     return this.currentSession;
   }
 
-
-
   /**
    * Manages the rolling cache and FFmpeg throttling for the active session.
+   * The caller owns scheduling (e.g. a `setInterval`) and supplying the
+   * current playhead position.
    */
   manageActiveCaches(currentPlayhead: number): void {
     if (this.currentSession) {

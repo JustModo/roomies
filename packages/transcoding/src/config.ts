@@ -32,8 +32,26 @@ export const RESOLUTION_PRESETS: Record<Resolution, ResolutionConfig> = {
   },
 };
 
-/** Duration of each HLS segment in seconds. */
-export const SEGMENT_DURATION = 4;
+/**
+ * Duration of each HLS segment in seconds. Kept short (2s) for low-latency
+ * live transcoding — everyone in a party watches at the same live position,
+ * so there's no benefit to longer segments the way there is for VOD.
+ */
+export const SEGMENT_DURATION = 2;
+
+/**
+ * Number of segments kept in the HLS playlist at once (rolling live window).
+ * Combined with `hls_flags delete_segments`, ffmpeg natively rotates the
+ * playlist and deletes old segment files itself — no manual pruning needed.
+ */
+export const HLS_LIST_SIZE = 10;
+
+/**
+ * Upper bound on concurrent FFmpeg variant processes per session. Matches the
+ * fixed 3-resolution preset set today — a guardrail so a future expansion of
+ * `RESOLUTION_PRESETS` can't silently spawn an unbounded number of processes.
+ */
+export const MAX_CONCURRENT_VARIANTS = 3;
 
 /** Path to the ffmpeg binary (overridable via env). */
 export const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';

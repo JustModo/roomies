@@ -1,5 +1,4 @@
 import { ChildProcess } from 'child_process';
-import { EventEmitter } from 'events';
 
 /**
  * Supported output resolutions for HLS transcoding.
@@ -34,3 +33,6 @@ export interface VariantState {
  * Callback signature for transcoding error events.
  */
 export type TranscodeErrorCallback = (resolution: Resolution, error: Error) => void;
+
+/** Detected hardware encoder backend, or 'cpu' if none is usable. */
+export type HardwareEncoder = 'vaapi' | 'nvenc' | 'qsv' | 'cpu';
