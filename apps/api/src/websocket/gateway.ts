@@ -20,7 +20,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
     method: 'GET',
     url: '/ws',
     handler: (req, reply) => {
-      app.log.warn({ headers: req.headers, query: req.query }, 'Received HTTP GET on /ws instead of WebSocket Upgrade');
+      console.warn('Received HTTP GET on /ws instead of WebSocket Upgrade', { headers: req.headers, query: req.query });
       reply.status(400).send({ error: 'WebSocket upgrade required' });
     },
     wsHandler: async (connection, req) => {
@@ -28,7 +28,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
       const userPayload = authenticateWebSocket(req);
 
       if (!userPayload) {
-        app.log.warn({ query: req.query, headers: req.headers }, 'WS Unauthorized');
+        console.warn('WS Unauthorized', { query: req.query, headers: req.headers });
         connection.send(JSON.stringify({ error: 'Unauthorized' }));
         connection.close();
         return;
@@ -39,7 +39,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
 
       const ctx: SocketContext = { app, socket: connection, userId, username, socketId };
 
-      app.log.info({ userId, socketId }, 'User connected via WebSocket');
+      console.log('User connected via WebSocket', { userId, socketId });
 
       // Add socket to the global room
       app.room.add(connection);
@@ -54,13 +54,13 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
           const parsedData = IncomingSocketMessageSchema.safeParse(rawData);
 
           if (!parsedData.success) {
-            app.log.warn({ errors: parsedData.error }, 'Invalid WS message format');
+            console.warn('Invalid WS message format', { errors: parsedData.error });
             return;
           }
 
           await dispatchSocketEvent(parsedData.data.event, parsedData.data.payload, ctx);
         } catch (e) {
-          app.log.error(e, 'Failed to parse WS message JSON');
+          console.error('Failed to parse WS message JSON', e);
         }
       };
 
@@ -69,7 +69,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
 
       // 4. Handle disconnect
       connection.on('close', async () => {
-        app.log.info({ userId, socketId }, 'User disconnected from WebSocket');
+        console.log('User disconnected from WebSocket', { userId, socketId });
 
         // Remove socket from the global room
         app.room.delete(connection);

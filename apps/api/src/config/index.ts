@@ -12,7 +12,7 @@ export const Config = {
  * race safely: only one write wins, and every instance reads back the same
  * persisted value instead of each generating its own.
  */
-const loadOrCreateSecret = async (key: string, log: any): Promise<string> => {
+const loadOrCreateSecret = async (key: string): Promise<string> => {
   const generated = randomBytes(64).toString('hex');
 
   const config = await prisma.serverConfig.upsert({
@@ -21,13 +21,13 @@ const loadOrCreateSecret = async (key: string, log: any): Promise<string> => {
     create: { key, value: generated },
   });
 
-  log.info(config.value === generated ? `Generated new ${key} and saved to database.` : `Loaded ${key} from database.`);
+  console.log(config.value === generated ? `Generated new ${key} and saved to database.` : `Loaded ${key} from database.`);
   return config.value;
 };
 
-export const initializeConfig = async (log: any) => {
-  log.info('Initializing server configuration...');
+export const initializeConfig = async () => {
+  console.log('Initializing server configuration...');
 
-  Config.JWT_SECRET = await loadOrCreateSecret('JWT_SECRET', log);
-  Config.JWT_REFRESH_SECRET = await loadOrCreateSecret('JWT_REFRESH_SECRET', log);
+  Config.JWT_SECRET = await loadOrCreateSecret('JWT_SECRET');
+  Config.JWT_REFRESH_SECRET = await loadOrCreateSecret('JWT_REFRESH_SECRET');
 };

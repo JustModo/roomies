@@ -5,7 +5,7 @@ import { chatStore } from './store';
 type ChatPayload = Extract<IncomingSocketMessage, { event: 'chat.send' }>['payload'];
 
 export const handleClientChat = async (payload: ChatPayload, ctx: SocketContext) => {
-  ctx.app.log.info({ userId: ctx.userId, message: payload.message }, 'Feature: Chat event received');
+  console.log('Feature: Chat event received', { userId: ctx.userId, message: payload.message });
 
   const timestamp = new Date();
 

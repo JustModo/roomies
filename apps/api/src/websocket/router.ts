@@ -29,9 +29,9 @@ export const dispatchSocketEvent = async (
     if (handler) {
       await handler(payload, ctx);
     } else {
-      ctx.app.log.warn({ event }, 'No handler implemented for socket event');
+      console.warn('No handler implemented for socket event', { event });
     }
   } catch (err) {
-    ctx.app.log.error({ err, event }, 'Error handling socket event');
+    console.error('Error handling socket event', { err, event });
   }
 };

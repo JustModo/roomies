@@ -44,11 +44,11 @@ export const bootstrap = async (app: FastifyInstance) => {
   // 2. Connect Database & Config
   try {
     await prisma.$connect();
-    app.log.info('Connected to SQLite via Prisma');
+    console.log('Connected to SQLite via Prisma');
 
-    await initializeConfig(app.log);
+    await initializeConfig();
   } catch (err) {
-    app.log.error(err, 'Database connection failed');
+    console.error('Database connection failed', err);
     process.exit(1);
   }
 
@@ -57,7 +57,7 @@ export const bootstrap = async (app: FastifyInstance) => {
   // the error to all connected clients in the room so the player UI
   // can react (e.g. fall back to another quality, show an error message).
   TranscodeSessionManager.onError((resolution, error) => {
-    app.log.error({ resolution, error: error.message }, 'Transcoding variant error');
+    console.error('Transcoding variant error', { resolution, error: error.message });
     SocketEmitter.broadcastToRoom(app, {
       event: 'error',
       payload: {
