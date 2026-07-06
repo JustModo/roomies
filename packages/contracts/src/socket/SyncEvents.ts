@@ -11,14 +11,11 @@ export const ClientSyncHeartbeatSchema = z.object({
   }),
 });
 
-export const ClientSyncBufferingSchema = z.object({
-  event: z.literal('sync.buffering'),
-  payload: z.object({}),
-});
-
-export const ClientSyncBufferedSchema = z.object({
-  event: z.literal('sync.buffered'),
-  payload: z.object({}),
+export const ClientSyncStatusSchema = z.object({
+  event: z.literal('sync.status'),
+  payload: z.object({
+    status: z.enum(['ready', 'buffering']),
+  }),
 });
 
 // Server -> Client
@@ -31,12 +28,10 @@ export const ServerSyncCorrectSchema = z.object({
   }),
 });
 
-export const ServerSyncWaitSchema = z.object({
-  event: z.literal('sync.wait'),
-  payload: z.object({}),
-});
-
-export const ServerSyncResumeSchema = z.object({
-  event: z.literal('sync.resume'),
-  payload: z.object({}),
+export const ServerUserStatusChangedSchema = z.object({
+  event: z.literal('user.status_changed'),
+  payload: z.object({
+    userId: z.string(),
+    status: z.enum(['ready', 'buffering']),
+  }),
 });

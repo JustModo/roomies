@@ -1,19 +1,31 @@
 import { z } from 'zod';
 
 import {
-  ClientRoomJoinSchema, ClientRoomLeaveSchema, ClientRoomReadySchema, ClientRoomNotReadySchema,
-  ServerRoomStateSchema, ServerUserJoinedSchema, ServerUserLeftSchema, ServerUserReadyChangedSchema
+  ClientRoomJoinSchema,
+  ClientRoomLeaveSchema,
+  ServerRoomStateSchema,
+  ServerUserJoinedSchema,
+  ServerUserLeftSchema,
 } from './RoomEvents';
+
+import {
+  ClientSyncHeartbeatSchema,
+  ClientSyncStatusSchema,
+  ServerSyncCorrectSchema,
+  ServerUserStatusChangedSchema,
+} from './SyncEvents';
+
+export {
+  ClientSyncHeartbeatSchema,
+  ClientSyncStatusSchema,
+  ServerSyncCorrectSchema,
+  ServerUserStatusChangedSchema,
+};
 
 import {
   ClientPlaybackPlaySchema, ClientPlaybackPauseSchema, ClientPlaybackSeekSchema, ClientPlaybackSetRateSchema,
   ServerPlaybackStateSchema, ServerMediaChangedSchema
 } from './PlaybackEvents';
-
-import {
-  ClientSyncHeartbeatSchema, ClientSyncBufferingSchema, ClientSyncBufferedSchema,
-  ServerSyncCorrectSchema, ServerSyncWaitSchema, ServerSyncResumeSchema
-} from './SyncEvents';
 
 import {
   ClientChatSendSchema, ServerChatMessageSchema
@@ -29,12 +41,12 @@ export * from './SyncEvents';
 export * from './ChatEvents';
 export * from './ErrorEvents';
 
+// duplicate imports removed
+
 export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   // Room
   ClientRoomJoinSchema,
   ClientRoomLeaveSchema,
-  ClientRoomReadySchema,
-  ClientRoomNotReadySchema,
 
   // Playback (media change is now HTTP-only, not a socket event)
   ClientPlaybackPlaySchema,
@@ -44,8 +56,7 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
 
   // Sync
   ClientSyncHeartbeatSchema,
-  ClientSyncBufferingSchema,
-  ClientSyncBufferedSchema,
+  ClientSyncStatusSchema,
 
   // Chat
   ClientChatSendSchema,
@@ -56,7 +67,6 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerRoomStateSchema,
   ServerUserJoinedSchema,
   ServerUserLeftSchema,
-  ServerUserReadyChangedSchema,
 
   // Playback
   ServerPlaybackStateSchema,
@@ -64,8 +74,7 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
 
   // Sync
   ServerSyncCorrectSchema,
-  ServerSyncWaitSchema,
-  ServerSyncResumeSchema,
+  ServerUserStatusChangedSchema,
 
   // Chat
   ServerChatMessageSchema,

@@ -52,13 +52,13 @@ export function useRoomSync() {
           hlsUrl: msg.payload.hlsUrl,
           duration: msg.payload.duration,
         });
-      } else if (msg.event === 'user.ready_changed') {
+      } else if (msg.event === 'user.status_changed') {
         setRoomState((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
             members: prev.members.map(m => 
-              m.userId === msg.payload.userId ? { ...m, ready: msg.payload.ready } : m
+              m.userId === msg.payload.userId ? { ...m, status: msg.payload.status } : m
             )
           };
         });
@@ -74,16 +74,6 @@ export function useRoomSync() {
         console.warn(`[SYNC] Forcing local time from ${localTimeRef.current.toFixed(2)} to ${msg.payload.position.toFixed(2)}`);
         setLocalTime(msg.payload.position);
         localTimeRef.current = msg.payload.position;
-      } else if (msg.event === 'sync.wait') {
-        setRoomState((prev) => {
-          if (!prev) return prev;
-          return { ...prev, playback: { ...prev.playback, state: 'buffering' } };
-        });
-      } else if (msg.event === 'sync.resume') {
-        setRoomState((prev) => {
-          if (!prev) return prev;
-          return { ...prev, playback: { ...prev.playback, state: 'playing', anchorTime: Date.now() } };
-        });
       }
     });
 
@@ -135,20 +125,8 @@ export function useRoomSync() {
     localTimeRef.current = position;
   }, [sendMessage]);
 
-  const ready = useCallback(() => {
-    sendMessage({ event: 'room.ready', payload: {} });
-  }, [sendMessage]);
-
-  const notReady = useCallback(() => {
-    sendMessage({ event: 'room.not_ready', payload: {} });
-  }, [sendMessage]);
-
-  const buffering = useCallback(() => {
-    sendMessage({ event: 'sync.buffering', payload: {} });
-  }, [sendMessage]);
-
-  const buffered = useCallback(() => {
-    sendMessage({ event: 'sync.buffered', payload: {} });
+  const setStatus = useCallback((status: 'ready' | 'buffering') => {
+    sendMessage({ event: 'sync.status', payload: { status } });
   }, [sendMessage]);
 
   const setRate = useCallback((rate: number) => {
@@ -164,10 +142,7 @@ export function useRoomSync() {
     pause,
     seek,
     setRate,
-    ready,
-    notReady,
-    buffering,
-    buffered,
+    setStatus,
     sendMessage,
     addMessageHandler
   };

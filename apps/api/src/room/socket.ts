@@ -10,13 +10,7 @@ export const registerRoomSocketEvents = () => {
     await RoomService.handleLeave(payload, ctx);
   });
 
-  registerSocketEvent('room.ready', async (payload: any, ctx: SocketContext) => {
-    await RoomService.handleReady(payload, ctx);
-  });
-
-  registerSocketEvent('room.not_ready', async (payload: any, ctx: SocketContext) => {
-    await RoomService.handleNotReady(payload, ctx);
-  });
+  // Removed room.ready and room.not_ready
 
   // Handle internal disconnect event
   registerSocketEvent('system.disconnect', async (_payload: any, ctx: SocketContext) => {

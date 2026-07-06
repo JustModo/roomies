@@ -6,11 +6,7 @@ export const registerSyncSocketEvents = () => {
     await SyncService.handleHeartbeat(payload, ctx);
   });
 
-  registerSocketEvent('sync.buffering', async (payload: any, ctx: SocketContext) => {
-    await SyncService.handleBuffering(payload, ctx);
-  });
-
-  registerSocketEvent('sync.buffered', async (payload: any, ctx: SocketContext) => {
-    await SyncService.handleBuffered(payload, ctx);
+  registerSocketEvent('sync.status', async (payload: any, ctx: SocketContext) => {
+    await SyncService.handleStatus(payload, ctx);
   });
 };

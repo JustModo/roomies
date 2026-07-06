@@ -5,16 +5,14 @@ import { SocketEmitter } from '../websocket/emitter';
 
 type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
 type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>['payload'];
-type RoomReadyPayload = Extract<IncomingSocketMessage, { event: 'room.ready' }>['payload'];
-type RoomNotReadyPayload = Extract<IncomingSocketMessage, { event: 'room.not_ready' }>['payload'];
+// Removed ready/not_ready payloads
 
 export class RoomService {
   static async handleJoin(payload: RoomJoinPayload, ctx: SocketContext) {
     roomStore.addMember({
       username: ctx.username,
       userId: ctx.userId,
-      ready: false,
-      buffering: false,
+      status: 'buffering',
       position: 0,
     });
 
@@ -33,21 +31,5 @@ export class RoomService {
     });
   }
 
-  static async handleReady(payload: RoomReadyPayload, ctx: SocketContext) {
-    roomStore.updateMember(ctx.userId, { ready: true });
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'user.ready_changed',
-      payload: { userId: ctx.userId, ready: true }
-    });
-  }
-
-  static async handleNotReady(payload: RoomNotReadyPayload, ctx: SocketContext) {
-    roomStore.updateMember(ctx.userId, { ready: false });
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'user.ready_changed',
-      payload: { userId: ctx.userId, ready: false }
-    });
-  }
+  // Removed handleReady and handleNotReady
 }

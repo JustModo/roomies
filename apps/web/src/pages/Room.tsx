@@ -20,10 +20,7 @@ export default function Room() {
     pause,
     seek,
     setRate,
-    ready,
-    notReady,
-    buffering,
-    buffered,
+    setStatus,
     sendMessage,
   } = useRoomSync();
 
@@ -50,10 +47,7 @@ export default function Room() {
         onPause={pause}
         onSeek={seek}
         onSetRate={setRate}
-        onReady={ready}
-        onNotReady={notReady}
-        onBuffering={buffering}
-        onBuffered={buffered}
+        onStatusChange={setStatus}
       >
         <div className="flex justify-between items-center px-4 py-3 bg-gradient-to-b from-ink/80 to-transparent">
           <button onClick={handleExit} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">

@@ -11,15 +11,7 @@ export const ClientRoomLeaveSchema = z.object({
   payload: z.object({}),
 });
 
-export const ClientRoomReadySchema = z.object({
-  event: z.literal('room.ready'),
-  payload: z.object({}),
-});
-
-export const ClientRoomNotReadySchema = z.object({
-  event: z.literal('room.not_ready'),
-  payload: z.object({}),
-});
+// Removed ready/not_ready in favor of sync.status
 
 // Server -> Client
 export const ServerRoomStateSchema = z.object({
@@ -39,8 +31,7 @@ export const ServerRoomStateSchema = z.object({
       members: z.array(z.object({
         userId: z.string(),
         username: z.string(),
-        ready: z.boolean(),
-        buffering: z.boolean(),
+        status: z.enum(['ready', 'buffering']),
         position: z.number(),
       })),
     })
@@ -62,10 +53,4 @@ export const ServerUserLeftSchema = z.object({
   }),
 });
 
-export const ServerUserReadyChangedSchema = z.object({
-  event: z.literal('user.ready_changed'),
-  payload: z.object({
-    userId: z.string(),
-    ready: z.boolean(),
-  }),
-});
+// Removed user.ready_changed in favor of user.status_changed

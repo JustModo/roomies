@@ -4,8 +4,7 @@ import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 
 type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'sync.heartbeat' }>['payload'];
-type BufferingPayload = Extract<IncomingSocketMessage, { event: 'sync.buffering' }>['payload'];
-type BufferedPayload = Extract<IncomingSocketMessage, { event: 'sync.buffered' }>['payload'];
+type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['payload'];
 
 const DRIFT_THRESHOLD_MS = 2000;
 
@@ -36,29 +35,32 @@ export class SyncService {
     roomStore.updateMember(ctx.userId, { position: payload.position });
   }
 
-  static async handleBuffering(payload: BufferingPayload, ctx: SocketContext) {
-    roomStore.updateMember(ctx.userId, { buffering: true });
-    roomStore.setPlaybackState('buffering');
-    
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'sync.wait',
-      payload: {}
-    });
-  }
+  static async handleStatus(payload: StatusPayload, ctx: SocketContext) {
+    roomStore.updateMember(ctx.userId, { status: payload.status });
 
-  static async handleBuffered(payload: BufferedPayload, ctx: SocketContext) {
-    roomStore.updateMember(ctx.userId, { buffering: false });
+    SocketEmitter.broadcastToRoom(ctx.app, {
+      event: 'user.status_changed',
+      payload: { userId: ctx.userId, status: payload.status }
+    });
     
     const state = roomStore.getState();
-    const anyoneBuffering = state.members.some(m => m.buffering);
+    const anyoneBuffering = state.members.some(m => m.status === 'buffering');
     
-    // Only resume to playing if the current state is buffering.
-    // If the state is paused (user paused during buffering), stay paused.
-    if (!anyoneBuffering && state.playback.state === 'buffering') {
+    // If anyone is buffering, we MUST wait
+    if (anyoneBuffering && state.playback.state === 'playing') {
+      roomStore.setPlaybackState('waiting');
+      SocketEmitter.broadcastToRoom(ctx.app, {
+        event: 'playback.state',
+        payload: roomStore.getState().playback
+      });
+    }
+    
+    // If NO ONE is buffering, and we were waiting, we can resume playing
+    if (!anyoneBuffering && state.playback.state === 'waiting') {
       roomStore.setPlaybackState('playing');
       SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'sync.resume',
-        payload: {}
+        event: 'playback.state',
+        payload: roomStore.getState().playback
       });
     }
   }

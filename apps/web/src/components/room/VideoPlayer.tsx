@@ -12,10 +12,7 @@ export interface VideoPlayerProps {
   onPause: () => void;
   onSeek: (position: number) => void;
   onSetRate: (rate: number) => void;
-  onReady: () => void;
-  onNotReady: () => void;
-  onBuffering: () => void;
-  onBuffered: () => void;
+  onStatusChange: (status: 'ready' | 'buffering') => void;
   children?: React.ReactNode; // Used for inserting top bar UI over the player
 }
 
@@ -27,10 +24,7 @@ export function VideoPlayer({
   onPause,
   onSeek,
   onSetRate,
-  onReady,
-  onNotReady,
-  onBuffering,
-  onBuffered,
+  onStatusChange,
   children
 }: VideoPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -63,7 +57,7 @@ export function VideoPlayer({
       hlsRef.current = null;
     }
 
-    onNotReady();
+    onStatusChange('buffering');
     setLevels([]);
     setCurrentLevel(-1);
 
@@ -84,7 +78,7 @@ export function VideoPlayer({
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         setLevels(data.levels);
-        onReady();
+        onStatusChange('ready');
         if (roomPlaybackState?.state === 'playing') {
           videoRef.current?.play().catch(console.error);
           setIsPlaying(true);
@@ -115,7 +109,7 @@ export function VideoPlayer({
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
       videoRef.current.src = mediaInfo.hlsUrl;
       videoRef.current.addEventListener('loadedmetadata', () => {
-        onReady();
+        onStatusChange('ready');
       }, { once: true });
     }
   }, [mediaInfo?.hlsUrl]);
@@ -191,8 +185,8 @@ export function VideoPlayer({
 
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
-    const handleWaiting = () => onBuffering();
-    const handlePlaying = () => onBuffered();
+    const handleWaiting = () => onStatusChange('buffering');
+    const handlePlaying = () => onStatusChange('ready');
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('progress', onProgress);
@@ -209,7 +203,7 @@ export function VideoPlayer({
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('playing', handlePlaying);
     };
-  }, [onBuffering, onBuffered, isDragging]);
+  }, [onStatusChange, isDragging]);
 
   // Scrubbing Logic
   const updateDragProgress = (clientX: number) => {
