@@ -24,6 +24,14 @@ services:
     # No host port published: all traffic must route through Caddy (80/443),
     # which is the only public entrypoint. Use `docker compose exec api sh`
     # or `docker compose logs -f api` for local debugging instead.
+    #
+    # Optional: hardware-accelerated transcoding (VAAPI). Only uncomment on a
+    # host with an Intel/AMD GPU exposing /dev/dri — without this, hwaccel
+    # detection safely reports "cpu" and transcoding behaves exactly as
+    # before. Toggle HWACCEL_MODE (auto/cpu) from the Admin Overlay's
+    # SETTINGS tab; "auto" only takes effect once this device is passed in.
+    # devices:
+    #   - /dev/dri:/dev/dri
 
   web:
     build:

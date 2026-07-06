@@ -1,9 +1,17 @@
 # ---- Base Stage ----
-FROM node:22-alpine AS base
+# Debian-slim rather than Alpine: Debian's ffmpeg package is built with VAAPI
+# support, which Alpine's is not, so hardware-accelerated encoding
+# (packages/transcoding/src/hwaccel.ts) can actually activate on hosts with a
+# VAAPI-capable GPU and /dev/dri passed through (see docker-compose.yml).
+# NVENC/QSV still won't work here — those need proprietary headers Debian's
+# default build doesn't ship — hwaccel detection safely falls back to CPU.
+FROM node:22-bookworm-slim AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
-# python3/make/g++ are required to compile better-sqlite3's native binding on
-# musl libc (alpine), which usually has no prebuilt binary available.
-RUN apk add --no-cache libc6-compat openssl ffmpeg python3 make g++
+# python3/make/g++ are required to compile better-sqlite3's native binding if
+# no prebuilt binary is available for this platform.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg openssl ca-certificates python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 # ---- Pruner Stage ----
 FROM base AS pruner
