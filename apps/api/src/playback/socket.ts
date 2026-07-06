@@ -14,10 +14,6 @@ export const registerPlaybackSocketEvents = () => {
     await PlaybackService.handleSeek(payload, ctx);
   });
 
-  registerSocketEvent('playback.change_media', async (payload: any, ctx: SocketContext) => {
-    await PlaybackService.handleChangeMedia(payload, ctx);
-  });
-
   registerSocketEvent('playback.set_rate', async (payload: any, ctx: SocketContext) => {
     await PlaybackService.handleSetRate(payload, ctx);
   });

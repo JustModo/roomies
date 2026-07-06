@@ -18,13 +18,6 @@ export const ClientPlaybackSeekSchema = z.object({
   }),
 });
 
-export const ClientPlaybackChangeMediaSchema = z.object({
-  event: z.literal('playback.change_media'),
-  payload: z.object({
-    mediaUrl: z.string(),
-  }),
-});
-
 export const ClientPlaybackSetRateSchema = z.object({
   event: z.literal('playback.set_rate'),
   payload: z.object({
@@ -40,5 +33,14 @@ export const ServerPlaybackStateSchema = z.object({
     anchorPosition: z.number(),
     anchorTime: z.number(),
     playbackRate: z.number(),
+  }),
+});
+
+export const ServerMediaChangedSchema = z.object({
+  event: z.literal('media.changed'),
+  payload: z.object({
+    mediaFileId: z.string(),
+    title: z.string(),
+    hlsUrl: z.string(),
   }),
 });

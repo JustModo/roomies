@@ -7,12 +7,15 @@ import { authRoutes } from '../auth';
 import { userRoutes } from '../users';
 import { libraryRoutes } from '../library';
 import { chatRoutes } from '../chat';
+import { playbackRoutes } from '../playback/routes';
 import { initializeConfig } from '../config';
 import { registerChatSocketEvents } from '../chat/socket';
 import { registerPlaybackSocketEvents } from '../playback/socket';
 import { registerRoomSocketEvents } from '../room/socket';
 import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
+import { TranscodeSessionManager } from '../transcoding';
+import { SocketEmitter } from '../websocket/emitter';
 
 export const bootstrap = async (app: FastifyInstance) => {
   // 1. Register Plugins
@@ -53,7 +56,16 @@ export const bootstrap = async (app: FastifyInstance) => {
   // When an FFmpeg variant process crashes during a live session, broadcast
   // the error to all connected clients in the room so the player UI
   // can react (e.g. fall back to another quality, show an error message).
-  // TODO
+  TranscodeSessionManager.onError((resolution, error) => {
+    app.log.error({ resolution, error: error.message }, 'Transcoding variant error');
+    SocketEmitter.broadcastToRoom(app, {
+      event: 'error',
+      payload: {
+        message: `Transcoding error for ${resolution}: ${error.message}`,
+        code: 'TRANSCODE_ERROR',
+      },
+    });
+  });
 
   // 4. Register Global Hooks & Gateway
   registerChatSocketEvents();
@@ -65,15 +77,14 @@ export const bootstrap = async (app: FastifyInstance) => {
   setupWebsocketGateway(app);
 
   // 5. Register Routes
-  // Note: /api/transcoding routes are removed — transcoding is now an
-  // internal service triggered by the playback module, not an HTTP API.
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(userRoutes, { prefix: '/api/users' });
   await app.register(libraryRoutes, { prefix: '/api/library' });
   await app.register(chatRoutes, { prefix: '/api/chat' });
+  await app.register(playbackRoutes, { prefix: '/api/playback' });
 
   // 6. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {
-    // await TranscodeSessionManager.stopSession();
+    TranscodeSessionManager.stopSession();
   });
 };

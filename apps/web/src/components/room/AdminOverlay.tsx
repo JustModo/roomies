@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import { X } from 'lucide-react';
 import { IconButton } from '../ui/IconButton';
 import { Input } from '../ui/Input';
@@ -190,7 +190,7 @@ const UsersTab = () => {
 const MediaTab = ({ onClose }: { onClose: () => void }) => {
   const [media, setMedia] = useState<any[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const navigate = useNavigate();
+
 
   const fetchLibrary = () => {
     fetch('/api/library', {
@@ -232,7 +232,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
 
   const handleStart = async (mediaId: string) => {
     try {
-      const res = await fetch('/api/playback/start', {
+      const res = await fetch('/api/playback/change-media', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -241,13 +241,10 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
         body: JSON.stringify({ mediaFileId: mediaId })
       });
       if (!res.ok) {
-        throw new Error('Failed to start playback');
+        throw new Error('Failed to change media');
       }
-      const data = await res.json();
+      // Close the overlay — the media.changed socket event will update the player
       onClose();
-      if (data.partyId) {
-        navigate(`/room`);
-      }
     } catch (err) {
       console.error(err);
     }

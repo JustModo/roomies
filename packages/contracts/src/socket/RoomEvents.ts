@@ -26,8 +26,9 @@ export const ServerRoomStateSchema = z.object({
   event: z.literal('room.state'),
   payload: z.object({
     room: z.object({
-      id: z.string().optional(),
-      mediaUrl: z.string().optional(),
+      mediaId: z.string().optional(),
+      mediaTitle: z.string().optional(),
+      hlsUrl: z.string().optional(),
       duration: z.number().optional(),
       playback: z.object({
         state: z.enum(['waiting', 'playing', 'paused', 'buffering']),

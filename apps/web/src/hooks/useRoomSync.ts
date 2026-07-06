@@ -4,9 +4,16 @@ import { OutgoingSocketMessage } from '@roomies/contracts';
 
 export type RoomState = Extract<OutgoingSocketMessage, { event: 'room.state' }>['payload']['room'];
 
+export interface MediaInfo {
+  mediaFileId: string;
+  title: string;
+  hlsUrl: string;
+}
+
 export function useRoomSync() {
   const { isConnected, sendMessage, addMessageHandler } = useWebSocket();
   const [roomState, setRoomState] = useState<RoomState | null>(null);
+  const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
 
   // We maintain a local "simulated" position for the player
   const [localTime, setLocalTime] = useState(0);
@@ -19,6 +26,15 @@ export function useRoomSync() {
         setRoomState(msg.payload.room);
         setLocalTime(msg.payload.room.playback.anchorPosition);
         localTimeRef.current = msg.payload.room.playback.anchorPosition;
+
+        // Sync media info from room state
+        if (msg.payload.room.mediaId && msg.payload.room.hlsUrl) {
+          setMediaInfo({
+            mediaFileId: msg.payload.room.mediaId,
+            title: msg.payload.room.mediaTitle || '',
+            hlsUrl: msg.payload.room.hlsUrl,
+          });
+        }
       } else if (msg.event === 'playback.state') {
         setRoomState((prev) => {
           if (!prev) return prev;
@@ -26,6 +42,13 @@ export function useRoomSync() {
         });
         setLocalTime(msg.payload.anchorPosition);
         localTimeRef.current = msg.payload.anchorPosition;
+      } else if (msg.event === 'media.changed') {
+        // Server has changed the media — update media info
+        setMediaInfo({
+          mediaFileId: msg.payload.mediaFileId,
+          title: msg.payload.title,
+          hlsUrl: msg.payload.hlsUrl,
+        });
       } else if (msg.event === 'user.ready_changed') {
         setRoomState((prev) => {
           if (!prev) return prev;
@@ -113,6 +136,10 @@ export function useRoomSync() {
     sendMessage({ event: 'room.ready', payload: {} });
   }, [sendMessage]);
 
+  const notReady = useCallback(() => {
+    sendMessage({ event: 'room.not_ready', payload: {} });
+  }, [sendMessage]);
+
   const buffering = useCallback(() => {
     sendMessage({ event: 'sync.buffering', payload: {} });
   }, [sendMessage]);
@@ -120,27 +147,19 @@ export function useRoomSync() {
   const buffered = useCallback(() => {
     sendMessage({ event: 'sync.buffered', payload: {} });
   }, [sendMessage]);
-  
-  // For testing: simulate a drift by tweaking local time without telling server
-  const simulateDrift = useCallback(() => {
-    setLocalTime(prev => {
-      const next = prev + 5; // 5 seconds ahead
-      localTimeRef.current = next;
-      return next;
-    });
-  }, []);
 
   return {
     isConnected,
     roomState,
+    mediaInfo,
     localTime,
     play,
     pause,
     seek,
     ready,
+    notReady,
     buffering,
     buffered,
-    simulateDrift,
     sendMessage,
     addMessageHandler
   };

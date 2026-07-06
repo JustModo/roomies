@@ -3,29 +3,27 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { LogOut } from 'lucide-react';
+import { fetchApi } from '../api/client';
 
 export default function Lobby() {
   const { logout } = useAuth();
   const navigate = useNavigate();
 
-  const [party, setParty] = useState<any>(null);
+  const [activePlayback, setActivePlayback] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/playback/party/active', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-    .then(res => res.json())
-    .then(data => {
-      setParty(data);
-    })
-    .catch(err => console.error(err))
-    .finally(() => setLoading(false));
+    fetchApi('/playback/active')
+      .then(data => {
+        setActivePlayback(data);
+      })
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false));
   }, []);
 
-  const status = party?.state === 'playing' ? 'WATCHING' : (party?.state === 'paused' ? 'PAUSED' : 'WAITING');
-  const viewersCount = party?.viewersCount || 0;
-  const currentMedia = party?.mediaTitle || 'Unknown';
+  const status = activePlayback?.state === 'playing' ? 'WATCHING' : (activePlayback?.state === 'paused' ? 'PAUSED' : 'WAITING');
+  const viewersCount = activePlayback?.viewersCount || 0;
+  const currentMedia = activePlayback?.mediaTitle || 'Unknown';
 
   if (loading) return <div className="min-h-screen bg-void" />;
 

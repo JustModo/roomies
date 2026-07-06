@@ -6,8 +6,8 @@ import {
 } from './RoomEvents';
 
 import {
-  ClientPlaybackPlaySchema, ClientPlaybackPauseSchema, ClientPlaybackSeekSchema, ClientPlaybackChangeMediaSchema, ClientPlaybackSetRateSchema,
-  ServerPlaybackStateSchema
+  ClientPlaybackPlaySchema, ClientPlaybackPauseSchema, ClientPlaybackSeekSchema, ClientPlaybackSetRateSchema,
+  ServerPlaybackStateSchema, ServerMediaChangedSchema
 } from './PlaybackEvents';
 
 import {
@@ -36,11 +36,10 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientRoomReadySchema,
   ClientRoomNotReadySchema,
 
-  // Playback
+  // Playback (media change is now HTTP-only, not a socket event)
   ClientPlaybackPlaySchema,
   ClientPlaybackPauseSchema,
   ClientPlaybackSeekSchema,
-  ClientPlaybackChangeMediaSchema,
   ClientPlaybackSetRateSchema,
 
   // Sync
@@ -61,6 +60,7 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
 
   // Playback
   ServerPlaybackStateSchema,
+  ServerMediaChangedSchema,
 
   // Sync
   ServerSyncCorrectSchema,

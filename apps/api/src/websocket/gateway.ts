@@ -58,7 +58,6 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
             return;
           }
 
-          app.log.info({ event: parsedData.data.event, userId }, 'Received WS event');
           await dispatchSocketEvent(parsedData.data.event, parsedData.data.payload, ctx);
         } catch (e) {
           app.log.error(e, 'Failed to parse WS message JSON');

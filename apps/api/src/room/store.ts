@@ -15,7 +15,9 @@ export interface RoomPlaybackState {
 }
 
 export interface RoomState {
-    mediaUrl: string;
+    mediaId: string;
+    mediaTitle: string;
+    hlsUrl: string;
     duration: number;
     playback: RoomPlaybackState;
     members: MemberState[];
@@ -26,7 +28,9 @@ export class RoomStore {
 
     constructor() {
         this.state = {
-            mediaUrl: '',
+            mediaId: '',
+            mediaTitle: '',
+            hlsUrl: '',
             duration: 0,
             playback: {
                 state: 'waiting',
@@ -48,8 +52,10 @@ export class RoomStore {
     /**
      * Updates the current media playing in the room.
      */
-    public updateMedia(mediaUrl: string, duration: number): void {
-        this.state.mediaUrl = mediaUrl;
+    public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number): void {
+        this.state.mediaId = mediaId;
+        this.state.mediaTitle = mediaTitle;
+        this.state.hlsUrl = hlsUrl;
         this.state.duration = duration;
     }
 
@@ -70,6 +76,17 @@ export class RoomStore {
     public setPlaybackState(status: RoomPlaybackState['state']): void {
         this.state.playback.state = status;
         this.state.playback.anchorTime = Date.now();
+    }
+
+    /**
+     * Resets all members to not ready and not buffering.
+     * Called when media changes to force a re-sync.
+     */
+    public resetAllMembers(): void {
+        for (const member of this.state.members) {
+            member.ready = false;
+            member.buffering = false;
+        }
     }
 
     public addMember(member: MemberState): void {

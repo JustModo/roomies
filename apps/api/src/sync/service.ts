@@ -52,7 +52,9 @@ export class SyncService {
     const state = roomStore.getState();
     const anyoneBuffering = state.members.some(m => m.buffering);
     
-    if (!anyoneBuffering) {
+    // Only resume to playing if the current state is buffering.
+    // If the state is paused (user paused during buffering), stay paused.
+    if (!anyoneBuffering && state.playback.state === 'buffering') {
       roomStore.setPlaybackState('playing');
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'sync.resume',

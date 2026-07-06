@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, MessageSquare, Settings2 } from 'lucide-react';
+import { ChevronLeft, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Settings2 } from 'lucide-react';
 import Hls from 'hls.js';
 import { IconButton } from '../components/ui/IconButton';
-// import { ChatSidebar } from '../components/room/ChatSidebar';
 import { AdminOverlay } from '../components/room/AdminOverlay';
 import { useRoomSync } from '../hooks/useRoomSync';
 
@@ -13,7 +12,6 @@ export default function Room() {
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [showChat, setShowChat] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [idle, setIdle] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -25,11 +23,13 @@ export default function Room() {
 
   const {
     roomState,
+    mediaInfo,
     localTime,
     play,
     pause,
     seek,
     ready,
+    notReady,
     buffering,
     buffered,
   } = useRoomSync();
@@ -40,33 +40,70 @@ export default function Room() {
     }
   }, [roomState?.members]);
 
-  // Setup HLS
+  // Setup HLS — rebuild when media changes
   useEffect(() => {
-    if (!videoRef.current || !roomState?.mediaUrl) return;
+    if (!videoRef.current || !mediaInfo?.hlsUrl) return;
+
+    // Tear down any existing HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    // Signal that we're not ready yet (new media loading)
+    notReady();
 
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
+        lowLatencyMode: false,
+        // Retry aggressively — segments appear as FFmpeg writes them
+        manifestLoadingMaxRetry: 10,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingMaxRetry: 10,
+        levelLoadingRetryDelay: 1000,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
       });
-      hls.loadSource(roomState.mediaUrl);
+
+      hls.loadSource(mediaInfo.hlsUrl);
       hls.attachMedia(videoRef.current);
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        // Manifest loaded — signal ready
         ready();
-        if (roomState.playback.state === 'playing') {
+        if (roomState?.playback.state === 'playing') {
           videoRef.current?.play().catch(console.error);
           setIsPlaying(true);
         }
       });
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          console.error('[HLS] Fatal error:', data.type, data.details);
+          // Try to recover
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+          }
+        }
+      });
+
       hlsRef.current = hls;
 
       return () => {
         hls.destroy();
+        hlsRef.current = null;
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = roomState.mediaUrl;
+      // Safari native HLS
+      videoRef.current.src = mediaInfo.hlsUrl;
+      videoRef.current.addEventListener('loadedmetadata', () => {
+        ready();
+      }, { once: true });
     }
-  }, [roomState?.mediaUrl, ready]);
+  }, [mediaInfo?.hlsUrl]);
 
   // Sync playback state from server
   useEffect(() => {
@@ -193,7 +230,7 @@ export default function Room() {
       {!isPlaying && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
           <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/80 animate-pulse">
-            HANG TIGHT!
+            {mediaInfo ? 'HANG TIGHT!' : 'NO MEDIA SELECTED'}
           </h2>
         </div>
       )}
@@ -206,7 +243,7 @@ export default function Room() {
           </button>
           
           <div className="text-14 uppercase tracking-[0.08em] flex items-center gap-2">
-            {'ROOM'} · <span className="font-mono text-14">{viewersCount}</span> WATCHING
+            {mediaInfo?.title || 'ROOM'} · <span className="font-mono text-14">{viewersCount}</span> WATCHING
           </div>
           
           <button onClick={() => setShowAdmin(true)} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">
@@ -250,12 +287,10 @@ export default function Room() {
                 document.documentElement.requestFullscreen();
               }
             }} />
-            {/* <IconButton icon={<MessageSquare size={18} strokeWidth={1.5} />} onClick={() => setShowChat(!showChat)} active={showChat} /> */}
           </div>
         </div>
       </div>
 
-      {/* <ChatSidebar isOpen={showChat} onClose={() => setShowChat(false)} viewersCount={viewersCount} /> */}
       <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} />
     </div>
   );
