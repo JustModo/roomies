@@ -8,6 +8,7 @@ export interface MediaInfo {
   mediaFileId: string;
   title: string;
   hlsUrl: string;
+  duration?: number;
 }
 
 export function useRoomSync() {
@@ -33,6 +34,7 @@ export function useRoomSync() {
             mediaFileId: msg.payload.room.mediaId,
             title: msg.payload.room.mediaTitle || '',
             hlsUrl: msg.payload.room.hlsUrl,
+            duration: msg.payload.room.duration,
           });
         }
       } else if (msg.event === 'playback.state') {
@@ -48,6 +50,7 @@ export function useRoomSync() {
           mediaFileId: msg.payload.mediaFileId,
           title: msg.payload.title,
           hlsUrl: msg.payload.hlsUrl,
+          duration: msg.payload.duration,
         });
       } else if (msg.event === 'user.ready_changed') {
         setRoomState((prev) => {
@@ -148,6 +151,10 @@ export function useRoomSync() {
     sendMessage({ event: 'sync.buffered', payload: {} });
   }, [sendMessage]);
 
+  const setRate = useCallback((rate: number) => {
+    sendMessage({ event: 'playback.set_rate', payload: { rate } });
+  }, [sendMessage]);
+
   return {
     isConnected,
     roomState,
@@ -156,6 +163,7 @@ export function useRoomSync() {
     play,
     pause,
     seek,
+    setRate,
     ready,
     notReady,
     buffering,

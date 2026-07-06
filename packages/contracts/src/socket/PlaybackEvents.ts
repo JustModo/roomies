@@ -42,5 +42,6 @@ export const ServerMediaChangedSchema = z.object({
     mediaFileId: z.string(),
     title: z.string(),
     hlsUrl: z.string(),
+    duration: z.number().optional(),
   }),
 });

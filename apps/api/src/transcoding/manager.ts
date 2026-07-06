@@ -53,16 +53,7 @@ class TranscodeSessionManagerImpl {
     return this.currentSession;
   }
 
-  /**
-   * Requests a specific resolution variant from the current session.
-   * If the variant already exists, it is reused (no duplicate encoding).
-   *
-   * Returns the HLS URL for the variant, or null if no session is active.
-   */
-  requestVariant(resolution: Resolution): string | null {
-    if (!this.currentSession) return null;
-    return this.currentSession.ensureVariant(resolution);
-  }
+
 
   /**
    * Stops the current session and kills all FFmpeg processes.

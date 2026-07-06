@@ -48,8 +48,10 @@ export class TranscodeVariant extends EventEmitter {
   /**
    * Spawns the FFmpeg process to transcode the input file into HLS segments.
    * Non-blocking — returns immediately, segments are written asynchronously.
+   * 
+   * @param startPosition The time in seconds to start transcoding from
    */
-  start(inputPath: string): void {
+  start(inputPath: string, startPosition: number = 0): void {
     if (this._isRunning) return;
 
     // Ensure the output directory exists
@@ -60,8 +62,14 @@ export class TranscodeVariant extends EventEmitter {
     const segmentPattern = path.join(this.outputDir, 'seg_%05d.ts');
 
     const args = [
+      // Fast seek (before input)
+      ...(startPosition > 0 ? ['-ss', startPosition.toString()] : []),
+      
       // Input
       '-i', inputPath,
+
+      // Preserve original timestamps so the player's internal time matches the actual media time
+      ...(startPosition > 0 ? ['-copyts'] : []),
 
       // Video encoding
       '-vf', `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`,

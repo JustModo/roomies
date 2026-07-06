@@ -60,9 +60,30 @@ export class RoomStore {
     }
 
     /**
+     * Calculates the true current position of the video based on anchor time and rate.
+     */
+    public getCurrentPosition(): number {
+        const p = this.state.playback;
+        if (p.state === 'playing') {
+            const elapsed = (Date.now() - p.anchorTime) / 1000;
+            return p.anchorPosition + (elapsed * p.playbackRate);
+        }
+        return p.anchorPosition;
+    }
+
+    /**
      * Merges partial updates into the playback state.
+     * Automatically bakes in elapsed time to anchorPosition if state/rate changes while playing.
      */
     public updatePlayback(updates: Partial<RoomPlaybackState>): void {
+        // If playing and we aren't explicitly seeking, lock in the current calculated position
+        // before applying the new state or rate.
+        if (this.state.playback.state === 'playing' && updates.anchorPosition === undefined) {
+            if (updates.state !== undefined || updates.playbackRate !== undefined) {
+                this.state.playback.anchorPosition = this.getCurrentPosition();
+            }
+        }
+
         this.state.playback = {
             ...this.state.playback,
             ...updates,
@@ -74,8 +95,7 @@ export class RoomStore {
      * and update the anchor time to now.
      */
     public setPlaybackState(status: RoomPlaybackState['state']): void {
-        this.state.playback.state = status;
-        this.state.playback.anchorTime = Date.now();
+        this.updatePlayback({ state: status, anchorTime: Date.now() });
     }
 
     /**

@@ -2,14 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
-import { RESOLUTION_PRESETS, HLS_BASE_URL } from './config';
 
 /**
  * Manages all transcoding variants for a single media file.
  *
  * Variants are created on-demand: when a client requests a specific resolution,
  * the session either returns an existing (cached) variant or spawns a new one.
- * The master playlist is regenerated each time a variant is added.
  */
 export class TranscodeSession {
   public readonly mediaFileId: string;
@@ -29,10 +27,10 @@ export class TranscodeSession {
   }
 
   /**
-   * Returns the HLS URL for the master playlist.
+   * Returns the URL to the master playlist served by the API.
    */
   get masterPlaylistUrl(): string {
-    return `${HLS_BASE_URL}/${this.mediaFileId}/master.m3u8`;
+    return `/api/playback/hls/${this.mediaFileId}/master.m3u8`;
   }
 
   /**
@@ -44,19 +42,21 @@ export class TranscodeSession {
 
   /**
    * Ensures a variant for the given resolution exists and is running.
-   * If the variant already exists (running or has cached segments), it is reused.
-   * Otherwise, a new FFmpeg process is spawned.
-   *
-   * Returns the HLS URL for the variant's stream playlist.
+   * Resolves only when the variant is ready (first segment written).
    */
-  ensureVariant(resolution: Resolution): string {
+  async ensureVariantReady(resolution: Resolution, startPosition: number = 0): Promise<void> {
     const existing = this.variants.get(resolution);
     if (existing) {
-      // Variant already exists — reuse it (cache hit)
-      return this.getVariantUrl(resolution);
+      if (existing.isReady) {
+        return;
+      }
+      // Wait for it to become ready
+      return new Promise((resolve) => {
+        existing.once('ready', resolve);
+      });
     }
 
-    // Check if cached segments exist on disk from a previous run
+    // Spawn a new FFmpeg process
     const variantDir = path.join(this.outputBaseDir, resolution);
     const variant = new TranscodeVariant(resolution, variantDir);
 
@@ -78,14 +78,13 @@ export class TranscodeSession {
     });
 
     this.variants.set(resolution, variant);
-
+    
     // Start the FFmpeg process (non-blocking)
-    variant.start(this.inputPath);
+    variant.start(this.inputPath, startPosition);
 
-    // Regenerate the master playlist to include this new variant
-    this.writeMasterPlaylist();
-
-    return this.getVariantUrl(resolution);
+    return new Promise((resolve) => {
+      variant.once('ready', resolve);
+    });
   }
 
   /**
@@ -114,27 +113,18 @@ export class TranscodeSession {
   }
 
   /**
-   * Writes the master.m3u8 playlist listing all active variants.
-   * Caddy serves this file statically from the cache directory.
+   * Clears the current running variants and deletes their cache directories.
+   * This forces new requests to spawn FFmpeg at the new requested position.
    */
-  private writeMasterPlaylist(): void {
-    const lines: string[] = ['#EXTM3U'];
-
-    for (const [resolution, variant] of this.variants) {
-      const preset = RESOLUTION_PRESETS[resolution];
-      const bandwidth = parseInt(preset.videoBitrate) * 1000 + parseInt(preset.audioBitrate) * 1000;
-
-      lines.push(
-        `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${resolution}"`,
-        `${resolution}/stream.m3u8`
-      );
+  clearVariants(): void {
+    this.stop();
+    try {
+      if (fs.existsSync(this.outputBaseDir)) {
+        fs.rmSync(this.outputBaseDir, { recursive: true, force: true });
+      }
+      fs.mkdirSync(this.outputBaseDir, { recursive: true });
+    } catch (err) {
+      console.error(`[session:${this.mediaFileId}] Failed to clear cache directory:`, err);
     }
-
-    const masterPath = path.join(this.outputBaseDir, 'master.m3u8');
-    fs.writeFileSync(masterPath, lines.join('\n') + '\n');
-  }
-
-  private getVariantUrl(resolution: Resolution): string {
-    return `${HLS_BASE_URL}/${this.mediaFileId}/${resolution}/stream.m3u8`;
   }
 }
