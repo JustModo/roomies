@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
-export const ClientChatSchema = z.object({
-  event: z.literal('client.chat'),
+export const ClientChatSendSchema = z.object({
+  event: z.literal('chat.send'),
   payload: z.object({
     message: z.string().min(1).max(500),
   }),
 });
 
-export const ServerChatSchema = z.object({
-  event: z.literal('server.chat'),
+export const ServerChatMessageSchema = z.object({
+  event: z.literal('chat.message'),
   payload: z.object({
     userId: z.string(),
     message: z.string(),

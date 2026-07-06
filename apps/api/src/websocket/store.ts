@@ -18,3 +18,19 @@ export const socketSessionStore = {
     sessionsBySocketId.delete(socketId);
   },
 };
+
+import { registerSocketEvent, SocketContext } from './router';
+
+export const registerStoreSocketEvents = () => {
+  registerSocketEvent('system.connect', (_payload: any, ctx: SocketContext) => {
+    socketSessionStore.add({
+      userId: ctx.userId,
+      socketId: ctx.socketId,
+      connectedAt: new Date(),
+    });
+  });
+
+  registerSocketEvent('system.disconnect', (_payload: any, ctx: SocketContext) => {
+    socketSessionStore.remove(ctx.socketId);
+  });
+};

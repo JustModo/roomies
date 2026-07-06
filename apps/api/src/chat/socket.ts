@@ -17,7 +17,7 @@ export const handleClientChat = async (payload: ChatPayload, ctx: SocketContext)
   });
 
   // 2. Broadcast to the party room
-  const room = (ctx.app as any).room as Set<any>;
+  const room = ctx.app.room;
   if (room) {
     const serverMessage = JSON.stringify({
       event: 'server.chat',

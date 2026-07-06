@@ -93,3 +93,9 @@ export type ChatMessageResponse = z.infer<typeof ChatMessageResponseSchema>;
 
 export const ChatHistoryResponseSchema = z.array(ChatMessageResponseSchema);
 export type ChatHistoryResponse = z.infer<typeof ChatHistoryResponseSchema>;
+
+export interface JWTPayload {
+  userId: string;
+  username: string;
+  role: string;
+}

@@ -67,7 +67,7 @@ export const TranscodeSessionManager = {
   async startSession(
     inputPath: string,
     outputDir: string,
-  ): Promise<{ hlsUrl: string }> {
+  ): Promise<void> {
     // Kill prior session (handles the cache lock issue — FFmpeg is dead
     // before we touch its files)
     await this.stopSession();
@@ -109,15 +109,7 @@ export const TranscodeSessionManager = {
       });
     }
 
-    // Write the master playlist immediately — it's a static file that
-    // simply lists the variant streams. FFmpeg will create each variant's
-    // playlist.m3u8 on its own as it encodes.
-    await writeMasterPlaylist(outputDir, profiles);
-
     activeSession = { processes, outputDir };
-
-    const hlsBaseUrl = process.env.HLS_BASE_URL || 'http://localhost:80/hls';
-    return { hlsUrl: `${hlsBaseUrl}/main/master.m3u8` };
   },
 
   /**
@@ -221,37 +213,7 @@ function spawnFFmpeg(
   return child;
 }
 
-/**
- * Write the HLS master playlist that references all quality variants.
- *
- * Example output:
- * ```
- * #EXTM3U
- * #EXT-X-VERSION:3
- * #EXT-X-STREAM-INF:BANDWIDTH=700000,RESOLUTION=640x360,NAME="360p"
- * 360p/playlist.m3u8
- * #EXT-X-STREAM-INF:BANDWIDTH=3200000,RESOLUTION=1280x720,NAME="720p"
- * 720p/playlist.m3u8
- * #EXT-X-STREAM-INF:BANDWIDTH=6200000,RESOLUTION=1920x1080,NAME="1080p"
- * 1080p/playlist.m3u8
- * ```
- */
-async function writeMasterPlaylist(
-  outputDir: string,
-  profiles: TranscodeProfile[],
-): Promise<void> {
-  const lines = ['#EXTM3U', '#EXT-X-VERSION:3'];
 
-  for (const p of profiles) {
-    lines.push(
-      `#EXT-X-STREAM-INF:BANDWIDTH=${p.bandwidth},RESOLUTION=${p.width}x${p.height},NAME="${p.name}"`,
-      `${p.name}/playlist.m3u8`,
-    );
-  }
-
-  lines.push(''); // trailing newline
-  await fs.writeFile(path.join(outputDir, 'master.m3u8'), lines.join('\n'));
-}
 
 /**
  * Kill a child process gracefully: SIGTERM first, then SIGKILL after a

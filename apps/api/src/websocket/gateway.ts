@@ -1,14 +1,10 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
-import { authenticateWebSocket } from './auth';
-import { socketSessionStore } from './store';
 import { IncomingSocketMessageSchema } from '@roomies/contracts';
+import { authenticateWebSocket } from '../auth';
 import { dispatchSocketEvent, SocketContext } from './router';
-import { removeFromRoom } from '../playback/socket';
+import { createRateLimiter } from './middleware';
 
-// Simple per-connection sliding-window rate limit for inbound socket
-// messages, guarding against a client flooding client.seek/heartbeat to
-// spam other room members.
 const MESSAGE_WINDOW_MS = 1000;
 const MAX_MESSAGES_PER_WINDOW = 20;
 
@@ -30,40 +26,20 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
       return;
     }
 
-    const { userId } = userPayload;
+    const { userId, username } = userPayload;
     const socketId = req.id;
 
-    // 2. Track session in memory
-    socketSessionStore.add({
-      userId,
-      socketId,
-      connectedAt: new Date(),
-    });
-
-    (connection as any).__userId = userId;
+    const ctx: SocketContext = { app, socket: connection, userId, username, socketId };
 
     app.log.info({ userId, socketId }, 'User connected via WebSocket');
 
-    const ctx: SocketContext = { app, socket: connection, userId, socketId };
+    // 2. Dispatch connect event
+    await dispatchSocketEvent('system.connect', null, ctx);
 
     // 3. Handle incoming messages
-    let windowStart = Date.now();
-    let messagesInWindow = 0;
-
-    connection.on('message', async (message: string) => {
-      const now = Date.now();
-      if (now - windowStart > MESSAGE_WINDOW_MS) {
-        windowStart = now;
-        messagesInWindow = 0;
-      }
-      messagesInWindow += 1;
-      if (messagesInWindow > MAX_MESSAGES_PER_WINDOW) {
-        return;
-      }
-
+    const handleMessage = async (message: string) => {
       try {
-        const rawData = JSON.parse(message.toString());
-
+        const rawData = JSON.parse(message);
         const parsedData = IncomingSocketMessageSchema.safeParse(rawData);
 
         if (!parsedData.success) {
@@ -71,21 +47,20 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
           return;
         }
 
-        await dispatchSocketEvent(parsedData.data, ctx);
+        await dispatchSocketEvent(parsedData.data.event, parsedData.data.payload, ctx);
       } catch (e) {
         app.log.error(e, 'Failed to parse WS message JSON');
       }
-    });
+    };
+
+    const rateLimiter = createRateLimiter(MESSAGE_WINDOW_MS, MAX_MESSAGES_PER_WINDOW);
+    connection.on('message', rateLimiter(handleMessage));
 
     // 4. Handle disconnect
     connection.on('close', async () => {
       app.log.info({ userId, socketId }, 'User disconnected from WebSocket');
 
-      // Remove from party room
-      removeFromRoom(ctx);
-
-      // Remove session from memory
-      socketSessionStore.remove(socketId);
+      await dispatchSocketEvent('system.disconnect', null, ctx);
     });
   });
 };
