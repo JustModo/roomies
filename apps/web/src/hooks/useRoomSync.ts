@@ -18,7 +18,9 @@ export function useRoomSync() {
 
   // We maintain a local "simulated" position for the player
   const [localTime, setLocalTime] = useState(0);
+  const [localCorrectionRate, setLocalCorrectionRate] = useState<number | null>(null);
   const localTimeRef = useRef(0);
+  const correctionTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Sync state incoming from server
   useEffect(() => {
@@ -71,9 +73,29 @@ export function useRoomSync() {
           };
         });
       } else if (msg.event === 'sync.correct') {
-        console.warn(`[SYNC] Forcing local time from ${localTimeRef.current.toFixed(2)} to ${msg.payload.position.toFixed(2)}`);
-        setLocalTime(msg.payload.position);
-        localTimeRef.current = msg.payload.position;
+        if (msg.payload.seek) {
+          console.warn(`[SYNC] Hard seek correction from ${localTimeRef.current.toFixed(2)} to ${msg.payload.position.toFixed(2)}`);
+          setLocalTime(msg.payload.position);
+          localTimeRef.current = msg.payload.position;
+        }
+        
+        if (msg.payload.playbackRate !== undefined) {
+          if (msg.payload.playbackRate === 1.0) {
+            setLocalCorrectionRate(null); // In sync
+            if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
+          } else {
+            console.warn(`[SYNC] Soft rate correction: ${msg.payload.playbackRate}x for ${msg.payload.correctionDurationMs}ms`);
+            setLocalCorrectionRate(msg.payload.playbackRate);
+            
+            if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
+            if (msg.payload.correctionDurationMs) {
+              correctionTimeoutRef.current = setTimeout(() => {
+                console.warn(`[SYNC] Soft rate correction expired, reverting to normal`);
+                setLocalCorrectionRate(null);
+              }, msg.payload.correctionDurationMs);
+            }
+          }
+        }
       }
     });
 
@@ -106,7 +128,7 @@ export function useRoomSync() {
           playbackRate: roomState?.playback.playbackRate ?? 1
         }
       });
-    }, 1000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [isConnected, sendMessage, roomState?.playback.state, roomState?.playback.playbackRate]);
 
@@ -138,6 +160,7 @@ export function useRoomSync() {
     roomState,
     mediaInfo,
     localTime,
+    localCorrectionRate,
     play,
     pause,
     seek,

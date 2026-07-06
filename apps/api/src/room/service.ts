@@ -16,6 +16,11 @@ export class RoomService {
       position: 0,
     });
 
+    const state = roomStore.getState();
+    if (state.playback.state === 'playing') {
+      roomStore.updatePlayback({ state: 'buffering', anchorTime: Date.now() });
+    }
+
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'room.state',
       payload: { room: roomStore.getState() }

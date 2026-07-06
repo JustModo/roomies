@@ -30,6 +30,7 @@ export const ServerPlaybackStateSchema = z.object({
   event: z.literal('playback.state'),
   payload: z.object({
     state: z.enum(['waiting', 'playing', 'paused', 'buffering']),
+    intendedState: z.enum(['playing', 'paused']),
     anchorPosition: z.number(),
     anchorTime: z.number(),
     playbackRate: z.number(),

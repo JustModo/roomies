@@ -24,6 +24,7 @@ export const ServerSyncCorrectSchema = z.object({
   payload: z.object({
     position: z.number(),
     playbackRate: z.number().optional(),
+    correctionDurationMs: z.number().optional(),
     seek: z.boolean().optional(),
   }),
 });

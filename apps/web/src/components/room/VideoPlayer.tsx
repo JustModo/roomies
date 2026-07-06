@@ -8,6 +8,7 @@ export interface VideoPlayerProps {
   mediaInfo: MediaInfo | null;
   roomPlaybackState?: RoomState['playback'];
   localTime: number;
+  localCorrectionRate?: number | null;
   onPlay: () => void;
   onPause: () => void;
   onSeek: (position: number) => void;
@@ -20,6 +21,7 @@ export function VideoPlayer({
   mediaInfo,
   roomPlaybackState,
   localTime,
+  localCorrectionRate,
   onPlay,
   onPause,
   onSeek,
@@ -39,7 +41,7 @@ export function VideoPlayer({
   const [showQualityMenu, setShowQualityMenu] = useState(false);
 
   // Seek Bar / Scrubbing
-  const [bufferedRanges, setBufferedRanges] = useState<{start: number, end: number}[]>([]);
+  const [bufferedRanges, setBufferedRanges] = useState<{ start: number, end: number }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
 
@@ -63,6 +65,7 @@ export function VideoPlayer({
 
     if (Hls.isSupported()) {
       const hls = new Hls({
+        startPosition: localTime > 0 ? localTime : undefined,
         enableWorker: true,
         lowLatencyMode: false,
         manifestLoadingMaxRetry: 10,
@@ -78,7 +81,6 @@ export function VideoPlayer({
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         setLevels(data.levels);
-        onStatusChange('ready');
         if (roomPlaybackState?.state === 'playing') {
           videoRef.current?.play().catch(console.error);
           setIsPlaying(true);
@@ -108,6 +110,7 @@ export function VideoPlayer({
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
       videoRef.current.src = mediaInfo.hlsUrl;
+      videoRef.current.currentTime = localTime;
       videoRef.current.addEventListener('loadedmetadata', () => {
         onStatusChange('ready');
       }, { once: true });
@@ -126,12 +129,15 @@ export function VideoPlayer({
     }
   }, [roomPlaybackState?.state, isDragging]);
 
-  // Apply playback rate
+  // Apply playback rate (favor local temporary correction over global rate)
   useEffect(() => {
-    if (videoRef.current && roomPlaybackState?.playbackRate) {
-      videoRef.current.playbackRate = roomPlaybackState.playbackRate;
+    if (videoRef.current) {
+      const targetRate = localCorrectionRate ?? roomPlaybackState?.playbackRate ?? 1;
+      if (videoRef.current.playbackRate !== targetRate) {
+        videoRef.current.playbackRate = targetRate;
+      }
     }
-  }, [roomPlaybackState?.playbackRate]);
+  }, [roomPlaybackState?.playbackRate, localCorrectionRate]);
 
   // Apply drift correction (if server localTime differs significantly from video.currentTime)
   useEffect(() => {
@@ -187,6 +193,7 @@ export function VideoPlayer({
     const handlePause = () => setIsPlaying(false);
     const handleWaiting = () => onStatusChange('buffering');
     const handlePlaying = () => onStatusChange('ready');
+    const handleCanPlay = () => onStatusChange('ready');
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('progress', onProgress);
@@ -194,7 +201,8 @@ export function VideoPlayer({
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handlePlaying);
-    
+    video.addEventListener('canplay', handleCanPlay);
+
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('progress', onProgress);
@@ -202,6 +210,7 @@ export function VideoPlayer({
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('canplay', handleCanPlay);
     };
   }, [onStatusChange, isDragging]);
 
@@ -289,7 +298,7 @@ export function VideoPlayer({
 
   const totalDuration = mediaInfo?.duration || duration;
   const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
-  
+
   const uiVisible = !idle || !isPlaying || isDragging;
 
   return (
@@ -316,26 +325,26 @@ export function VideoPlayer({
 
       {/* Bottom Controls */}
       <div className={`absolute bottom-0 left-0 w-full z-30 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        
+
         {/* Seek Bar */}
         <div className="w-full py-2 px-2 cursor-pointer group" onPointerDown={handlePointerDown}>
           <div ref={progressBarRef} className="w-full h-[4px] group-hover:h-[6px] transition-all duration-100 bg-ash/30 relative flex items-center rounded-full overflow-hidden group-hover:overflow-visible">
-            
+
             {/* Buffered Ranges */}
             {bufferedRanges.map((range, i) => (
-              <div 
-                key={i} 
-                className="h-full bg-paper/30 absolute top-0" 
-                style={{ 
-                  left: `${totalDuration > 0 ? (range.start / totalDuration) * 100 : 0}%`, 
-                  width: `${totalDuration > 0 ? ((range.end - range.start) / totalDuration) * 100 : 0}%` 
-                }} 
+              <div
+                key={i}
+                className="h-full bg-paper/30 absolute top-0"
+                style={{
+                  left: `${totalDuration > 0 ? (range.start / totalDuration) * 100 : 0}%`,
+                  width: `${totalDuration > 0 ? ((range.end - range.start) / totalDuration) * 100 : 0}%`
+                }}
               />
             ))}
 
             {/* Played Progress */}
             <div className="h-full bg-blue-500 absolute top-0 left-0 shadow-[0_0_8px_rgba(59,130,246,0.8)]" style={{ width: `${progressPercent}%` }} />
-            
+
             {/* Scrubber handle */}
             <div className={`w-[14px] h-[14px] bg-white rounded-full absolute -ml-[7px] shadow transition-transform ${isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100'}`} style={{ left: `${progressPercent}%` }} />
           </div>
@@ -356,7 +365,7 @@ export function VideoPlayer({
               {formatTime(currentTime)} / {formatTime(totalDuration)}
             </div>
           </div>
-          
+
           <div className="flex items-center gap-4 relative">
             <button onClick={cyclePlaybackRate} className="text-14 font-mono text-paper hover:text-fog transition-colors w-[3ch] text-center opacity-80 hover:opacity-100">
               {roomPlaybackState?.playbackRate || 1}x
@@ -365,8 +374,8 @@ export function VideoPlayer({
             {/* Quality Selector */}
             {levels.length > 0 && (
               <div className="relative">
-                <button 
-                  onClick={() => setShowQualityMenu(!showQualityMenu)} 
+                <button
+                  onClick={() => setShowQualityMenu(!showQualityMenu)}
                   className={`text-14 font-mono transition-colors ${currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-paper/80 hover:text-paper'}`}
                 >
                   {currentLevel === -1 ? 'AUTO' : `${levels[currentLevel]?.height}p`}
@@ -375,8 +384,8 @@ export function VideoPlayer({
                 {showQualityMenu && (
                   <div className="absolute bottom-full right-0 mb-4 bg-ink/95 backdrop-blur-md border border-ash/20 rounded-lg shadow-2xl py-2 min-w-[120px] overflow-hidden">
                     <div className="px-4 py-2 text-[10px] text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Quality</div>
-                    <button 
-                      onClick={() => handleQualityChange(-1)} 
+                    <button
+                      onClick={() => handleQualityChange(-1)}
                       className={`w-full text-left px-4 py-2 text-13 transition-colors ${currentLevel === -1 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'}`}
                     >
                       Auto
@@ -384,9 +393,9 @@ export function VideoPlayer({
                     {[...levels].reverse().map((level) => {
                       const originalIndex = levels.indexOf(level);
                       return (
-                        <button 
-                          key={originalIndex} 
-                          onClick={() => handleQualityChange(originalIndex)} 
+                        <button
+                          key={originalIndex}
+                          onClick={() => handleQualityChange(originalIndex)}
                           className={`w-full text-left px-4 py-2 text-13 transition-colors ${currentLevel === originalIndex ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'}`}
                         >
                           {level.height}p

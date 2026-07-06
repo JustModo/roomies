@@ -28,8 +28,7 @@ export class PlaybackService {
     const hlsUrl = session.masterPlaylistUrl;
 
     roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration);
-    roomStore.setPlaybackState('buffering');
-    roomStore.updatePlayback({ anchorPosition: 0 });
+    roomStore.updatePlayback({ state: 'buffering', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
 
     SocketEmitter.broadcastToRoom(server, {
@@ -96,7 +95,7 @@ export class PlaybackService {
   // --- Socket Event Handlers ---
 
   static async handlePlay(payload: PlayPayload, ctx: SocketContext) {
-    roomStore.setPlaybackState('playing');
+    roomStore.updatePlayback({ state: 'playing', intendedState: 'playing', anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
       payload: roomStore.getState().playback
@@ -104,7 +103,7 @@ export class PlaybackService {
   }
 
   static async handlePause(payload: PausePayload, ctx: SocketContext) {
-    roomStore.setPlaybackState('paused');
+    roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
       payload: roomStore.getState().playback
@@ -112,7 +111,11 @@ export class PlaybackService {
   }
 
   static async handleSeek(payload: SeekPayload, ctx: SocketContext) {
-    roomStore.updatePlayback({ anchorPosition: payload.position, anchorTime: Date.now() });
+    const currentState = roomStore.getState().playback;
+    const nextIntendedState = currentState.state === 'playing' || currentState.intendedState === 'playing' ? 'playing' : 'paused';
+    
+    roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
+    roomStore.resetAllMembers();
     
     const state = roomStore.getState();
     const session = TranscodeSessionManager.getSession();
