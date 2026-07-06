@@ -122,6 +122,21 @@ export const LibraryService = {
 
     const mediaFiles = await walk(safeRootPath);
 
+    // Delete entries from the DB that no longer exist on disk
+    const existingDbFiles = await prisma.mediaFile.findMany({ where: { libraryId: library.id } });
+    const diskFilesSet = new Set(mediaFiles);
+    
+    const missingFileIds = existingDbFiles
+      .filter(dbFile => !diskFilesSet.has(dbFile.path))
+      .map(dbFile => dbFile.id);
+
+    if (missingFileIds.length > 0) {
+      await prisma.mediaFile.deleteMany({
+        where: { id: { in: missingFileIds } }
+      });
+      console.log(`Pruned ${missingFileIds.length} missing files from database.`);
+    }
+
     // Process files with a small bounded concurrency so scanning a large
     // library doesn't take one ffprobe-process-at-a-time to complete.
     await runWithConcurrency(mediaFiles, async (file) => {

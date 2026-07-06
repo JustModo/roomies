@@ -1,36 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Settings2 } from 'lucide-react';
-import Hls, { Level } from 'hls.js';
-import { IconButton } from '../components/ui/IconButton';
+import { ChevronLeft, Settings2 } from 'lucide-react';
 import { AdminOverlay } from '../components/room/AdminOverlay';
 import { useRoomSync } from '../hooks/useRoomSync';
+import { VideoPlayer } from '../components/room/VideoPlayer';
 
 export default function Room() {
   const navigate = useNavigate();
   const [viewersCount, setViewersCount] = useState<number>(0);
-
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [idle, setIdle] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-
-  // Quality / Codec Selection
-  const [levels, setLevels] = useState<Level[]>([]);
-  const [currentLevel, setCurrentLevel] = useState<number>(-1);
-  const [showQualityMenu, setShowQualityMenu] = useState(false);
-
-  // Seek Bar / Scrubbing
-  const [bufferedRanges, setBufferedRanges] = useState<{start: number, end: number}[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragProgress, setDragProgress] = useState(0);
-  const progressBarRef = useRef<HTMLDivElement>(null);
-
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
 
   const {
     roomState,
@@ -52,378 +30,35 @@ export default function Room() {
     }
   }, [roomState?.members]);
 
-  // Setup HLS — rebuild when media changes
-  useEffect(() => {
-    if (!videoRef.current || !mediaInfo?.hlsUrl) return;
-
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    notReady();
-    setLevels([]);
-    setCurrentLevel(-1);
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        manifestLoadingMaxRetry: 10,
-        manifestLoadingRetryDelay: 1000,
-        levelLoadingMaxRetry: 10,
-        levelLoadingRetryDelay: 1000,
-        fragLoadingMaxRetry: 10,
-        fragLoadingRetryDelay: 1000,
-      });
-
-      hls.loadSource(mediaInfo.hlsUrl);
-      hls.attachMedia(videoRef.current);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
-        setLevels(data.levels);
-        ready();
-        if (roomState?.playback.state === 'playing') {
-          videoRef.current?.play().catch(console.error);
-          setIsPlaying(true);
-        }
-      });
-
-      hls.on(Hls.Events.LEVEL_SWITCHED, () => {
-        setCurrentLevel(hls.autoLevelEnabled ? -1 : hls.currentLevel);
-      });
-
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          console.error('[HLS] Fatal error:', data.type, data.details);
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            hls.startLoad();
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            hls.recoverMediaError();
-          }
-        }
-      });
-
-      hlsRef.current = hls;
-
-      return () => {
-        hls.destroy();
-        hlsRef.current = null;
-      };
-    } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = mediaInfo.hlsUrl;
-      videoRef.current.addEventListener('loadedmetadata', () => {
-        ready();
-      }, { once: true });
-    }
-  }, [mediaInfo?.hlsUrl]);
-
-  // Sync playback state from server
-  useEffect(() => {
-    if (!videoRef.current) return;
-    if (roomState?.playback.state === 'playing' && !isPlaying && !isDragging) {
-      videoRef.current.play().catch(console.error);
-      setIsPlaying(true);
-    } else if (roomState?.playback.state !== 'playing' && isPlaying) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, [roomState?.playback.state, isDragging]);
-
-  // Apply playback rate
-  useEffect(() => {
-    if (videoRef.current && roomState?.playback.playbackRate) {
-      videoRef.current.playbackRate = roomState.playback.playbackRate;
-    }
-  }, [roomState?.playback.playbackRate]);
-
-  // Apply drift correction (if server localTime differs significantly from video.currentTime)
-  useEffect(() => {
-    if (!videoRef.current || isDragging) return;
-    const diff = Math.abs(videoRef.current.currentTime - localTime);
-    if (diff > 1) {
-      videoRef.current.currentTime = localTime;
-    }
-  }, [localTime, isDragging]);
-
-  // Idle Timer
-  useEffect(() => {
-    const resetIdleTimer = () => {
-      setIdle(false);
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        setIdle(true);
-      }, 3000);
-    };
-
-    window.addEventListener('mousemove', resetIdleTimer);
-    window.addEventListener('keydown', resetIdleTimer);
-    resetIdleTimer();
-
-    return () => {
-      window.removeEventListener('mousemove', resetIdleTimer);
-      window.removeEventListener('keydown', resetIdleTimer);
-      clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  // Time and Progress Updates
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onTimeUpdate = () => {
-      if (!isDragging) {
-        setCurrentTime(video.currentTime);
-      }
-      setDuration(video.duration || 0);
-    };
-
-    const onProgress = () => {
-      const ranges = [];
-      for (let i = 0; i < video.buffered.length; i++) {
-        ranges.push({ start: video.buffered.start(i), end: video.buffered.end(i) });
-      }
-      setBufferedRanges(ranges);
-    };
-
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-    const onWaiting = () => buffering();
-    const onPlaying = () => buffered();
-
-    video.addEventListener('timeupdate', onTimeUpdate);
-    video.addEventListener('progress', onProgress);
-    video.addEventListener('play', onPlay);
-    video.addEventListener('pause', onPause);
-    video.addEventListener('waiting', onWaiting);
-    video.addEventListener('playing', onPlaying);
-    
-    return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate);
-      video.removeEventListener('progress', onProgress);
-      video.removeEventListener('play', onPlay);
-      video.removeEventListener('pause', onPause);
-      video.removeEventListener('waiting', onWaiting);
-      video.removeEventListener('playing', onPlaying);
-    };
-  }, [buffering, buffered, isDragging]);
-
-  // Scrubbing Logic
-  const updateDragProgress = (clientX: number) => {
-    if (!progressBarRef.current) return;
-    const rect = progressBarRef.current.getBoundingClientRect();
-    let pos = (clientX - rect.left) / rect.width;
-    pos = Math.max(0, Math.min(1, pos));
-    setDragProgress(pos);
-    const totalDuration = mediaInfo?.duration || duration;
-    setCurrentTime(pos * totalDuration);
-  };
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    const totalDuration = mediaInfo?.duration || duration;
-    if (!totalDuration) return;
-    setIsDragging(true);
-    updateDragProgress(e.clientX);
-    if (isPlaying && videoRef.current) videoRef.current.pause();
-  };
-
-  useEffect(() => {
-    if (isDragging) {
-      const handlePointerMove = (e: PointerEvent) => {
-        updateDragProgress(e.clientX);
-      };
-      const handlePointerUp = () => {
-        setIsDragging(false);
-        const totalDuration = mediaInfo?.duration || duration;
-        const newPos = dragProgress * totalDuration;
-        seek(newPos);
-        if (videoRef.current) videoRef.current.currentTime = newPos;
-        if (roomState?.playback.state === 'playing') play();
-      };
-
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
-      return () => {
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-      };
-    }
-  }, [isDragging, dragProgress, duration, mediaInfo?.duration, seek, play, roomState?.playback.state]);
-
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds)) return '0:00';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) {
-      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const handlePlayPause = () => {
-    if (roomState?.playback.state === 'playing') {
-      pause();
-    } else {
-      play();
-    }
-  };
-
-  const handleSeekOffset = (offset: number) => {
-    if (!videoRef.current) return;
-    const newPos = Math.max(0, videoRef.current.currentTime + offset);
-    seek(newPos);
-  };
-
-  const handleQualityChange = (index: number) => {
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = index;
-      setCurrentLevel(index);
-      setShowQualityMenu(false);
-    }
-  };
-
-  const cyclePlaybackRate = () => {
-    const rates = [0.5, 1, 1.25, 1.5, 2];
-    const currentRate = roomState?.playback.playbackRate || 1;
-    const next = rates[(rates.indexOf(currentRate) + 1) % rates.length];
-    setRate(next);
-  };
-
-  const totalDuration = mediaInfo?.duration || duration;
-  const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
-
   return (
     <div className="relative w-full h-screen bg-ink overflow-hidden text-paper">
-      <video
-        ref={videoRef}
-        className="w-full h-full object-contain bg-ink"
-        poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='%23000000'/%3E%3C/svg%3E"
-        muted={isMuted}
-      />
-
-      {!isPlaying && !isDragging && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-          <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/80 animate-pulse">
-            {mediaInfo ? 'PAUSED' : 'NO MEDIA SELECTED'}
-          </h2>
-        </div>
-      )}
-
-      {/* Top Bar */}
-      <div className={`absolute top-0 left-0 w-full z-30 transition-opacity duration-200 ${idle && isPlaying && !isDragging ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      <VideoPlayer
+        mediaInfo={mediaInfo}
+        roomPlaybackState={roomState?.playback}
+        localTime={localTime}
+        onPlay={play}
+        onPause={pause}
+        onSeek={seek}
+        onSetRate={setRate}
+        onReady={ready}
+        onNotReady={notReady}
+        onBuffering={buffering}
+        onBuffered={buffered}
+      >
         <div className="flex justify-between items-center px-4 py-3 bg-gradient-to-b from-ink/80 to-transparent">
           <button onClick={() => navigate('/')} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">
             <ChevronLeft size={16} className="mr-1" /> Exit
           </button>
           
-          <div className="text-14 uppercase tracking-[0.08em] flex items-center gap-2">
-            {mediaInfo?.title || 'ROOM'} · <span className="font-mono text-14">{viewersCount}</span> WATCHING
+          <div className="text-14 uppercase tracking-[0.08em] flex items-center gap-2 drop-shadow-md">
+            {mediaInfo?.title || 'ROOM'} · <span className="font-mono text-14 text-blue-400">{viewersCount}</span> WATCHING
           </div>
           
           <button onClick={() => setShowAdmin(true)} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">
             Manage <Settings2 size={16} className="ml-1" />
           </button>
         </div>
-      </div>
-
-      {/* Bottom Controls */}
-      <div className={`absolute bottom-0 left-0 w-full z-30 transition-opacity duration-200 bg-gradient-to-t from-ink/90 to-transparent flex flex-col ${idle && isPlaying && !isDragging ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-        
-        {/* Seek Bar */}
-        <div className="w-full py-2 cursor-pointer group" onPointerDown={handlePointerDown}>
-          <div ref={progressBarRef} className="w-full h-[4px] group-hover:h-[6px] transition-all duration-100 bg-ash/30 relative flex items-center">
-            
-            {/* Buffered Ranges */}
-            {bufferedRanges.map((range, i) => (
-              <div 
-                key={i} 
-                className="h-full bg-paper/30 absolute top-0" 
-                style={{ 
-                  left: `${totalDuration > 0 ? (range.start / totalDuration) * 100 : 0}%`, 
-                  width: `${totalDuration > 0 ? ((range.end - range.start) / totalDuration) * 100 : 0}%` 
-                }} 
-              />
-            ))}
-
-            {/* Played Progress */}
-            <div className="h-full bg-blue-500 absolute top-0 left-0" style={{ width: `${progressPercent}%` }} />
-            
-            {/* Scrubber handle */}
-            <div className={`w-[14px] h-[14px] bg-white rounded-full absolute -ml-[7px] shadow transition-transform ${isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100'}`} style={{ left: `${progressPercent}%` }} />
-          </div>
-        </div>
-
-        {/* Control Row */}
-        <div className="flex items-center justify-between px-4 pb-3 pt-1">
-          <div className="flex items-center gap-4">
-            <IconButton icon={roomState?.playback.state === 'playing' ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />} onClick={handlePlayPause} />
-            <div className="flex items-center gap-2">
-              <IconButton icon={<RotateCcw size={18} strokeWidth={1.5} />} onClick={() => handleSeekOffset(-10)} />
-              <IconButton icon={<RotateCw size={18} strokeWidth={1.5} />} onClick={() => handleSeekOffset(10)} />
-            </div>
-            <div className="flex items-center group relative">
-              <IconButton icon={isMuted ? <VolumeX size={18} strokeWidth={1.5} /> : <Volume2 size={18} strokeWidth={1.5} />} onClick={() => setIsMuted(!isMuted)} />
-            </div>
-            <div className="font-mono text-14 text-paper ml-2">
-              {formatTime(currentTime)} / {formatTime(totalDuration)}
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4 relative">
-            <button onClick={cyclePlaybackRate} className="text-14 font-mono text-paper hover:text-fog transition-colors w-[3ch] text-center">
-              {roomState?.playback.playbackRate || 1}x
-            </button>
-
-            {/* Quality Selector */}
-            {levels.length > 0 && (
-              <div className="relative">
-                <button 
-                  onClick={() => setShowQualityMenu(!showQualityMenu)} 
-                  className={`text-14 font-mono transition-colors ${currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-paper hover:text-fog'}`}
-                >
-                  {currentLevel === -1 ? 'AUTO' : `${levels[currentLevel]?.height}p`}
-                </button>
-
-                {showQualityMenu && (
-                  <div className="absolute bottom-full right-0 mb-4 bg-ink/95 backdrop-blur-md border border-ash/20 rounded shadow-2xl py-2 min-w-[120px] overflow-hidden">
-                    <div className="px-4 py-2 text-[10px] text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Quality</div>
-                    <button 
-                      onClick={() => handleQualityChange(-1)} 
-                      className={`w-full text-left px-4 py-2 text-13 transition-colors ${currentLevel === -1 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'}`}
-                    >
-                      Auto
-                    </button>
-                    {[...levels].reverse().map((level) => {
-                      // levels are 0-indexed, we reverse for UI (highest quality at top)
-                      // but we need original index for hls.js
-                      const originalIndex = levels.indexOf(level);
-                      return (
-                        <button 
-                          key={originalIndex} 
-                          onClick={() => handleQualityChange(originalIndex)} 
-                          className={`w-full text-left px-4 py-2 text-13 transition-colors ${currentLevel === originalIndex ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'}`}
-                        >
-                          {level.height}p
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <IconButton icon={<Maximize size={18} strokeWidth={1.5} />} onClick={() => {
-              if (document.fullscreenElement) {
-                document.exitFullscreen();
-              } else {
-                document.documentElement.requestFullscreen();
-              }
-            }} />
-          </div>
-        </div>
-      </div>
+      </VideoPlayer>
 
       <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} />
     </div>
