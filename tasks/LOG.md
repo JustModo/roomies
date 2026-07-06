@@ -330,3 +330,24 @@ Renamed the Docker volume mounts to match the familiar Jellyfin convention, per 
 - Updated `docker-compose.dev.yml` to target the `builder` stage for `api` and `web`, avoiding the production `nginx` and `node:22-alpine` run stages, keeping `pnpm` available for hot-reloading.
 - Configured the API container to automatically run `npx prisma generate` and `npx prisma db push` before booting, ensuring the database inside `/config/roomies.db` is correctly instantiated.
 - Fixed the `PrismaBetterSqlite3` adapter typing error by reverting to passing `{ url }`, which successfully parses since `DATABASE_URL` is properly mounted via `.env_file` inside the Docker environment.
+
+---
+
+## 2026-07-06: Refactor Party Structure, Sync Merging & Tab Kill Disconnect Fix
+**Agent**: Antigravity
+**Summary of Work Done**:
+- **Party & Sync Reorganization**: Refactored the backend playback/session logic into dedicated `room/` and `sync/` modules. Converted room status to a single global in-memory state.
+- **Sync & Playback Merging**: Merged sync events (`sync.status`, `sync.heartbeat`) to consolidate room updates and leader-only controls.
+- **Transcoder Rework**: Overhauled the ffmpeg transcoder manager, adding HLS segment caching, session/variant handling, and automatic directory cleanup on server bootstrap.
+- **Frontend Integration**: Connected `useRoomSync` and player controls to websocket room events, forcing synchronization when server events fire. Fully integrated chat sidebar history fetching.
+- **Tab Disconnect State Fix**: Resolved the issue where killing a browser tab did not clean up the room member list. Reverted the router back to an optimal single-handler `Map`, and moved the socket cleanup triggers directly into `gateway.ts` to dispatch `room.leave` on WebSocket termination.
+
+**Decisions / Considerations**:
+- Kept the client `room.leave` message option to allow explicit front-end exits to clear state before page redirection (avoiding race conditions in Lobby loading).
+- Reverted WebSocket router to single-handler mapping for maximum performance, handling cross-concern disconnects natively in the gateway.
+
+**What is Left to do Next**:
+- Implement Voice Signaling (WebRTC audio-only mesh/SFU signaling).
+- Configure production HTTPS auto-certs in the Caddyfile.
+- Implement party-membership authentication check on the transcode status endpoint.
+

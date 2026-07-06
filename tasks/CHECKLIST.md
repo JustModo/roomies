@@ -58,7 +58,7 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Scaffold Vite + React Monorepo environment and fix build toolchain.
   - [x] Configure React Router and global state (Context API).
   - [x] Setup Axios/Fetch wrapper to inject JWT auth headers (`api/client.ts`).
-  - [ ] Implement robust WebSocket reconnecting hook (`useWebSocket.ts`).
+  - [x] Implement robust WebSocket reconnecting hook (`useWebSocket.ts`).
 - [x] **Auth UI (THE ROOM Spec)**
   - [x] Login Form & Root Setup Form (centered 360px layout).
   - [x] Persist JWT locally and route to Lobby.
@@ -69,12 +69,18 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Integrate custom controls and hairline pulse syncing.
   - [x] Admin Overlay for Media and User management.
   - [x] Integrate `hls.js` Player to consume Caddy HLS URL.
-  - [ ] Connect player events (play/pause/seek) to `useWebSocket` hook to emit `client.*` events.
-  - [ ] Listen to `server.*` events and forcefully sync the local Player.
+  - [x] Connect player events (play/pause/seek) to `useWebSocket` hook to emit socket events.
+  - [x] Listen to server socket events and forcefully sync the local Player.
 - [ ] **Social UI (THE ROOM Spec)**
   - [x] Chat sidebar UI and toast notifications.
-  - [ ] Render `GET /api/chat/history` and real-time incoming `server.chat` messages.
+  - [x] Render `GET /api/chat/history` and real-time incoming `server.chat` messages.
+  - [ ] Implement enhanced chat sidebar design (e.g., transparent/opacity-based chat bubbles for a seamless viewing experience).
   - [ ] Voice channel toggle (WebRTC audio-only mesh or SFU signaling).
+- [ ] **Player & UX Enhancements**
+  - [ ] Implement player error boundaries and fallback handling.
+  - [ ] Add explicit buffering/loading states synchronized with HLS segments.
+  - [ ] Subtitle and audio track selection support.
+
 
 ## 3. Infrastructure & DevOps (See `[LOG:L54]`)
 
@@ -103,3 +109,16 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Stop publishing the API port directly on the host — all traffic must route through Caddy.
   - [ ] Add HTTPS auto-cert to Caddyfile for production domain.
   - [ ] Add "is this user a member of this party" authorization check to `GET /api/transcoding/:partyId/status` (currently any authenticated user can query any partyId — reduced from fully unauthenticated but still an IDOR against other users' parties).
+  - [ ] Implement WebSocket compression (permessage-deflate) to reduce payload size.
+
+## 4. Transcoding Pipeline Optimization
+
+The current in-process ffmpeg pipeline is functional but slow and inefficient.
+- [ ] **Hardware Acceleration**
+  - [ ] Detect and utilize hardware encoders automatically (NVENC, QuickSync, VAAPI, VideoToolbox).
+- [ ] **Throughput & Latency**
+  - [ ] Optimize fast-start caching (pre-generate the first segment and keyframes to reduce playback start latency).
+  - [ ] Implement parallel segment processing or chunked transcoding.
+- [ ] **Adaptive Streaming**
+  - [ ] Implement true Adaptive Bitrate Streaming (ABS) generating multi-variant HLS playlists based on network conditions.
+  - [ ] Add configurable FFmpeg presets (e.g., UltraFast, HighQuality) adjustable from the Admin Overlay.

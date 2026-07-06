@@ -24,5 +24,5 @@ This document enforces strict coding standards for all agents touching the `watc
 - Use Zod's `discriminatedUnion` for WebSocket event parsing to ensure Type narrowing.
 
 ## 5. State Management Rules
-- **PostgreSQL (Prisma)**: Used exclusively for persistent data (Users, Libraries, Media Files, System Settings).
-- **Redis (Redis OM)**: Used exclusively for transient runtime state (Who is online, who is typing, the current playback drift, last 500 chat messages). Do NOT put active room presence in Postgres.
+- **SQLite (Prisma)**: Used exclusively for persistent data (Users, Libraries, Media Files, System Settings).
+- **In-Memory State**: Used exclusively for transient runtime state (Who is online, the current playback status/drift, last 500 chat messages). SQLite (Prisma) is used only for persistent entities. Redis was completely removed from the stack to simplify single-node deployments.
