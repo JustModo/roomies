@@ -25,9 +25,6 @@ export const dispatchSocketEvent = async (
   ctx: SocketContext
 ) => {
   try {
-    if (event !== 'sync.heartbeat') {
-      console.log(`[Socket] ${ctx.username} (${ctx.userId}) sent ${event}`, payload);
-    }
     const handler = socketRegistry.get(event);
     if (handler) {
       await handler(payload, ctx);

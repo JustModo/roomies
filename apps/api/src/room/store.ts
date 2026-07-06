@@ -77,12 +77,6 @@ export class RoomStore {
      * Automatically bakes in elapsed time to anchorPosition if state/rate changes while playing.
      */
     public updatePlayback(updates: Partial<RoomPlaybackState>): void {
-        if (updates.state || updates.intendedState) {
-            const newState = updates.state || this.state.playback.state;
-            const newIntended = updates.intendedState || this.state.playback.intendedState;
-            console.log(`[RoomStore] Playback transition: state=${newState}, intendedState=${newIntended}`);
-        }
-
         // If playing and we aren't explicitly seeking, lock in the current calculated position
         // before applying the new state or rate.
         if (this.state.playback.state === 'playing' && updates.anchorPosition === undefined) {

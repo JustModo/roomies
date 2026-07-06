@@ -29,8 +29,4 @@ export const registerStoreSocketEvents = () => {
       connectedAt: new Date(),
     });
   });
-
-  registerSocketEvent('system.disconnect', (_payload: any, ctx: SocketContext) => {
-    socketSessionStore.remove(ctx.socketId);
-  });
 };

@@ -11,10 +11,4 @@ export const registerRoomSocketEvents = () => {
   });
 
   // Removed room.ready and room.not_ready
-
-  // Handle internal disconnect event
-  registerSocketEvent('system.disconnect', async (_payload: any, ctx: SocketContext) => {
-    // Treat an abrupt disconnect as a room leave
-    await RoomService.handleLeave({}, ctx);
-  });
 };

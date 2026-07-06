@@ -30,6 +30,18 @@ export class RoomService {
   static async handleLeave(payload: RoomLeavePayload, ctx: SocketContext) {
     roomStore.removeMember(ctx.userId);
 
+    const state = roomStore.getState();
+    const anyoneBuffering = state.members.some(m => m.status === 'buffering');
+
+    // If the person who left was the only one buffering, unpause the room!
+    if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering')) {
+      roomStore.updatePlayback({ state: state.playback.intendedState, anchorTime: Date.now() });
+      SocketEmitter.broadcastToRoom(ctx.app, {
+        event: 'playback.state',
+        payload: roomStore.getState().playback
+      });
+    }
+
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'user.left',
       payload: { userId: ctx.userId }

@@ -4,6 +4,7 @@ import { IncomingSocketMessageSchema } from '@roomies/contracts';
 import { authenticateWebSocket } from '../auth';
 import { dispatchSocketEvent, SocketContext } from './router';
 import { createRateLimiter } from './middleware';
+import { socketSessionStore } from './store';
 
 const MESSAGE_WINDOW_MS = 1000;
 const MAX_MESSAGES_PER_WINDOW = 20;
@@ -73,8 +74,12 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
 
         // Remove socket from the global room
         app.room.delete(connection);
+        
+        // Remove from session store directly
+        socketSessionStore.remove(socketId);
 
-        await dispatchSocketEvent('system.disconnect', null, ctx);
+        // Dispatch room.leave so the room state updates
+        await dispatchSocketEvent('room.leave', {}, ctx);
       });
     }
   });
