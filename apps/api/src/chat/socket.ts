@@ -2,7 +2,7 @@ import { SocketContext, registerSocketEvent } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { chatStore } from './store';
 
-type ChatPayload = Extract<IncomingSocketMessage, { event: 'client.chat' }>['payload'];
+type ChatPayload = Extract<IncomingSocketMessage, { event: 'chat.send' }>['payload'];
 
 export const handleClientChat = async (payload: ChatPayload, ctx: SocketContext) => {
   ctx.app.log.info({ userId: ctx.userId, message: payload.message }, 'Feature: Chat event received');
@@ -20,7 +20,7 @@ export const handleClientChat = async (payload: ChatPayload, ctx: SocketContext)
   const room = ctx.app.room;
   if (room) {
     const serverMessage = JSON.stringify({
-      event: 'server.chat',
+      event: 'chat.message',
       payload: {
         userId: ctx.userId,
         message: payload.message,
@@ -35,5 +35,5 @@ export const handleClientChat = async (payload: ChatPayload, ctx: SocketContext)
 };
 
 export const registerChatSocketEvents = () => {
-  registerSocketEvent('client.chat', handleClientChat);
+  registerSocketEvent('chat.send', handleClientChat);
 };

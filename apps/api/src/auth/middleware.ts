@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
-import { JWTPayload } from '@roomies/shared';
+import { JWTPayload } from '@roomies/contracts';
 import { Config } from '../config';
 
 export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {

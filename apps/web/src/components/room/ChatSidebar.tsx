@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Send } from 'lucide-react';
 import { IconButton } from '../ui/IconButton';
-// Removed Input
+import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
 
 interface Message {
   id: string;
@@ -14,16 +14,12 @@ interface ChatSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   viewersCount: number;
-  partyId: string;
-  sendMessage: (message: any) => void;
-  addMessageHandler: (handler: (message: any) => void) => () => void;
+  sendMessage: (message: IncomingSocketMessage) => void;
+  addMessageHandler: (handler: (message: OutgoingSocketMessage) => void) => () => void;
 }
 
-export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewersCount, partyId, sendMessage, addMessageHandler }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', username: 'alice', timestamp: '12:41', body: 'that shot is incredible' },
-    { id: '2', username: 'bram', timestamp: '12:42', body: 'wait rewind that' },
-  ]);
+export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewersCount, sendMessage, addMessageHandler }) => {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
 
   // Handle toasts when closed
@@ -32,10 +28,10 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
   useEffect(() => {
     // Listen for incoming chat messages
     const removeHandler = addMessageHandler((msg) => {
-      if (msg.event === 'server.chat') {
+      if (msg.event === 'chat.message') {
         const newMsg = {
           id: Date.now().toString() + Math.random(),
-          username: msg.payload.userId, // Mocking username with userId for now
+          username: msg.payload.userId, 
           timestamp: new Date(msg.payload.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           body: msg.payload.message
         };
@@ -66,21 +62,21 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
       if (Array.isArray(data)) {
         setMessages(data.map(m => ({
           id: m.id || Date.now().toString() + Math.random(),
-          username: m.userId,
+          username: m.username || m.userId,
           timestamp: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           body: m.message
         })));
       }
     })
     .catch(err => console.error('Failed to fetch chat history', err));
-  }, [partyId]);
+  }, []);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
     
     sendMessage({
-      event: 'client.chat',
+      event: 'chat.send',
       payload: {
         message: newMessage
       }

@@ -3,13 +3,26 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, MessageSquare, Settings2 } from 'lucide-react';
 import Hls from 'hls.js';
 import { IconButton } from '../components/ui/IconButton';
-// import { ChatSidebar } from '../components/room/ChatSidebar';
+import { ChatSidebar } from '../components/room/ChatSidebar';
 import { AdminOverlay } from '../components/room/AdminOverlay';
-import { useRoomSync } from '../hooks/useRoomSync';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { usePartyState } from '../hooks/usePlayback';
 
 export default function Room() {
   const navigate = useNavigate();
+  const [partyId, setPartyId] = useState<string | undefined>(undefined);
   const [viewersCount, setViewersCount] = useState<number>(0);
+
+  useEffect(() => {
+    fetch('/api/playback/party/active', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.partyId) setPartyId(data.partyId);
+      })
+      .catch(console.error);
+  }, [navigate]);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -23,37 +36,35 @@ export default function Room() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
-  const {
-    roomState,
-    localTime,
-    play,
-    pause,
-    seek,
-    ready,
-    buffering,
-    buffered,
-  } = useRoomSync();
+  const { isConnected, sendMessage, addMessageHandler } = useWebSocket(partyId);
+  const { partyState } = usePartyState(partyId);
 
+  // Construct HLS master playlist URL from the partyId.
+  // With live transcoding, the master.m3u8 is written immediately when a
+  // party starts — no polling for "ready" status needed.
+  const hlsUrl = partyId ? `/hls/${partyId}/master.m3u8` : undefined;
+
+  const partyStateRef = useRef(partyState);
   useEffect(() => { 
-    if (roomState?.members) {
-      setViewersCount(roomState.members.length);
+    partyStateRef.current = partyState; 
+    if (partyState?.viewersCount !== undefined) {
+      setViewersCount(partyState.viewersCount);
     }
-  }, [roomState?.members]);
+  }, [partyState]);
 
-  // Setup HLS
+  // Setup HLS — starts immediately when partyId is available
   useEffect(() => {
-    if (!videoRef.current || !roomState?.mediaUrl) return;
+    if (!videoRef.current || !hlsUrl) return;
 
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
       });
-      hls.loadSource(roomState.mediaUrl);
+      hls.loadSource(hlsUrl);
       hls.attachMedia(videoRef.current);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        ready();
-        if (roomState.playback.state === 'playing') {
+        if (!partyStateRef.current?.isPaused) {
           videoRef.current?.play().catch(console.error);
           setIsPlaying(true);
         }
@@ -64,31 +75,58 @@ export default function Room() {
         hls.destroy();
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = roomState.mediaUrl;
+      videoRef.current.src = hlsUrl;
     }
-  }, [roomState?.mediaUrl, ready]);
+  }, [hlsUrl]);
 
-  // Sync playback state from server
+  // Handle Socket Events
   useEffect(() => {
-    if (!videoRef.current) return;
-    if (roomState?.playback.state === 'playing' && !isPlaying) {
-      videoRef.current.play().catch(console.error);
-      setIsPlaying(true);
-    } else if (roomState?.playback.state !== 'playing' && isPlaying) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, [roomState?.playback.state]);
+    const removeHandler = addMessageHandler((msg) => {
+      if (!videoRef.current) return;
+      
+      if (msg.event === 'server.play') {
+        videoRef.current.play().catch(console.error);
+        setIsPlaying(true);
+      } else if (msg.event === 'server.pause') {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      } else if (msg.event === 'server.seek') {
+        videoRef.current.currentTime = msg.payload.position;
+      } else if (msg.event === 'server.party.state') {
+        videoRef.current.currentTime = msg.payload.position;
+        if (msg.payload.isPaused) {
+          videoRef.current.pause();
+          setIsPlaying(false);
+        } else {
+          videoRef.current.play().catch(console.error);
+          setIsPlaying(true);
+        }
+      } else if (msg.event === 'server.viewers') {
+        setViewersCount(msg.payload.count);
+      } else if (msg.event === 'server.party.started') {
+        window.location.reload();
+      }
+    });
+    return () => removeHandler();
+  }, [addMessageHandler]);
 
-  // Apply drift correction (if server localTime differs significantly from video.currentTime)
+  // Heartbeat loop for drift correction
   useEffect(() => {
-    if (!videoRef.current) return;
-    const diff = Math.abs(videoRef.current.currentTime - localTime);
-    // If diff is greater than 1s, we force a seek to localTime
-    if (diff > 1) {
-      videoRef.current.currentTime = localTime;
-    }
-  }, [localTime]);
+    if (!isConnected) return;
+    
+    const interval = setInterval(() => {
+      if (videoRef.current) {
+        sendMessage({
+          event: 'client.heartbeat',
+          payload: {
+            position: videoRef.current.currentTime
+          }
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isConnected, sendMessage]);
 
   // Idle Timer
   useEffect(() => {
@@ -124,23 +162,17 @@ export default function Room() {
 
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
-    const onWaiting = () => buffering();
-    const onPlaying = () => buffered();
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
-    video.addEventListener('waiting', onWaiting);
-    video.addEventListener('playing', onPlaying);
     
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
-      video.removeEventListener('waiting', onWaiting);
-      video.removeEventListener('playing', onPlaying);
     };
-  }, [buffering, buffered]);
+  }, []);
 
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return '0:00';
@@ -154,28 +186,29 @@ export default function Room() {
   };
 
   const handlePlayPause = () => {
+    if (!partyId) return;
     if (isPlaying) {
-      pause();
+      sendMessage({ event: 'client.pause', payload: { position: videoRef.current?.currentTime || 0 } });
       videoRef.current?.pause();
     } else {
-      play();
+      sendMessage({ event: 'client.play', payload: { position: videoRef.current?.currentTime || 0 } });
       videoRef.current?.play().catch(console.error);
     }
   };
 
   const handleSeekOffset = (offset: number) => {
-    if (!videoRef.current) return;
+    if (!partyId || !videoRef.current) return;
     const newPos = Math.max(0, videoRef.current.currentTime + offset);
-    seek(newPos);
+    sendMessage({ event: 'client.seek', payload: { position: newPos } });
     videoRef.current.currentTime = newPos;
   };
 
   const handleSeekTo = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || !duration) return;
+    if (!partyId || !videoRef.current || !duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const pos = (e.clientX - rect.left) / rect.width;
     const newPos = pos * duration;
-    seek(newPos);
+    sendMessage({ event: 'client.seek', payload: { position: newPos } });
     videoRef.current.currentTime = newPos;
   };
 
@@ -206,7 +239,7 @@ export default function Room() {
           </button>
           
           <div className="text-14 uppercase tracking-[0.08em] flex items-center gap-2">
-            {'ROOM'} · <span className="font-mono text-14">{viewersCount}</span> WATCHING
+            {partyState?.name || 'ROOM'} · <span className="font-mono text-14">{viewersCount}</span> WATCHING
           </div>
           
           <button onClick={() => setShowAdmin(true)} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">
@@ -250,12 +283,14 @@ export default function Room() {
                 document.documentElement.requestFullscreen();
               }
             }} />
-            {/* <IconButton icon={<MessageSquare size={18} strokeWidth={1.5} />} onClick={() => setShowChat(!showChat)} active={showChat} /> */}
+            <IconButton icon={<MessageSquare size={18} strokeWidth={1.5} />} onClick={() => setShowChat(!showChat)} active={showChat} />
           </div>
         </div>
       </div>
 
-      {/* <ChatSidebar isOpen={showChat} onClose={() => setShowChat(false)} viewersCount={viewersCount} /> */}
+      {partyId && (
+        <ChatSidebar isOpen={showChat} onClose={() => setShowChat(false)} viewersCount={viewersCount} partyId={partyId} sendMessage={sendMessage} addMessageHandler={addMessageHandler} />
+      )}
       <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} />
     </div>
   );

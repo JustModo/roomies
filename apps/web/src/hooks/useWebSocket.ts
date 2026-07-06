@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 type MessageHandler = (message: OutgoingSocketMessage) => void;
 
-export function useWebSocket(partyId: string | undefined) {
+export function useWebSocket() {
   const { token } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -13,27 +13,27 @@ export function useWebSocket(partyId: string | undefined) {
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
 
   const connect = useCallback(() => {
-    if (!token || !partyId) return;
+    if (!token) return;
 
     // Use wss:// or ws:// depending on the current protocol
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Connect to the proxy URL (Caddy routes /ws to the backend)
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    // Connect to the proxy URL and pass the token as a query param
+    const wsUrl = `${protocol}//${window.location.host}/ws?token=${token}`;
     
-    // Pass the token as a subprotocol to avoid query string leakage
-    const ws = new WebSocket(wsUrl, [token]);
+    const ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
       setIsConnected(true);
       setError(null);
+      
       // Automatically join the room once connected
-      ws.send(JSON.stringify({ event: 'client.join', payload: { partyId } }));
+      const joinMsg: IncomingSocketMessage = { event: 'room.join', payload: {} };
+      ws.send(JSON.stringify(joinMsg));
     };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as OutgoingSocketMessage;
-        // Dispatch to all registered handlers
         handlersRef.current.forEach(handler => handler(message));
       } catch (err) {
         console.error('Failed to parse websocket message', err);
@@ -57,7 +57,7 @@ export function useWebSocket(partyId: string | undefined) {
       ws.close();
       wsRef.current = null;
     };
-  }, [token, partyId]);
+  }, [token]);
 
   useEffect(() => {
     const cleanup = connect();

@@ -15,11 +15,8 @@
     }
 
     # --- WebSocket Gateway ---
-    handle /ws {
-        reverse_proxy api:3000 {
-            header_up Upgrade {upstream_header.Upgrade}
-            header_up Connection {upstream_header.Connection}
-        }
+    handle /ws* {
+        reverse_proxy api:3000
     }
 
     # --- HLS Media Delivery ---

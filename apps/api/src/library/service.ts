@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+// @ts-ignore
 import ffprobeStatic from 'ffprobe-static';
 import { prisma } from '../database/sqlite';
 import { Library, MediaFile } from '@roomies/contracts';
