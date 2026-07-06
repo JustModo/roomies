@@ -30,6 +30,8 @@ export class TranscodeVariant extends EventEmitter {
   private watcher: fs.FSWatcher | null = null;
   private _isReady = false;
   private _isRunning = false;
+  private _isSuspended = false;
+  private startPosition: number = 0;
 
   constructor(resolution: Resolution, outputDir: string) {
     super();
@@ -53,6 +55,7 @@ export class TranscodeVariant extends EventEmitter {
    */
   start(inputPath: string, startPosition: number = 0): void {
     if (this._isRunning) return;
+    this.startPosition = startPosition;
 
     // Ensure the output directory exists
     fs.mkdirSync(this.outputDir, { recursive: true });
@@ -143,9 +146,67 @@ export class TranscodeVariant extends EventEmitter {
     this.stopWatcher();
 
     if (this.process && this._isRunning) {
+      // If the process was suspended, it won't process SIGTERM until resumed
+      if (this._isSuspended) {
+        this.process.kill('SIGCONT');
+      }
       this.process.kill('SIGTERM');
       this.process = null;
       this._isRunning = false;
+      this._isSuspended = false;
+    }
+  }
+
+  /**
+   * Manages the rolling cache and throttles FFmpeg.
+   * Deletes old segments and suspends/resumes FFmpeg to cap disk/cpu usage.
+   */
+  manageCache(currentPlayhead: number): void {
+    if (!this._isReady) return;
+
+    try {
+      const files = fs.readdirSync(this.outputDir);
+      let newestSegmentTime = 0;
+
+      for (const file of files) {
+        if (!file.endsWith('.ts')) continue;
+
+        const match = file.match(/seg_(\d+)\.ts/);
+        if (match) {
+          const index = parseInt(match[1], 10);
+          const segmentTime = this.startPosition + (index * SEGMENT_DURATION);
+          
+          if (segmentTime > newestSegmentTime) {
+            newestSegmentTime = segmentTime;
+          }
+
+          // Prune segments > 60 seconds behind the playhead
+          if (segmentTime + SEGMENT_DURATION < currentPlayhead - 60) {
+            try {
+              fs.unlinkSync(path.join(this.outputDir, file));
+            } catch (err) {
+              console.error(`Failed to delete old segment ${file}:`, err);
+            }
+          }
+        }
+      }
+
+      // Throttle FFmpeg based on how far ahead it is
+      if (this.process && this._isRunning) {
+        const aheadBy = newestSegmentTime - currentPlayhead;
+        
+        if (aheadBy > 180 && !this._isSuspended) {
+          console.log(`[transcode:${this.resolution}] Suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          this.process.kill('SIGSTOP');
+          this._isSuspended = true;
+        } else if (aheadBy < 120 && this._isSuspended) {
+          console.log(`[transcode:${this.resolution}] Resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          this.process.kill('SIGCONT');
+          this._isSuspended = false;
+        }
+      }
+    } catch (err) {
+      console.error(`Error managing cache for ${this.resolution}:`, err);
     }
   }
 

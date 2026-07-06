@@ -102,7 +102,16 @@ export class TranscodeSession {
   }
 
   /**
-   * Stops all running FFmpeg processes and cleans up.
+   * Manages caching for all variants in this session based on the current playhead.
+   */
+  manageActiveCaches(currentPlayhead: number): void {
+    for (const variant of this.variants.values()) {
+      variant.manageCache(currentPlayhead);
+    }
+  }
+
+  /**
+   * Stops all running FFmpeg processes and completely deletes the cache directory for this session.
    */
   stop(): void {
     for (const [resolution, variant] of this.variants) {
@@ -110,6 +119,14 @@ export class TranscodeSession {
       variant.stop();
     }
     this.variants.clear();
+
+    try {
+      if (fs.existsSync(this.outputBaseDir)) {
+        fs.rmSync(this.outputBaseDir, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.error(`[session:${this.mediaFileId}] Failed to delete cache directory on stop:`, err);
+    }
   }
 
   /**

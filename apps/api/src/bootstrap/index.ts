@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import fs from 'fs';
 import fastifyCors from '@fastify/cors';
 import fastifyWebsocket from '@fastify/websocket';
 import { prisma } from '../database/sqlite';
@@ -14,10 +15,26 @@ import { registerPlaybackSocketEvents } from '../playback/socket';
 import { registerRoomSocketEvents } from '../room/socket';
 import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
-import { TranscodeSessionManager } from '../transcoding';
+import { TranscodeSessionManager, CACHE_DIR } from '../transcoding';
 import { SocketEmitter } from '../websocket/emitter';
 
 export const bootstrap = async (app: FastifyInstance) => {
+  // 0. Global Cache Cleanup
+  // Ensure we start with a clean slate to prevent disk leaks from past crashes
+  try {
+    if (fs.existsSync(CACHE_DIR)) {
+      const files = fs.readdirSync(CACHE_DIR);
+      for (const file of files) {
+        fs.rmSync(require('path').join(CACHE_DIR, file), { recursive: true, force: true });
+      }
+    } else {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+    console.log('Cleaned up global transcode cache directory');
+  } catch (err) {
+    console.error('Failed to clean global cache directory', err);
+  }
+
   // 1. Register Plugins
   // The JWT is sent via the `Authorization` header (not cookies), so credentialed
   // CORS is not required. Origin is restricted to an explicit allow-list — a

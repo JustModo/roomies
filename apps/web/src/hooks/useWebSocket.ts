@@ -54,6 +54,7 @@ export function useWebSocket() {
     wsRef.current = ws;
 
     return () => {
+      ws.onclose = null; // Prevent reconnect logic from firing on unmount
       ws.close();
       wsRef.current = null;
     };

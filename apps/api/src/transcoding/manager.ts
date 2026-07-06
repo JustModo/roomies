@@ -3,6 +3,7 @@ import path from 'path';
 import { Resolution, TranscodeErrorCallback } from './types';
 import { TranscodeSession } from './session';
 import { CACHE_DIR } from './config';
+import { roomStore } from '../room/store';
 
 /**
  * Singleton manager for the active transcoding session.
@@ -14,6 +15,16 @@ import { CACHE_DIR } from './config';
 class TranscodeSessionManagerImpl {
   private currentSession: TranscodeSession | null = null;
   private errorCallbacks: TranscodeErrorCallback[] = [];
+
+  constructor() {
+    // Background loop to manage cache sizes and throttle FFmpeg
+    setInterval(() => {
+      if (this.currentSession) {
+        const playhead = roomStore.getCurrentPosition();
+        this.manageActiveCaches(playhead);
+      }
+    }, 5000);
+  }
 
   /**
    * Starts a new transcoding session for the given media file.
@@ -54,6 +65,15 @@ class TranscodeSessionManagerImpl {
   }
 
 
+
+  /**
+   * Manages the rolling cache and FFmpeg throttling for the active session.
+   */
+  manageActiveCaches(currentPlayhead: number): void {
+    if (this.currentSession) {
+      this.currentSession.manageActiveCaches(currentPlayhead);
+    }
+  }
 
   /**
    * Stops the current session and kills all FFmpeg processes.
