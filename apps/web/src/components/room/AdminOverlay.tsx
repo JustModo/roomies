@@ -10,7 +10,7 @@ interface AdminOverlayProps {
   onClose: () => void;
 }
 
-type Tab = 'USERS' | 'MEDIA';
+type Tab = 'USERS' | 'MEDIA' | 'SETTINGS';
 
 export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<Tab>('MEDIA');
@@ -30,7 +30,7 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) =
 
       {/* Tabs */}
       <div className="border-b border-ash px-6 flex gap-8">
-        {(['MEDIA', 'USERS'] as Tab[]).map((tab) => (
+        {(['MEDIA', 'USERS', 'SETTINGS'] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -51,6 +51,7 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) =
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'USERS' && <UsersTab />}
         {activeTab === 'MEDIA' && <MediaTab onClose={onClose} />}
+        {activeTab === 'SETTINGS' && <SettingsTab />}
       </div>
     </div>
   );
@@ -277,6 +278,153 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           </div>
         ))}
       </div>
+    </div>
+  );
+};
+
+const FFMPEG_PRESETS: { value: string; label: string; description: string }[] = [
+  { value: 'ultrafast', label: 'ULTRAFAST', description: 'Lowest CPU usage, largest file size' },
+  { value: 'veryfast', label: 'VERYFAST', description: 'Balanced (default)' },
+  { value: 'fast', label: 'FAST', description: 'Slightly better quality, more CPU' },
+  { value: 'medium', label: 'MEDIUM', description: 'Higher quality, higher CPU usage' },
+  { value: 'slow', label: 'SLOW', description: 'Best quality, highest CPU usage' },
+];
+
+const SettingsTab = () => {
+  const [ffmpegPreset, setFfmpegPreset] = useState<string>('veryfast');
+  const [hwAccelMode, setHwAccelMode] = useState<string>('auto');
+  const [detectedHardware, setDetectedHardware] = useState<string>('cpu');
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const fetchSettings = () => {
+    setLoading(true);
+    fetch('/api/settings/transcode', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ffmpegPreset) setFfmpegPreset(data.ffmpegPreset);
+        if (data.hwAccelMode) setHwAccelMode(data.hwAccelMode);
+        if (data.detectedHardware) setDetectedHardware(data.detectedHardware);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const handleSelectPreset = async (value: string) => {
+    const previous = ffmpegPreset;
+    setFfmpegPreset(value);
+    setSaving(true);
+    try {
+      const res = await fetch('/api/settings/transcode', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ffmpegPreset: value })
+      });
+      if (!res.ok) throw new Error('Failed to update transcode preset');
+    } catch (err) {
+      console.error(err);
+      setFfmpegPreset(previous);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleHwAccel = async (value: string) => {
+    const previous = hwAccelMode;
+    setHwAccelMode(value);
+    setSaving(true);
+    try {
+      const res = await fetch('/api/settings/transcode', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ hwAccelMode: value })
+      });
+      if (!res.ok) throw new Error('Failed to update hardware acceleration mode');
+    } catch (err) {
+      console.error(err);
+      setHwAccelMode(previous);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="max-w-3xl">
+      <h2 className="text-14 font-medium uppercase tracking-[0.08em] text-fog mb-6">
+        HARDWARE ACCELERATION
+      </h2>
+
+      {!loading && (
+        <div className="flex items-center justify-between py-4 border-b border-ash mb-8">
+          <div className="flex flex-col gap-1">
+            <span className="text-16 text-paper font-medium">
+              DETECTED: {detectedHardware === 'cpu' ? 'NONE (CPU ONLY)' : detectedHardware.toUpperCase()}
+            </span>
+            <span className="text-14 font-mono text-fog">
+              AUTO uses hardware encoding when available, and always falls back to CPU on failure.
+            </span>
+          </div>
+          <div className="flex gap-4">
+            {['auto', 'cpu'].map((mode) => (
+              <button
+                key={mode}
+                onClick={() => handleToggleHwAccel(mode)}
+                disabled={saving}
+                className={`text-14 uppercase tracking-[0.08em] pb-1 border-b ${hwAccelMode === mode ? 'text-paper border-paper' : 'text-fog border-transparent hover:text-paper'}`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <h2 className="text-14 font-medium uppercase tracking-[0.08em] text-fog mb-6">
+        TRANSCODE ENCODING PRESET
+      </h2>
+
+      {loading ? (
+        <p className="text-14 text-fog">Loading...</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {FFMPEG_PRESETS.map((preset) => (
+            <button
+              key={preset.value}
+              onClick={() => handleSelectPreset(preset.value)}
+              disabled={saving}
+              className={`
+                flex items-center justify-between py-4 px-4 -mx-4 border-b border-ash text-left transition-colors
+                ${ffmpegPreset === preset.value ? 'bg-ash/20' : 'hover:bg-ash/10'}
+              `}
+            >
+              <div className="flex flex-col gap-1">
+                <span className="text-16 text-paper font-medium">{preset.label}</span>
+                <span className="text-14 font-mono text-fog">{preset.description}</span>
+              </div>
+              {ffmpegPreset === preset.value && (
+                <span className="text-12 uppercase tracking-[0.08em] text-paper">ACTIVE</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="text-12 text-fog mt-6">
+        Changing the preset only affects newly started transcode variants — it does not
+        restart streams already in progress.
+      </p>
     </div>
   );
 };
