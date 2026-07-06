@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { ChangeMediaRequest } from '@roomies/contracts';
 import { PlaybackService } from './service';
-import { Resolution } from '../transcoding';
+import { Resolution } from '@roomies/transcoding';
 
 export const PlaybackController = {
   /**

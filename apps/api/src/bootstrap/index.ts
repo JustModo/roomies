@@ -9,14 +9,16 @@ import { userRoutes } from '../users';
 import { libraryRoutes } from '../library';
 import { chatRoutes } from '../chat';
 import { playbackRoutes } from '../playback/routes';
+import { settingsRoutes } from '../settings';
 import { initializeConfig } from '../config';
 import { registerChatSocketEvents } from '../chat/socket';
 import { registerPlaybackSocketEvents } from '../playback/socket';
 import { registerRoomSocketEvents } from '../room/socket';
 import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
-import { TranscodeSessionManager, CACHE_DIR } from '../transcoding';
+import { TranscodeSessionManager, CACHE_DIR } from '@roomies/transcoding';
 import { SocketEmitter } from '../websocket/emitter';
+import { roomStore } from '../room/store';
 
 export const bootstrap = async (app: FastifyInstance) => {
   // 0. Global Cache Cleanup
@@ -84,7 +86,14 @@ export const bootstrap = async (app: FastifyInstance) => {
     });
   });
 
-  // 4. Register Global Hooks & Gateway
+  // 4. Drive the transcoding cache/throttle loop
+  // The package itself has no notion of "the room" or "the current playhead" —
+  // this app owns both, so it's responsible for the scheduling.
+  setInterval(() => {
+    TranscodeSessionManager.manageActiveCaches(roomStore.getCurrentPosition());
+  }, 5000);
+
+  // 5. Register Global Hooks & Gateway
   registerChatSocketEvents();
   registerPlaybackSocketEvents();
   registerRoomSocketEvents();
@@ -93,14 +102,15 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   setupWebsocketGateway(app);
 
-  // 5. Register Routes
+  // 6. Register Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(userRoutes, { prefix: '/api/users' });
   await app.register(libraryRoutes, { prefix: '/api/library' });
   await app.register(chatRoutes, { prefix: '/api/chat' });
   await app.register(playbackRoutes, { prefix: '/api/playback' });
+  await app.register(settingsRoutes, { prefix: '/api/settings' });
 
-  // 6. Graceful shutdown — kill any running FFmpeg processes
+  // 7. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {
     TranscodeSessionManager.stopSession();
   });
