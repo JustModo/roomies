@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { FfmpegPreset, HwAccelMode } from '@roomies/contracts';
+import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
