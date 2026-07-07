@@ -24,13 +24,23 @@ export function useRoomSync() {
   const localTimeRef = useRef(0);
   const correctionTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
+  const getInitialPosition = useCallback((playback: RoomState['playback']) => {
+    let pos = playback.anchorPosition;
+    if (playback.state === 'playing') {
+      const elapsed = (Date.now() - playback.anchorTime) / 1000;
+      pos += elapsed * playback.playbackRate;
+    }
+    return pos;
+  }, []);
+
   // Sync state incoming from server
   useEffect(() => {
     const remove = addMessageHandler((msg) => {
       if (msg.event === 'room.state') {
         setRoomState(msg.payload.room);
-        setLocalTime(msg.payload.room.playback.anchorPosition);
-        localTimeRef.current = msg.payload.room.playback.anchorPosition;
+        const initialPos = getInitialPosition(msg.payload.room.playback);
+        setLocalTime(initialPos);
+        localTimeRef.current = initialPos;
 
         // Sync media info from room state
         if (msg.payload.room.mediaId && msg.payload.room.hlsUrl) {
@@ -53,8 +63,9 @@ export function useRoomSync() {
           if (!prev) return prev;
           return { ...prev, playback: msg.payload };
         });
-        setLocalTime(msg.payload.anchorPosition);
-        localTimeRef.current = msg.payload.anchorPosition;
+        const initialPos = getInitialPosition(msg.payload);
+        setLocalTime(initialPos);
+        localTimeRef.current = initialPos;
       } else if (msg.event === 'media.changed') {
         // Server has changed the media — update media info
         setMediaInfo((prev) => {
@@ -116,22 +127,28 @@ export function useRoomSync() {
     });
 
     return () => remove();
-  }, [addMessageHandler]);
+  }, [addMessageHandler, getInitialPosition]);
 
   // Player simulation loop
   useEffect(() => {
+    let lastTick = Date.now();
     const interval = setInterval(() => {
+      const now = Date.now();
+      const delta = (now - lastTick) / 1000;
+      lastTick = now;
+
       // Only advance local time if playing. Stop if buffering/waiting.
       if (roomState?.playback.state === 'playing') {
         setLocalTime(prev => {
-          const next = prev + 0.1 * roomState.playback.playbackRate;
+          const rate = localCorrectionRate ?? roomState.playback.playbackRate;
+          const next = prev + delta * rate;
           localTimeRef.current = next;
           return next;
         });
       }
     }, 100);
     return () => clearInterval(interval);
-  }, [roomState?.playback.state, roomState?.playback.playbackRate]);
+  }, [roomState?.playback.state, roomState?.playback.playbackRate, localCorrectionRate]);
 
   // Use refs for heartbeat loop to prevent interval resets
   const playbackStateRef = useRef(roomState?.playback.state);
