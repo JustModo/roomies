@@ -99,22 +99,3 @@ export interface JWTPayload {
   role: string;
 }
 
-// --- Transcode Settings ---
-export const FfmpegPresetSchema = z.enum(['ultrafast', 'veryfast', 'fast', 'medium', 'slow']);
-export const HwAccelModeSchema = z.enum(['auto', 'cpu']);
-
-export type FfmpegPreset = z.infer<typeof FfmpegPresetSchema>;
-export type HwAccelMode = z.infer<typeof HwAccelModeSchema>;
-
-export const TranscodeSettingsSchema = z.object({
-  ffmpegPreset: FfmpegPresetSchema,
-  hwAccelMode: HwAccelModeSchema,
-  detectedHardware: z.string().optional(),
-});
-export type TranscodeSettings = z.infer<typeof TranscodeSettingsSchema>;
-
-export const UpdateTranscodeSettingsRequestSchema = z.object({
-  ffmpegPreset: FfmpegPresetSchema.optional(),
-  hwAccelMode: HwAccelModeSchema.optional(),
-});
-export type UpdateTranscodeSettingsRequest = z.infer<typeof UpdateTranscodeSettingsRequestSchema>;
