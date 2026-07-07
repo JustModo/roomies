@@ -15,6 +15,7 @@ export default function Room() {
   const {
     roomState,
     mediaInfo,
+    seekKey,
     localTime,
     localCorrectionRate,
     play,
@@ -42,6 +43,7 @@ export default function Room() {
     <div className="relative w-full h-screen bg-ink overflow-hidden text-paper">
       <VideoPlayer
         mediaInfo={mediaInfo}
+        seekKey={seekKey}
         roomPlaybackState={roomState?.playback}
         localTime={localTime}
         localCorrectionRate={localCorrectionRate}

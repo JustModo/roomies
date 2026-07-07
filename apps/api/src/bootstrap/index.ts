@@ -87,9 +87,12 @@ export const bootstrap = async (app: FastifyInstance) => {
   // 4. Drive the transcoding cache/throttle loop
   // The package itself has no notion of "the room" or "the current playhead" —
   // this app owns both, so it's responsible for the scheduling.
+  // Poll every 1 second (down from 5s) so a SIGSTOP'd FFmpeg process is
+  // resumed within 1s of the player catching up to the transcoded window,
+  // preventing unnecessary buffering stalls when FFmpeg was suspended.
   setInterval(() => {
     TranscodeSessionManager.manageActiveCaches(roomStore.getCurrentPosition());
-  }, 5000);
+  }, 1000);
 
   // 5. Register Global Hooks & Gateway
   registerChatSocketEvents();

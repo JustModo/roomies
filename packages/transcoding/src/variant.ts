@@ -8,6 +8,7 @@ import {
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
   HLS_LIST_SIZE,
+  LOOK_AHEAD_SEGMENTS,
   FFMPEG_PATH,
   VIDEO_CODEC,
 } from './config';
@@ -43,7 +44,7 @@ export class TranscodeVariant extends EventEmitter {
   private _isReady = false;
   private _isRunning = false;
   private _isSuspended = false;
-  private startPosition: number = 0;
+  private _startPosition: number = 0;
   private preset: FfmpegPreset = 'veryfast';
   private hwAccelMode: HwAccelMode = 'auto';
   private inputPath: string = '';
@@ -63,6 +64,11 @@ export class TranscodeVariant extends EventEmitter {
     return this._isRunning;
   }
 
+  /** The media time (in seconds) from which this variant started encoding. */
+  get startPosition(): number {
+    return this._startPosition;
+  }
+
   /**
    * Spawns the FFmpeg process to transcode the input file into HLS segments.
    * Non-blocking — returns immediately, segments are written asynchronously.
@@ -77,7 +83,7 @@ export class TranscodeVariant extends EventEmitter {
   ): void {
     if (this._isRunning) return;
     this.inputPath = inputPath;
-    this.startPosition = startPosition;
+    this._startPosition = startPosition;
     this.preset = preset;
     this.hwAccelMode = hwAccelMode;
 
@@ -96,6 +102,13 @@ export class TranscodeVariant extends EventEmitter {
     const segmentPattern = path.join(this.outputDir, 'seg_%05d.ts');
     const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`;
 
+    // GOP size = SEGMENT_DURATION × a conservative 24fps baseline. This ensures
+    // every segment boundary lands on a keyframe regardless of the source frame
+    // rate (23.976, 25, 29.97, 30). Using encoder-native -g instead of the
+    // filtergraph `force_key_frames` expression saves measurable CPU — the filter
+    // evaluates on every decoded frame, the encoder flag is essentially free.
+    const gopSize = SEGMENT_DURATION * 24;
+
     let videoArgs: string[];
     if (hw === 'vaapi' || hw === 'qsv') {
       // Software decode + scale, then upload to the VAAPI device for hardware
@@ -104,31 +117,46 @@ export class TranscodeVariant extends EventEmitter {
         '-vf', `${scaleFilter},format=nv12,hwupload`,
         '-vaapi_device', '/dev/dri/renderD128',
         '-c:v', 'h264_vaapi',
+        '-g', String(gopSize),
       ];
     } else if (hw === 'nvenc') {
       videoArgs = [
         '-vf', scaleFilter,
         '-c:v', 'h264_nvenc',
         '-preset', NVENC_PRESET_MAP[this.preset],
+        '-g', String(gopSize),
       ];
     } else {
       videoArgs = [
         '-vf', scaleFilter,
         '-c:v', VIDEO_CODEC,
         '-preset', this.preset,
+        // zerolatency tune minimises internal encoder lookahead buffering so
+        // the first completed segment appears on disk as fast as possible.
+        '-tune', 'zerolatency',
+        '-g', String(gopSize),
+        '-keyint_min', String(gopSize),
       ];
     }
 
     return [
-      // Fast seek (before input) — seeks to the nearest keyframe before
-      // decoding, which is far faster than seeking after -i for large jumps.
-      ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString()] : []),
+      // Fast seek (before -i) snaps to the nearest keyframe before the target
+      // time. -noaccurate_seek skips the slow subsequent frame-accurate decode
+      // to the exact timestamp — for HLS we only need keyframe alignment.
+      ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString(), '-noaccurate_seek'] : []),
 
       // Input
       '-i', this.inputPath,
 
-      // Preserve original timestamps so the player's internal time matches the actual media time
-      ...(this.startPosition > 0 ? ['-copyts'] : []),
+      // Normalise timestamps to 0 when seeking mid-file so segment indices
+      // are contiguous and the playlist is well-formed.
+      ...(this.startPosition > 0 ? ['-avoid_negative_ts', 'make_zero'] : []),
+
+      // Use all available CPU threads for decoding and encoding
+      '-threads', '0',
+
+      // Disable scene-cut adaptive keyframes — conflicts with our fixed GOP
+      '-sc_threshold', '0',
 
       // Video encoding
       ...videoArgs,
@@ -136,31 +164,27 @@ export class TranscodeVariant extends EventEmitter {
       '-maxrate', preset.maxRate,
       '-bufsize', preset.bufSize,
 
-      // Disable scene-cut adaptive keyframes so nothing conflicts with the
-      // explicit segment-boundary keyframes forced below.
-      '-sc_threshold', '0',
-
       // Audio encoding
       '-c:a', 'aac',
       '-b:a', preset.audioBitrate,
       '-ac', '2',
 
-      // HLS output — short segments + a bounded rolling live window. Every
-      // client in a party watches the same live position (no per-user
-      // rewind into already-transcoded regions — seeks fully restart
-      // encoding at the new position), so a live-style rolling playlist is
-      // a correct fit, not just an optimization.
+      // HLS output — VOD mode:
+      //   hls_list_size 0  → keep ALL segments for the session lifetime so the
+      //                       player can buffer far ahead and seek backwards
+      //                       into already-transcoded regions without a restart.
+      //   independent_segments → every segment is independently decodable
+      //                          (required for bitrate-switch seeks in hls.js).
+      //   NO delete_segments   → segments are never deleted by ffmpeg mid-run.
+      //   NO append_list       → the playlist is fully rewritten each time,
+      //                          which is correct for an HLS VOD playlist.
       '-f', 'hls',
       '-hls_time', String(SEGMENT_DURATION),
       '-hls_list_size', String(HLS_LIST_SIZE),
       '-hls_segment_type', 'mpegts',
-      '-hls_flags', 'delete_segments+append_list+independent_segments',
+      '-hls_flags', 'independent_segments',
       '-hls_segment_filename', segmentPattern,
-
-      // Force keyframe alignment at segment boundaries. Time-based (not
-      // frame-count-based like `-g`/`-keyint_min`) so it stays correct
-      // regardless of the source's frame rate.
-      '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
+      '-hls_allow_cache', '1',
 
       // Output playlist
       playlistPath,
@@ -271,15 +295,22 @@ export class TranscodeVariant extends EventEmitter {
         }
       }
 
-      // Throttle FFmpeg based on how far ahead it is
+      // Throttle FFmpeg based on how far ahead of the playhead it has encoded.
+      //
+      // Suspend threshold 300s: with VOD-mode HLS, running far ahead is free
+      // — those segments are already on disk and any future seek into them
+      // will be instant. Only suspend to protect CPU/disk when very far ahead.
+      //
+      // Resume threshold 60s: bring FFmpeg back online quickly so the player
+      // always has a healthy look-ahead buffer.
       if (this.process && this._isRunning) {
         const aheadBy = newestSegmentTime - currentPlayhead;
 
-        if (aheadBy > 180 && !this._isSuspended) {
+        if (aheadBy > 300 && !this._isSuspended) {
           console.log(`[transcode:${this.resolution}] Suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGSTOP');
           this._isSuspended = true;
-        } else if (aheadBy < 120 && this._isSuspended) {
+        } else if (aheadBy < 60 && this._isSuspended) {
           console.log(`[transcode:${this.resolution}] Resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGCONT');
           this._isSuspended = false;
@@ -295,10 +326,11 @@ export class TranscodeVariant extends EventEmitter {
    * Once detected, marks the variant as ready and stops watching.
    */
   private watchForFirstSegment(): void {
-    // Check if segments already exist (cache hit from previous run)
+    // Check if enough segments already exist (cache hit from a previous start)
     try {
       const files = fs.readdirSync(this.outputDir);
-      if (files.some(f => f.endsWith('.ts'))) {
+      const tsCount = files.filter(f => f.endsWith('.ts')).length;
+      if (tsCount >= LOOK_AHEAD_SEGMENTS) {
         this._isReady = true;
         this.emit('ready');
         return;
@@ -307,30 +339,28 @@ export class TranscodeVariant extends EventEmitter {
       // Directory might not have files yet
     }
 
-    try {
-      this.watcher = fs.watch(this.outputDir, (eventType, filename) => {
-        if (filename && filename.endsWith('.ts') && !this._isReady) {
+    // Watch for new .ts files; emit 'ready' once LOOK_AHEAD_SEGMENTS are present.
+    // This gives the player a healthy initial buffer (LOOK_AHEAD_SEGMENTS × SEGMENT_DURATION
+    // seconds) before it starts pulling, preventing the first-segment stall.
+    const checkReady = () => {
+      try {
+        const files = fs.readdirSync(this.outputDir);
+        const tsCount = files.filter(f => f.endsWith('.ts')).length;
+        if (tsCount >= LOOK_AHEAD_SEGMENTS && !this._isReady) {
           this._isReady = true;
           this.stopWatcher();
           this.emit('ready');
         }
-      });
-    } catch (err) {
-      // If watching fails, poll instead
-      const poll = setInterval(() => {
-        try {
-          const files = fs.readdirSync(this.outputDir);
-          if (files.some(f => f.endsWith('.ts'))) {
-            this._isReady = true;
-            clearInterval(poll);
-            this.emit('ready');
-          }
-        } catch {
-          // Keep polling
-        }
-      }, 500);
+      } catch {
+        // Keep watching
+      }
+    };
 
-      // Clean up the poll if the variant is stopped
+    try {
+      this.watcher = fs.watch(this.outputDir, checkReady);
+    } catch (err) {
+      // If watching fails, fall back to polling
+      const poll = setInterval(checkReady, 500);
       this.once('exit', () => clearInterval(poll));
     }
   }

@@ -31,12 +31,18 @@ export class PlaybackService {
     const session = TranscodeSessionManager.startSession(mediaFileId, mediaFile.path);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
 
-    // Fast-start: pre-warm the lowest-bitrate variant immediately rather than
-    // waiting for the client's hls.js to request it, so the first segment is
-    // already on disk (or close to it) by the time playback actually starts.
+    // Fast-start: pre-warm ALL variants in parallel so that by the time the
+    // client's hls.js requests any quality, the first segments are already on
+    // disk. Jellyfin does the same — it transcodes all streams immediately
+    // rather than waiting for the player to pick a quality.
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-    session.ensureVariantReady('360p', 0, ffmpegPreset, hwAccelMode).catch((err) => {
-      console.error(`[playback] Failed to pre-warm 360p variant for ${mediaFileId}:`, err);
+    const resolutions: Resolution[] = ['360p', '720p', '1080p'];
+    Promise.allSettled(
+      resolutions.map(res =>
+        session.ensureVariantReady(res, 0, ffmpegPreset, hwAccelMode)
+      )
+    ).catch((err) => {
+      console.error(`[playback] Failed to pre-warm variants for ${mediaFileId}:`, err);
     });
 
     roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration);
@@ -133,17 +139,22 @@ export class PlaybackService {
     const state = roomStore.getState();
     const session = TranscodeSessionManager.getSession();
     if (session && state.mediaId === session.mediaFileId) {
-      // Clear current variants and cache so they are regenerated from the new seek position
-      session.clearVariants();
-
-      // Pre-warm the lowest-bitrate variant at the new position so re-seeking
-      // doesn't reintroduce the cold-start stall.
+      // Seek each active variant to the new position.
+      // seekVariant() is smart: if the position is already on disk it returns
+      // instantly; only if it's beyond the transcoded window does it kill and
+      // restart FFmpeg at the new position. This eliminates the multi-second
+      // cold-start stall that the old clearVariants() approach caused.
       const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-      session.ensureVariantReady('360p', payload.position, ffmpegPreset, hwAccelMode).catch((err) => {
-        console.error(`[playback] Failed to pre-warm 360p variant after seek for ${state.mediaId}:`, err);
+      const resolutions: Resolution[] = ['360p', '720p', '1080p'];
+      Promise.allSettled(
+        resolutions.map(res =>
+          session.seekVariant(res, payload.position, ffmpegPreset, hwAccelMode)
+        )
+      ).catch((err) => {
+        console.error(`[playback] seekVariant failed for ${state.mediaId}:`, err);
       });
 
-      // Force clients to rebuild HLS and request the variant from the new position
+      // Force clients to rebuild HLS from the new position
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'media.changed',
         payload: {

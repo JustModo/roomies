@@ -6,6 +6,7 @@ import { MediaInfo, RoomState } from '../../hooks/useRoomSync';
 
 export interface VideoPlayerProps {
   mediaInfo: MediaInfo | null;
+  seekKey?: number;
   roomPlaybackState?: RoomState['playback'];
   localTime: number;
   localCorrectionRate?: number | null;
@@ -19,6 +20,7 @@ export interface VideoPlayerProps {
 
 export function VideoPlayer({
   mediaInfo,
+  seekKey,
   roomPlaybackState,
   localTime,
   localCorrectionRate,
@@ -50,16 +52,32 @@ export function VideoPlayer({
   const hlsRef = useRef<Hls | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
 
-  // Setup HLS — rebuild when media changes
+  // Stable ref for status callbacks to prevent listener thrash
+  const onStatusChangeRef = useRef(onStatusChange);
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange;
+  }, [onStatusChange]);
+
+  // Setup HLS — rebuild when media URL or seekKey changes
   useEffect(() => {
     if (!videoRef.current || !mediaInfo?.hlsUrl) return;
 
     if (hlsRef.current) {
+      // If we already have an HLS instance and just the URL/seekKey updated
+      // but it's the exact same media (e.g. after a seek), do a soft reload
+      // from the new position instead of a full teardown.
+      const currentUrl = hlsRef.current.url;
+      if (currentUrl === mediaInfo.hlsUrl) {
+        hlsRef.current.stopLoad();
+        hlsRef.current.startLoad(localTime);
+        return;
+      }
+
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
 
-    onStatusChange('buffering');
+    onStatusChangeRef.current('buffering');
     setLevels([]);
     setCurrentLevel(-1);
 
@@ -74,6 +92,8 @@ export function VideoPlayer({
         levelLoadingRetryDelay: 1000,
         fragLoadingMaxRetry: 10,
         fragLoadingRetryDelay: 1000,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
       });
 
       hls.loadSource(mediaInfo.hlsUrl);
@@ -95,7 +115,7 @@ export function VideoPlayer({
         if (data.fatal) {
           console.error('[HLS] Fatal error:', data.type, data.details);
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            hls.startLoad();
+            hls.startLoad(videoRef.current?.currentTime ?? -1);
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             hls.recoverMediaError();
           }
@@ -112,10 +132,10 @@ export function VideoPlayer({
       videoRef.current.src = mediaInfo.hlsUrl;
       videoRef.current.currentTime = localTime;
       videoRef.current.addEventListener('loadedmetadata', () => {
-        onStatusChange('ready');
+        onStatusChangeRef.current('ready');
       }, { once: true });
     }
-  }, [mediaInfo?.hlsUrl]);
+  }, [mediaInfo?.hlsUrl, seekKey]);
 
   // Sync playback state from server
   useEffect(() => {
@@ -143,7 +163,7 @@ export function VideoPlayer({
   useEffect(() => {
     if (!videoRef.current || isDragging) return;
     const diff = Math.abs(videoRef.current.currentTime - localTime);
-    if (diff > 1) {
+    if (diff > 3) {
       videoRef.current.currentTime = localTime;
     }
   }, [localTime, isDragging]);
@@ -169,6 +189,39 @@ export function VideoPlayer({
     };
   }, []);
 
+  // Status update event listeners (Stable, no dragging dependencies)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let bufferingTimeout: ReturnType<typeof setTimeout>;
+
+    const handleWaiting = () => {
+      // Debounce the 'waiting' event so minor 100ms internal decoder 
+      // stalls during segment switches don't pause the whole room
+      clearTimeout(bufferingTimeout);
+      bufferingTimeout = setTimeout(() => {
+        onStatusChangeRef.current('buffering');
+      }, 1500);
+    };
+
+    const handleReady = () => {
+      clearTimeout(bufferingTimeout);
+      onStatusChangeRef.current('ready');
+    };
+
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handleReady);
+    video.addEventListener('canplay', handleReady);
+
+    return () => {
+      clearTimeout(bufferingTimeout);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handleReady);
+      video.removeEventListener('canplay', handleReady);
+    };
+  }, []);
+
   // Time and Progress Updates
   useEffect(() => {
     const video = videoRef.current;
@@ -191,28 +244,19 @@ export function VideoPlayer({
 
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
-    const handleWaiting = () => onStatusChange('buffering');
-    const handlePlaying = () => onStatusChange('ready');
-    const handleCanPlay = () => onStatusChange('ready');
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('progress', onProgress);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
-    video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('playing', handlePlaying);
-    video.addEventListener('canplay', handleCanPlay);
 
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('progress', onProgress);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
-      video.removeEventListener('waiting', handleWaiting);
-      video.removeEventListener('playing', handlePlaying);
-      video.removeEventListener('canplay', handleCanPlay);
     };
-  }, [onStatusChange, isDragging]);
+  }, [isDragging]);
 
   // Scrubbing Logic
   const updateDragProgress = (clientX: number) => {
@@ -278,6 +322,7 @@ export function VideoPlayer({
   const handleSeekOffset = (offset: number) => {
     if (!videoRef.current) return;
     const newPos = Math.max(0, videoRef.current.currentTime + offset);
+    videoRef.current.currentTime = newPos;
     onSeek(newPos);
   };
 

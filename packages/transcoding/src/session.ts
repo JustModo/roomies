@@ -3,7 +3,7 @@ import path from 'path';
 import { FfmpegPreset, HwAccelMode } from '@roomies/contracts';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
-import { MAX_CONCURRENT_VARIANTS } from './config';
+import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
 
 /**
  * Manages all transcoding variants for a single media file.
@@ -135,18 +135,87 @@ export class TranscodeSession {
   }
 
   /**
-   * Clears the current running variants and deletes their cache directories.
-   * This forces new requests to spawn FFmpeg at the new requested position.
+   * Handles a seek to a new position for a specific resolution variant.
+   *
+   * Rather than always nuking the cache (cold restart), this first checks
+   * whether the requested position is already covered by segments that FFmpeg
+   * has already written. If it is, the existing process is left running and the
+   * caller gets an instant response — no stall.
+   *
+   * Only if the position is NOT yet transcoded do we kill the old process and
+   * restart from the new position. Crucially we do NOT delete the cache dir on
+   * restart — segments for other variants or time regions remain usable.
    */
-  clearVariants(): void {
-    this.stop();
-    try {
-      if (fs.existsSync(this.outputBaseDir)) {
-        fs.rmSync(this.outputBaseDir, { recursive: true, force: true });
+  async seekVariant(
+    resolution: Resolution,
+    newPosition: number,
+    preset: FfmpegPreset = 'veryfast',
+    hwAccelMode: HwAccelMode = 'auto'
+  ): Promise<void> {
+    const existing = this.variants.get(resolution);
+
+    if (existing) {
+      // Check if newPosition is already within the transcoded window.
+      // The variant tracks its own startPosition; we count how many .ts
+      // files exist and derive the furthest covered timestamp.
+      const variantDir = path.join(this.outputBaseDir, resolution);
+      const maxCoveredTime = this.getMaxCoveredTime(variantDir, existing);
+
+      if (newPosition <= maxCoveredTime) {
+        // Already transcoded — nothing to do. The player's hls.js will
+        // re-request stream.m3u8 and find the right segment immediately.
+        console.log(
+          `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s is already covered ` +
+          `(max=${maxCoveredTime.toFixed(1)}s) for ${resolution} — reusing cache`
+        );
+        return;
       }
-      fs.mkdirSync(this.outputBaseDir, { recursive: true });
-    } catch (err) {
-      console.error(`[session:${this.mediaFileId}] Failed to clear cache directory:`, err);
+
+      // Position is beyond what we've transcoded. Kill just this variant
+      // process (NOT the cache dir) and restart from the new position.
+      console.log(
+        `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s not yet transcoded ` +
+        `(max=${maxCoveredTime.toFixed(1)}s) for ${resolution} — restarting from new position`
+      );
+      existing.stop();
+
+      // Wipe only this variant's output dir so the restarted process writes
+      // fresh segment indices from 0 (seg_00000.ts, seg_00001.ts …).
+      try {
+        fs.rmSync(variantDir, { recursive: true, force: true });
+      } catch (err) {
+        console.error(`[session:${this.mediaFileId}] Failed to clear variant dir for ${resolution}:`, err);
+      }
+
+      this.variants.delete(resolution);
+    }
+
+    // Spawn a new variant at the requested position (same path as ensureVariantReady).
+    return this.ensureVariantReady(resolution, newPosition, preset, hwAccelMode);
+  }
+
+  /**
+   * Derives the furthest media timestamp that has been transcoded for a variant,
+   * by counting .ts segment files in its output directory.
+   */
+  private getMaxCoveredTime(variantDir: string, variant: TranscodeVariant): number {
+    try {
+      const files = fs.readdirSync(variantDir);
+      let maxIndex = -1;
+      for (const file of files) {
+        const match = file.match(/seg_(\d+)\.ts/);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          if (idx > maxIndex) maxIndex = idx;
+        }
+      }
+      if (maxIndex < 0) return 0;
+      // Each segment covers SEGMENT_DURATION seconds; the variant started at its startPosition.
+      // We expose startPosition via a public accessor added to TranscodeVariant.
+      return variant.startPosition + (maxIndex + 1) * SEGMENT_DURATION;
+    } catch {
+      return 0;
     }
   }
 }
+

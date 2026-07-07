@@ -9,6 +9,7 @@ export interface MediaInfo {
   title: string;
   hlsUrl: string;
   duration?: number;
+  seekKey?: number;
 }
 
 export function useRoomSync() {
@@ -32,11 +33,15 @@ export function useRoomSync() {
 
         // Sync media info from room state
         if (msg.payload.room.mediaId && msg.payload.room.hlsUrl) {
-          setMediaInfo({
-            mediaFileId: msg.payload.room.mediaId,
-            title: msg.payload.room.mediaTitle || '',
-            hlsUrl: msg.payload.room.hlsUrl,
-            duration: msg.payload.room.duration,
+          setMediaInfo((prev) => {
+            const nextKey = prev?.mediaFileId !== msg.payload.room.mediaId ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
+            return {
+              mediaFileId: msg.payload.room.mediaId!,
+              title: msg.payload.room.mediaTitle || '',
+              hlsUrl: msg.payload.room.hlsUrl!,
+              duration: msg.payload.room.duration,
+              seekKey: nextKey,
+            };
           });
         }
       } else if (msg.event === 'playback.state') {
@@ -48,11 +53,15 @@ export function useRoomSync() {
         localTimeRef.current = msg.payload.anchorPosition;
       } else if (msg.event === 'media.changed') {
         // Server has changed the media — update media info
-        setMediaInfo({
-          mediaFileId: msg.payload.mediaFileId,
-          title: msg.payload.title,
-          hlsUrl: msg.payload.hlsUrl,
-          duration: msg.payload.duration,
+        setMediaInfo((prev) => {
+            const nextKey = prev?.mediaFileId !== msg.payload.mediaFileId ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
+            return {
+              mediaFileId: msg.payload.mediaFileId,
+              title: msg.payload.title,
+              hlsUrl: msg.payload.hlsUrl,
+              duration: msg.payload.duration,
+              seekKey: nextKey,
+            };
         });
       } else if (msg.event === 'user.status_changed') {
         setRoomState((prev) => {
@@ -105,6 +114,7 @@ export function useRoomSync() {
   // Player simulation loop
   useEffect(() => {
     const interval = setInterval(() => {
+      // Only advance local time if playing. Stop if buffering/waiting.
       if (roomState?.playback.state === 'playing') {
         setLocalTime(prev => {
           const next = prev + 0.1 * roomState.playback.playbackRate;
@@ -116,6 +126,14 @@ export function useRoomSync() {
     return () => clearInterval(interval);
   }, [roomState?.playback.state, roomState?.playback.playbackRate]);
 
+  // Use refs for heartbeat loop to prevent interval resets
+  const playbackStateRef = useRef(roomState?.playback.state);
+  const playbackRateRef = useRef(roomState?.playback.playbackRate);
+  useEffect(() => {
+    playbackStateRef.current = roomState?.playback.state;
+    playbackRateRef.current = roomState?.playback.playbackRate;
+  }, [roomState?.playback.state, roomState?.playback.playbackRate]);
+
   // Heartbeat loop
   useEffect(() => {
     if (!isConnected) return;
@@ -124,13 +142,13 @@ export function useRoomSync() {
         event: 'sync.heartbeat',
         payload: { 
           position: localTimeRef.current,
-          playing: roomState?.playback.state === 'playing',
-          playbackRate: roomState?.playback.playbackRate ?? 1
+          playing: playbackStateRef.current === 'playing',
+          playbackRate: playbackRateRef.current ?? 1
         }
       });
     }, 5000);
     return () => clearInterval(interval);
-  }, [isConnected, sendMessage, roomState?.playback.state, roomState?.playback.playbackRate]);
+  }, [isConnected, sendMessage]);
 
   // Actions
   const play = useCallback(() => {
@@ -159,6 +177,7 @@ export function useRoomSync() {
     isConnected,
     roomState,
     mediaInfo,
+    seekKey: mediaInfo?.seekKey ?? 0,
     localTime,
     localCorrectionRate,
     play,

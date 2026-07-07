@@ -33,18 +33,27 @@ export const RESOLUTION_PRESETS: Record<Resolution, ResolutionConfig> = {
 };
 
 /**
- * Duration of each HLS segment in seconds. Kept short (2s) for low-latency
- * live transcoding — everyone in a party watches at the same live position,
- * so there's no benefit to longer segments the way there is for VOD.
+ * Duration of each HLS segment in seconds. 4s is the Jellyfin-recommended
+ * sweet spot for VOD: long enough that the player always has a few segments
+ * buffered without needing sub-second HTTP round-trips, short enough that
+ * seeking lands within 4s of the requested position.
  */
-export const SEGMENT_DURATION = 2;
+export const SEGMENT_DURATION = 4;
 
 /**
- * Number of segments kept in the HLS playlist at once (rolling live window).
- * Combined with `hls_flags delete_segments`, ffmpeg natively rotates the
- * playlist and deletes old segment files itself — no manual pruning needed.
+ * 0 = unlimited — all produced segments are kept for the lifetime of the
+ * session (VOD mode). This lets the player buffer far ahead and seek
+ * backwards into already-transcoded regions instantly without a cold restart.
+ * Segments are only cleaned up when the session ends (stop() / clearVariants()).
  */
-export const HLS_LIST_SIZE = 10;
+export const HLS_LIST_SIZE = 0;
+
+/**
+ * Number of segments that must exist on disk before the variant is considered
+ * "ready" and the player is signalled to start. 3 × 4s = 12s of buffer — long
+ * enough that the first few HTTP round-trips don't stall playback immediately.
+ */
+export const LOOK_AHEAD_SEGMENTS = 3;
 
 /**
  * Upper bound on concurrent FFmpeg variant processes per session. Matches the
