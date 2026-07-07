@@ -441,3 +441,26 @@ Closed out the two remaining loose ends from the transcoding-optimization work: 
 - Validate NVENC/QSV on real, correctly-configured hardware whenever available — this session's host can't get QSV working due to a host-level ffmpeg/libvpl compatibility bug, and has no NVIDIA GPU for NVENC at all.
 - Everything already pending from the previous entries (Voice Signaling, HTTPS auto-certs, transcode-status IDOR, WS compression).
 
+---
+
+## [2026-07-07] Multi-Package Export Refactoring, Container Hardware Acceleration & Player Sync/UX Polish
+**Agent**: JustModo & Antigravity
+**Summary of Work Done**:
+- **Monorepo Packaging Polish**: Refactored the packaging config of workspace modules (`packages/config`, `packages/contracts`, `packages/transcoding`) to expose clean CommonJS and ESM exports. Cleaned up unused workspace dependencies to resolve from-scratch package installs.
+- **Hardware Acceleration Gating**: Swapped the base Docker image for the API container from Alpine to `node:22-bookworm-slim` to support native hardware acceleration. Configured GPU hardware device passthrough paths (`/dev/dri`) in `docker-compose.yml` and optimized `packages/transcoding`'s encoder detection sequence to automatically fall back to CPU if initialization fails.
+- **Transcoding Speed Improvements**: Integrated user-selectable FFmpeg presets (e.g. `veryfast`, `ultrafast`) and an auto/cpu toggle persisted via `ServerConfig`. Implemented pre-warming of the lowest-resolution HLS variant (360p) immediately on room media changes or seeking, avoiding cold-start buffering loops.
+- **Sync Seek Feedback Loop Resolution**: Refactored video playhead synchronization logic to eliminate micro-seeking feedback loops. Replaced continuous timeline-based auto-alignment hooks with explicit, one-time `syncSeekTrigger` / `syncSeekPosition` state variables triggered solely by the server's sync engine.
+- **Buffering & Ready Gating ("Ready Too Soon" Bug)**: Fixed a bug where players reported readiness to the room before actually buffering, resulting in drift. Clients now only fire the `ready` signal when they have accumulated at least 3 seconds of buffered HLS data (or reached the end of the duration). Added a user interaction check redirection from Room to Lobby to circumvent browser autoplay blocks on page refreshes.
+- **Player Interface & UX Polish**: Updated the paused and syncing video overlay backgrounds to use Tailwind v4 opacity modifiers (`bg-ink/40` and `bg-ink/60`). Built in common player keyboard listeners (Space, ArrowLeft, ArrowRight) with input/textarea exclusion logic. Adjusted layout metrics (e.g., quality selector width and playback speed buttons) to eliminate layout shifting.
+- **Workspace Build & Ignore Fixes**: Anchored paths in `.gitignore` and `.dockerignore` to the root directory to stop subfolders like `apps/api/src/config` from being pruned out of Docker contexts during `turbo prune` steps.
+
+**Decisions / Considerations**:
+- Kept the client buffering threshold strictly at 3 seconds to guarantee robust audio/video playback upon resuming.
+- Opted for parameter-based settings passing within `packages/transcoding` to avoid importing API settings controllers directly, preserving architectural boundaries.
+
+**What is Left to do Next**:
+- Implement Voice Signaling (WebRTC audio mesh / signaling).
+- Set up auto-HTTPS certs in Caddy.
+- Restore root/leader-only permission gating on the WebSocket `playback.*` events since current websocket handlers allow arbitrary guests to command playback.
+
+

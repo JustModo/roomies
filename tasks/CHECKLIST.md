@@ -78,7 +78,7 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [ ] Voice channel toggle (WebRTC audio-only mesh or SFU signaling).
 - [ ] **Player & UX Enhancements**
   - [ ] Implement player error boundaries and fallback handling.
-  - [ ] Add explicit buffering/loading states synchronized with HLS segments.
+  - [x] Add explicit buffering/loading states synchronized with HLS segments.
   - [ ] Subtitle and audio track selection support.
 
 
