@@ -2,7 +2,13 @@
 FROM node:22-bookworm-slim AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  ffmpeg openssl ca-certificates python3 make g++ \
+  wget gnupg ca-certificates curl \
+  && mkdir -p /etc/apt/keyrings \
+  && curl -fsSL https://repo.jellyfin.org/jellyfin_team.gpg.key | gpg --dearmor -o /etc/apt/keyrings/jellyfin.gpg \
+  && echo "deb [arch=$( dpkg --print-architecture ) signed-by=/etc/apt/keyrings/jellyfin.gpg] https://repo.jellyfin.org/debian bookworm main" | tee /etc/apt/sources.list.d/jellyfin.list \
+  && apt-get update && apt-get install -y --no-install-recommends \
+  jellyfin-ffmpeg6 intel-media-va-driver va-driver-all \
+  openssl python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
 # ---- Pruner Stage ----

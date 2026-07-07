@@ -11,7 +11,7 @@ import {
   FFMPEG_PATH,
   VIDEO_CODEC,
 } from './config';
-import { getDetectedHardwareEncoder } from './hwaccel';
+import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
 const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
@@ -85,7 +85,7 @@ export class TranscodeVariant extends EventEmitter {
   }
 
   private shouldUseHardware(): HardwareEncoder | null {
-    if (this.hwAccelMode !== 'auto' || this.hwFallbackAttempted) return null;
+    if (this.hwAccelMode !== 'auto') return null;
     const detected = getDetectedHardwareEncoder();
     return detected === 'cpu' ? null : detected;
   }
@@ -218,6 +218,7 @@ export class TranscodeVariant extends EventEmitter {
   private handleFailure(hw: HardwareEncoder | null, err: Error): void {
     if (hw !== null && !this._isReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
+      markHardwareEncoderFailed();
       console.error(`[transcode:${this.resolution}] Hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
       this.spawnProcess(null);
       return;

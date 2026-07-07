@@ -40,4 +40,4 @@ export const DATABASE_URL = 'file:/config/roomies.db';
 
 // These depend purely on the Node environment context and host binaries
 export const NODE_ENV = process.env.NODE_ENV || 'development';
-export const FFMPEG_PATH = 'ffmpeg';
+export const FFMPEG_PATH = '/usr/lib/jellyfin-ffmpeg/ffmpeg';

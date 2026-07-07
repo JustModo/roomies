@@ -10,11 +10,22 @@ services:
       - ./media:/media:ro
       - ./cache:/cache
       - ./config:/config
-    # Optional: hardware-accelerated transcoding (VAAPI). Only uncomment on a
-    # host with an Intel/AMD GPU exposing /dev/dri — without this, hwaccel
-    # detection safely reports "cpu" and transcoding behaves exactly as
-    # before. Toggle HWACCEL_MODE (auto/cpu) from the Admin Overlay's
-    # SETTINGS tab; "auto" only takes effect once this device is passed in.
+
+    # --------------------------------------------------------
+    # Hardware Acceleration (GPU) Configurations
+    # --------------------------------------------------------
+    # Option A: Intel / AMD (VAAPI / QSV)
+    # Uncomment the `devices` block below if your host uses an Intel/AMD GPU
     # devices:
     #   - /dev/dri:/dev/dri
-
+    #
+    # Option B: NVIDIA (NVENC)
+    # Uncomment the `deploy` block below if your host uses an NVIDIA GPU
+    # and has the nvidia-container-toolkit installed.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu, video, compute, utility]

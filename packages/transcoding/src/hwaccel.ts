@@ -7,6 +7,7 @@ import { HardwareEncoder } from './types';
 const execFileAsync = promisify(execFile);
 
 let cached: HardwareEncoder | null = null;
+let hwFallbackTriggered = false;
 
 /**
  * Detects which hardware H.264 encoder (if any) this ffmpeg build and host
@@ -22,10 +23,11 @@ export const detectHardwareEncoder = async (): Promise<HardwareEncoder> => {
   try {
     const { stdout } = await execFileAsync(FFMPEG_PATH, ['-hide_banner', '-encoders']);
 
-    if (stdout.includes('h264_vaapi') && fs.existsSync('/dev/dri')) {
-      cached = 'vaapi';
-    } else if (stdout.includes('h264_nvenc') && fs.existsSync('/dev/nvidia0')) {
+    // Check nvenc first as it's the preferred dGPU over integrated VAAPI
+    if (stdout.includes('h264_nvenc') && fs.existsSync('/dev/nvidia0')) {
       cached = 'nvenc';
+    } else if (stdout.includes('h264_vaapi') && fs.existsSync('/dev/dri')) {
+      cached = 'vaapi';
     } else if (stdout.includes('h264_qsv') && fs.existsSync('/dev/dri')) {
       cached = 'qsv';
     } else {
@@ -40,5 +42,13 @@ export const detectHardwareEncoder = async (): Promise<HardwareEncoder> => {
   return cached;
 };
 
+export const markHardwareEncoderFailed = () => {
+  console.log('[hwaccel] Hardware encoder permanently disabled for this run due to a failure.');
+  hwFallbackTriggered = true;
+};
+
 /** Returns the cached detection result, or 'cpu' if detection hasn't run yet. */
-export const getDetectedHardwareEncoder = (): HardwareEncoder => cached ?? 'cpu';
+export const getDetectedHardwareEncoder = (): HardwareEncoder => {
+  if (hwFallbackTriggered) return 'cpu';
+  return cached ?? 'cpu';
+};
