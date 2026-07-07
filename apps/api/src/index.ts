@@ -1,5 +1,6 @@
 import fastify from 'fastify';
 import { bootstrap } from './bootstrap';
+import { PORT } from '@roomies/config';
 
 const start = async () => {
   const app = fastify({
@@ -9,10 +10,9 @@ const start = async () => {
   try {
     await bootstrap(app);
     
-    const port = parseInt(process.env.PORT || '3000', 10);
-    await app.listen({ port, host: '0.0.0.0' });
+    await app.listen({ port: PORT, host: '0.0.0.0' });
     
-    console.log(`Server listening at http://localhost:${port}`);
+    console.log(`Server listening at http://localhost:${PORT}`);
   } catch (err) {
     console.error(err);
     process.exit(1);

@@ -53,14 +53,16 @@ export const HLS_LIST_SIZE = 10;
  */
 export const MAX_CONCURRENT_VARIANTS = 3;
 
+import { FFMPEG_PATH as CONFIG_FFMPEG_PATH, CACHE_DIR as CONFIG_CACHE_DIR, VIDEO_CODEC as CONFIG_VIDEO_CODEC } from '@roomies/config';
+
 /** Path to the ffmpeg binary (overridable via env). */
-export const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
+export const FFMPEG_PATH = CONFIG_FFMPEG_PATH;
 
 /** Root directory for HLS output (segments + playlists). */
-export const CACHE_DIR = path.resolve(process.env.CACHE_DIR || '/cache');
+export const CACHE_DIR = CONFIG_CACHE_DIR;
 
 /** Base URL prefix for HLS URLs served by Caddy. */
-export const HLS_BASE_URL = process.env.HLS_BASE_URL || '/hls';
+export const HLS_BASE_URL = '/hls';
 
 /** Video codec (overridable for systems without libx264). */
-export const VIDEO_CODEC = process.env.FFMPEG_VIDEO_CODEC || 'libx264';
+export const VIDEO_CODEC = CONFIG_VIDEO_CODEC;

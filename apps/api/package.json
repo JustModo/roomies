@@ -12,6 +12,7 @@
     "@prisma/adapter-better-sqlite3": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@roomies/contracts": "workspace:*",
+    "@roomies/config": "workspace:*",
     "@roomies/transcoding": "workspace:*",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.8.1",

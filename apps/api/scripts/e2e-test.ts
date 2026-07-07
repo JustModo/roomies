@@ -60,7 +60,7 @@ async function main() {
     '-y',
     '-f', 'lavfi', '-i', 'testsrc=duration=10:size=320x240:rate=10',
     '-f', 'lavfi', '-i', 'anullsrc=r=8000:cl=mono',
-    '-shortest', '-c:v', 'libopenh264', '-pix_fmt', 'yuv420p', '-t', '10',
+    '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-t', '10',
     videoPath,
   ], { stdio: 'ignore' });
 
@@ -71,20 +71,24 @@ async function main() {
     stdio: 'ignore',
   });
 
+  // Generate test.conf
+  const confPath = path.join(tmpRoot, 'test.conf');
+  const confContent = `
+PORT=${PORT}
+CORS_ORIGIN=http://localhost
+FFMPEG_VIDEO_CODEC=libx264
+MEDIA_ROOT=${mediaDir}
+CACHE_DIR=${cacheDir}
+DATABASE_URL=file:${dbPath}
+`;
+  await fs.writeFile(confPath, confContent);
+
   const server = spawn('npx', ['tsx', 'src/index.ts'], {
     cwd: API_ROOT,
     env: {
       ...process.env,
-      DATABASE_URL: `file:${dbPath}`,
-      MEDIA_ROOT: mediaDir,
-      CACHE_DIR: cacheDir,
-      HLS_BASE_URL: 'http://localhost/hls',
-      CORS_ORIGIN: 'http://localhost',
-      PORT: String(PORT),
+      ROOMIES_CONFIG_PATH: confPath,
       LOG_LEVEL: 'warn',
-      // This dev machine's ffmpeg build has no libx264 (Fedora ships none by
-      // default); libopenh264 is the available software H.264 encoder here.
-      FFMPEG_VIDEO_CODEC: 'libopenh264',
     },
   });
 

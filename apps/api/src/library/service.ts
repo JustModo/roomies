@@ -45,7 +45,9 @@ const runWithConcurrency = async <T>(items: T[], worker: (item: T) => Promise<vo
 
 // All library scans must stay within this root. Matches the read-only media
 // mount configured in docker-compose.yml (/media).
-const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
+import { MEDIA_ROOT as CONFIG_MEDIA_ROOT } from '@roomies/config';
+
+const MEDIA_ROOT = CONFIG_MEDIA_ROOT;
 
 /**
  * Resolves a user-supplied scan path and verifies it stays within MEDIA_ROOT.

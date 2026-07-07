@@ -1,30 +1,15 @@
 services:
-  # ─────────────────────────────────────────────
-  # Application
-  # ─────────────────────────────────────────────
-  api:
+  app:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
+      dockerfile: Dockerfile
     restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: file:/config/roomies.db
-      CACHE_DIR: /cache
-      HLS_BASE_URL: http://localhost/hls
-      FFMPEG_PATH: ffmpeg
-      MEDIA_ROOT: /media
-      CORS_ORIGIN: http://localhost
+    ports:
+      - "5123:5123"
     volumes:
-      - ${MEDIA_DIR:-./media}:/media:ro # read-only: source media files
-      - ./cache:/cache # read-write: HLS transcoder output
-      - ./config:/config # read-write: SQLite database + app config
-    # No host port published: all traffic must route through Caddy (80/443),
-    # which is the only public entrypoint. Use `docker compose exec api sh`
-    # or `docker compose logs -f api` for local debugging instead.
-    #
+      - ./media:/media:ro
+      - ./cache:/cache
+      - ./config:/config
     # Optional: hardware-accelerated transcoding (VAAPI). Only uncomment on a
     # host with an Intel/AMD GPU exposing /dev/dri — without this, hwaccel
     # detection safely reports "cpu" and transcoding behaves exactly as
@@ -33,30 +18,3 @@ services:
     # devices:
     #   - /dev/dri:/dev/dri
 
-  web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    restart: unless-stopped
-
-  # ─────────────────────────────────────────────
-  # Reverse Proxy (single entrypoint)
-  # ─────────────────────────────────────────────
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./cache:/cache:ro # read-only: Caddy serves HLS from here
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - api
-      - web
-
-volumes:
-  caddy_data:
-  caddy_config:

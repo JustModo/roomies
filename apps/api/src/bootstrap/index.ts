@@ -17,6 +17,7 @@ import { registerRoomSocketEvents } from '../room/socket';
 import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
 import { TranscodeSessionManager, CACHE_DIR } from '@roomies/transcoding';
+import { CORS_ORIGIN } from '@roomies/config';
 import { SocketEmitter } from '../websocket/emitter';
 import { roomStore } from '../room/store';
 
@@ -43,10 +44,7 @@ export const bootstrap = async (app: FastifyInstance) => {
   // literal '*' combined with `credentials: true` causes @fastify/cors to reflect
   // the caller's Origin, which would let any website make authenticated requests
   // on a logged-in user's behalf.
-  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  const allowedOrigins = CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
 
   await app.register(fastifyCors, {
     origin: allowedOrigins,

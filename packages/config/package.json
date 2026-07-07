@@ -1,5 +1,5 @@
 {
-  "name": "@roomies/transcoding",
+  "name": "@roomies/config",
   "private": true,
   "version": "1.0.0",
   "main": "./dist/index.js",
@@ -15,8 +15,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@roomies/contracts": "workspace:*",
-    "@roomies/config": "workspace:*"
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",

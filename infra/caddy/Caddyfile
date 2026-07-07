@@ -1,5 +1,5 @@
 # Roomies - Unified Reverse Proxy
-# Single entrypoint on :80 routing to all services
+# Single entrypoint routing to internal services
 
 {
     # Global options
@@ -10,20 +10,18 @@
     }
 }
 
-:80 {
+:5123 {
     # --- API Routes (Fastify backend) ---
     handle /api/* {
-        reverse_proxy api:3000
+        reverse_proxy 127.0.0.1:3000
     }
 
     # --- WebSocket Gateway ---
     handle /ws* {
-        reverse_proxy api:3000
+        reverse_proxy 127.0.0.1:3000
     }
 
     # --- HLS Media Delivery (served from shared cache volume) ---
-    # Caddy serves .m3u8 and .ts files directly — media never passes through Node.js.
-    # MIME types are auto-detected by Caddy's file_server (m3u8 → mpegurl, ts → MP2T).
     handle /hls/* {
         root * /cache
         uri strip_prefix /hls
@@ -35,8 +33,10 @@
         }
     }
 
-    # --- React Frontend (served by nginx container) ---
+    # --- React Frontend (built static files) ---
     handle {
-        reverse_proxy web:80
+        root * /app/apps/web/dist
+        try_files {path} {path}/ /index.html
+        file_server
     }
 }
