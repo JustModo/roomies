@@ -1,1 +1,0 @@
-{"root":["./src/index.ts","./src/api/index.ts","./src/socket/ChatEvents.ts","./src/socket/ErrorEvents.ts","./src/socket/PlaybackEvents.ts","./src/socket/RoomEvents.ts","./src/socket/SyncEvents.ts","./src/socket/index.ts"],"version":"5.9.3"}
