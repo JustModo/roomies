@@ -383,22 +383,50 @@ export function VideoPlayer({
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handlePlayPause = () => {
+  const handlePlayPause = useCallback(() => {
     if (roomPlaybackState?.state === 'playing') {
       onPause();
     } else {
       onPlay();
     }
-  };
+  }, [roomPlaybackState?.state, onPlay, onPause]);
 
-  const handleSeekOffset = (offset: number) => {
+  const handleSeekOffset = useCallback((offset: number) => {
     if (!videoRef.current) return;
     const transOffset = mediaInfo?.transcodeOffset || 0;
     const currentAbsolute = videoRef.current.currentTime + transOffset;
     const newPos = Math.max(0, currentAbsolute + offset);
     videoRef.current.currentTime = Math.max(0, newPos - transOffset);
     onSeek(newPos);
-  };
+  }, [mediaInfo?.transcodeOffset, onSeek]);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input/textarea (like chat)
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.key) {
+        case ' ':
+        case 'k':
+        case 'K':
+          e.preventDefault();
+          handlePlayPause();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          handleSeekOffset(-10);
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          handleSeekOffset(10);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlePlayPause, handleSeekOffset]);
 
   const handleQualityChange = (index: number) => {
     if (hlsRef.current) {
@@ -429,21 +457,18 @@ export function VideoPlayer({
         muted={isMuted}
       />
 
-      {roomPlaybackState?.state === 'buffering' && (
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] z-20 flex items-center justify-center pointer-events-none">
-          <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/90 animate-pulse drop-shadow-2xl">
-            SYNCING
-          </h2>
-        </div>
-      )}
-
-      {!isPlaying && !isDragging && roomPlaybackState?.state !== 'buffering' && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-          <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg">
-            {mediaInfo ? 'PAUSED' : 'NO MEDIA SELECTED'}
-          </h2>
-        </div>
-      )}
+      {/* Smooth Fade Overlay for Paused/Syncing */}
+      <div 
+        className={`absolute inset-0 bg-ink/60 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-300 ${
+          (roomPlaybackState?.state === 'buffering' || (!isPlaying && !isDragging)) ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg">
+          {roomPlaybackState?.state === 'buffering' 
+            ? 'SYNCING' 
+            : (mediaInfo ? 'PAUSED' : 'NO MEDIA SELECTED')}
+        </h2>
+      </div>
 
       {/* Top Bar Container passed as children */}
       <div className={`absolute top-0 left-0 w-full z-30 transition-opacity duration-200 ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
@@ -451,7 +476,7 @@ export function VideoPlayer({
       </div>
 
       {/* Bottom Controls */}
-      <div className={`absolute bottom-0 left-0 w-full z-30 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className={`absolute bottom-0 left-0 w-full z-30 transition-opacity duration-200 bg-linear-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
 
         {/* Seek Bar */}
         <div className="w-full py-2 px-2 cursor-pointer group" onPointerDown={handlePointerDown}>
@@ -473,7 +498,7 @@ export function VideoPlayer({
             <div className="h-full bg-blue-500 absolute top-0 left-0 shadow-[0_0_8px_rgba(59,130,246,0.8)]" style={{ width: `${progressPercent}%` }} />
 
             {/* Scrubber handle */}
-            <div className={`w-[14px] h-[14px] bg-white rounded-full absolute -ml-[7px] shadow transition-transform ${isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100'}`} style={{ left: `${progressPercent}%` }} />
+            <div className={`w-[14px] h-[14px] bg-white rounded-full absolute ml-[-7px] shadow transition-transform ${isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100'}`} style={{ left: `${progressPercent}%` }} />
           </div>
         </div>
 
@@ -494,7 +519,7 @@ export function VideoPlayer({
           </div>
 
           <div className="flex items-center gap-4 relative">
-            <button onClick={cyclePlaybackRate} className="text-14 font-mono text-paper hover:text-fog transition-colors w-[3ch] text-center opacity-80 hover:opacity-100">
+            <button onClick={cyclePlaybackRate} className="text-14 font-mono text-paper hover:text-fog transition-colors w-8 text-center opacity-80 hover:opacity-100">
               {roomPlaybackState?.playbackRate || 1}x
             </button>
 
@@ -503,7 +528,7 @@ export function VideoPlayer({
               <div className="relative">
                 <button
                   onClick={() => setShowQualityMenu(!showQualityMenu)}
-                  className={`text-14 font-mono transition-colors ${currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-paper/80 hover:text-paper'}`}
+                  className={`text-14 font-mono transition-colors w-12 text-center ${currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-paper/80 hover:text-paper'}`}
                 >
                   {currentLevel === -1 ? 'AUTO' : `${levels[currentLevel]?.height}p`}
                 </button>
