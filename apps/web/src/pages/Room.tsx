@@ -18,6 +18,8 @@ export default function Room() {
     seekKey,
     localTime,
     localCorrectionRate,
+    syncSeekTrigger,
+    syncSeekPosition,
     play,
     pause,
     seek,
@@ -47,6 +49,8 @@ export default function Room() {
         roomPlaybackState={roomState?.playback}
         localTime={localTime}
         localCorrectionRate={localCorrectionRate}
+        syncSeekTrigger={syncSeekTrigger}
+        syncSeekPosition={syncSeekPosition}
         onPlay={play}
         onPause={pause}
         onSeek={seek}

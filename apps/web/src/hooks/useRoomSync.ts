@@ -24,6 +24,10 @@ export function useRoomSync() {
   const localTimeRef = useRef(0);
   const correctionTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Explicit seek triggers sent to the VideoPlayer to prevent continuous alignment loops
+  const [syncSeekTrigger, setSyncSeekTrigger] = useState(0);
+  const [syncSeekPosition, setSyncSeekPosition] = useState(0);
+
   const getInitialPosition = useCallback((playback: RoomState['playback']) => {
     let pos = playback.anchorPosition;
     if (playback.state === 'playing') {
@@ -41,6 +45,10 @@ export function useRoomSync() {
         const initialPos = getInitialPosition(msg.payload.room.playback);
         setLocalTime(initialPos);
         localTimeRef.current = initialPos;
+
+        // Trigger initial seek to align with the room's current position
+        setSyncSeekPosition(initialPos);
+        setSyncSeekTrigger((prev) => prev + 1);
 
         // Sync media info from room state
         if (msg.payload.room.mediaId && msg.payload.room.hlsUrl) {
@@ -66,6 +74,12 @@ export function useRoomSync() {
         const initialPos = getInitialPosition(msg.payload);
         setLocalTime(initialPos);
         localTimeRef.current = initialPos;
+
+        // If the state is 'buffering', it means a room seek occurred!
+        if (msg.payload.state === 'buffering') {
+          setSyncSeekPosition(initialPos);
+          setSyncSeekTrigger((prev) => prev + 1);
+        }
       } else if (msg.event === 'media.changed') {
         // Server has changed the media or seek offset — update media info and increment seekKey if offset/media changed
         setMediaInfo((prev) => {
@@ -104,6 +118,8 @@ export function useRoomSync() {
           console.warn(`[SYNC] Hard seek correction from ${localTimeRef.current.toFixed(2)} to ${msg.payload.position.toFixed(2)}`);
           setLocalTime(msg.payload.position);
           localTimeRef.current = msg.payload.position;
+          setSyncSeekPosition(msg.payload.position);
+          setSyncSeekTrigger((prev) => prev + 1);
         }
         
         if (msg.payload.playbackRate !== undefined) {
@@ -153,10 +169,13 @@ export function useRoomSync() {
   // Use refs for heartbeat loop to prevent interval resets
   const playbackStateRef = useRef(roomState?.playback.state);
   const playbackRateRef = useRef(roomState?.playback.playbackRate);
+  const activeRateRef = useRef(1);
+
   useEffect(() => {
     playbackStateRef.current = roomState?.playback.state;
     playbackRateRef.current = roomState?.playback.playbackRate;
-  }, [roomState?.playback.state, roomState?.playback.playbackRate]);
+    activeRateRef.current = localCorrectionRate ?? roomState?.playback.playbackRate ?? 1;
+  }, [roomState?.playback.state, roomState?.playback.playbackRate, localCorrectionRate]);
 
   // Heartbeat loop
   useEffect(() => {
@@ -167,7 +186,7 @@ export function useRoomSync() {
         payload: { 
           position: localTimeRef.current,
           playing: playbackStateRef.current === 'playing',
-          playbackRate: playbackRateRef.current ?? 1
+          playbackRate: activeRateRef.current
         }
       });
     }, 5000);
@@ -204,6 +223,8 @@ export function useRoomSync() {
     seekKey: mediaInfo?.seekKey ?? 0,
     localTime,
     localCorrectionRate,
+    syncSeekTrigger,
+    syncSeekPosition,
     play,
     pause,
     seek,

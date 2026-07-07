@@ -19,8 +19,20 @@ export class SyncService {
 
     // Check drift
     const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
-    if (driftMs > 2000) {
-      // Hard correction: Seek
+
+    const SOFT_THRESHOLD_MS = 500;
+    const HARD_THRESHOLD_MS = 4000;
+
+    // Cooldown check for hard seeks to prevent feedback loops due to network/receiver latency.
+    const lastSeekTime = (ctx.socket as any).lastSeekTime || 0;
+    const now = Date.now();
+    const isSeekingCooldown = (now - lastSeekTime) < 8000; // 8 seconds cooldown
+
+    if (driftMs > HARD_THRESHOLD_MS && !isSeekingCooldown) {
+      // Record the seek time to trigger the cooldown
+      (ctx.socket as any).lastSeekTime = now;
+
+      console.warn(`[SYNC] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
       SocketEmitter.sendToClient(ctx.socket, {
         event: 'sync.correct',
         payload: {
@@ -28,33 +40,41 @@ export class SyncService {
           seek: true
         }
       });
-    } else if (driftMs > 500) {
-      // Soft correction: Speed up or slow down
-      const isBehind = payload.position < expectedPosition;
-      const correctionRate = isBehind ? 1.1 : 0.9;
-      
-      // Calculate how long (in ms) to hold this rate to catch up exactly
-      // Speed Delta = 0.1
-      // Time = Distance / Speed = driftMs / 0.1
-      const correctionDurationMs = Math.round(driftMs / 0.1);
+    } else if (driftMs > SOFT_THRESHOLD_MS) {
+      // If a playrate correction is already applied on the client, let it sync in its own time.
+      const isCorrecting = payload.playbackRate !== playback.playbackRate;
+      if (!isCorrecting) {
+        // Soft correction: Speed up or slow down
+        const isBehind = payload.position < expectedPosition;
+        const correctionRate = isBehind ? 1.1 : 0.9;
+        
+        // Calculate how long (in ms) to hold this rate to catch up exactly
+        // Speed Delta = Math.abs(correctionRate - playback.playbackRate)
+        const speedDelta = Math.abs(correctionRate - playback.playbackRate);
+        const correctionDurationMs = Math.round(driftMs / speedDelta);
 
-      SocketEmitter.sendToClient(ctx.socket, {
-        event: 'sync.correct',
-        payload: {
-          position: expectedPosition,
-          playbackRate: correctionRate,
-          correctionDurationMs
-        }
-      });
+        console.warn(`[SYNC] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate}x rate for ${correctionDurationMs}ms`);
+        SocketEmitter.sendToClient(ctx.socket, {
+          event: 'sync.correct',
+          payload: {
+            position: expectedPosition,
+            playbackRate: correctionRate,
+            correctionDurationMs
+          }
+        });
+      }
     } else {
-      // In sync: Reset correction rate
-      SocketEmitter.sendToClient(ctx.socket, {
-        event: 'sync.correct',
-        payload: {
-          position: expectedPosition,
-          playbackRate: 1.0
-        }
-      });
+      // In sync: If the client is still correcting, tell them to reset to normal rate
+      if (payload.playbackRate !== playback.playbackRate) {
+        console.log(`[SYNC] User ${ctx.userId} is in sync. Resetting playbackRate to ${playback.playbackRate}x`);
+        SocketEmitter.sendToClient(ctx.socket, {
+          event: 'sync.correct',
+          payload: {
+            position: expectedPosition,
+            playbackRate: playback.playbackRate
+          }
+        });
+      }
     }
 
     // Update member's known position

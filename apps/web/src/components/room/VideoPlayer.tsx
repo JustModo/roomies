@@ -10,6 +10,8 @@ export interface VideoPlayerProps {
   roomPlaybackState?: RoomState['playback'];
   localTime: number;
   localCorrectionRate?: number | null;
+  syncSeekTrigger?: number;
+  syncSeekPosition?: number;
   onPlay: () => void;
   onPause: () => void;
   onSeek: (position: number) => void;
@@ -24,6 +26,8 @@ export function VideoPlayer({
   roomPlaybackState,
   localTime,
   localCorrectionRate,
+  syncSeekTrigger = 0,
+  syncSeekPosition = 0,
   onPlay,
   onPause,
   onSeek,
@@ -149,24 +153,14 @@ export function VideoPlayer({
     }
   }, [roomPlaybackState?.playbackRate, localCorrectionRate]);
 
-  // Sync playback position (including seeks and drift correction)
+  // Sync playback position (only when a seek event is explicitly triggered by the sync engine)
   useEffect(() => {
-    if (!videoRef.current || isDragging) return;
+    if (!videoRef.current || isDragging || syncSeekTrigger === 0) return;
     
     const transOffset = mediaInfo?.transcodeOffset || 0;
-    const currentAbsolute = videoRef.current.currentTime + transOffset;
-    const diff = Math.abs(currentAbsolute - localTime);
-    
-    // If the room is buffering (e.g. after a seek), we want everyone's head to be exactly at the seeked location.
-    // We use a small threshold of 0.2s to prevent micro-seeking loops.
-    // If the room is in any other state, we use a 3.0s drift threshold to avoid micro-adjustments.
-    const threshold = roomPlaybackState?.state === 'buffering' ? 0.2 : 3.0;
-    
-    if (diff > threshold) {
-      console.log(`[VideoPlayer] Seeking player to absolute ${localTime} (relative: ${localTime - transOffset})`);
-      videoRef.current.currentTime = Math.max(0, localTime - transOffset);
-    }
-  }, [localTime, roomPlaybackState?.state, isDragging, mediaInfo?.transcodeOffset]);
+    console.log(`[VideoPlayer] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
+    videoRef.current.currentTime = Math.max(0, syncSeekPosition - transOffset);
+  }, [syncSeekTrigger, syncSeekPosition, isDragging, mediaInfo?.transcodeOffset]);
 
   // Idle Timer
   useEffect(() => {
