@@ -2,6 +2,8 @@ export { TranscodeSessionManager } from './manager';
 export { TranscodeSession } from './session';
 export { TranscodeVariant } from './variant';
 export { detectHardwareEncoder, getDetectedHardwareEncoder } from './hwaccel';
+export { initTranscodeSettings, getTranscodeSettings } from './settings';
+export type { TranscodeSettings, FfmpegPreset, HwAccelMode } from './settings';
 export type { Resolution, ResolutionConfig, TranscodeErrorCallback, HardwareEncoder } from './types';
 export {
   RESOLUTION_PRESETS,

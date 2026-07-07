@@ -14,6 +14,12 @@ CORS_ORIGIN=http://localhost
 
 # FFmpeg video codec for transcoding
 FFMPEG_VIDEO_CODEC=libx264
+
+# FFmpeg encoding preset (ultrafast, veryfast, fast, medium, slow)
+FFMPEG_PRESET=veryfast
+
+# Hardware acceleration mode (auto, cpu)
+HWACCEL_MODE=auto
 `.trim() + '\n';
 
 // Automatically create the default conf if it doesn't exist
@@ -31,6 +37,8 @@ const parsedConf = dotenv.parse(fs.readFileSync(configPath, 'utf8'));
 // User configurable:
 export const CORS_ORIGIN = parsedConf.CORS_ORIGIN || 'http://localhost';
 export const VIDEO_CODEC = parsedConf.FFMPEG_VIDEO_CODEC || 'libx264';
+export const FFMPEG_PRESET = parsedConf.FFMPEG_PRESET || 'veryfast';
+export const HWACCEL_MODE = parsedConf.HWACCEL_MODE || 'auto';
 
 // These depend purely on the Node environment context and host binaries
 export const NODE_ENV = process.env.NODE_ENV || 'development';

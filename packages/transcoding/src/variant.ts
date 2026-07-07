@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
-import { FfmpegPreset, HwAccelMode } from '@roomies/contracts';
+import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution, HardwareEncoder } from './types';
 import {
   RESOLUTION_PRESETS,

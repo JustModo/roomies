@@ -463,4 +463,25 @@ Closed out the two remaining loose ends from the transcoding-optimization work: 
 - Set up auto-HTTPS certs in Caddy.
 - Restore root/leader-only permission gating on the WebSocket `playback.*` events since current websocket handlers allow arbitrary guests to command playback.
 
+---
+
+## [2026-07-08] Transcode Settings Moved to Config File
+**Agent**: Claude
+**Summary of Work Done**:
+- **Settings ownership moved to `packages/transcoding`**: Deleted `apps/api/src/config/settings.ts` (the Prisma/`ServerConfig`-backed, live-editable `ffmpegPreset`/`hwAccelMode` store) and replaced it with `packages/transcoding/src/settings.ts`, which reads `FFMPEG_PRESET`/`HWACCEL_MODE` directly from `@roomies/config` (i.e. `roomies.conf`), detects hardware once via the existing `detectHardwareEncoder()`, and caches the result for the process lifetime via `initTranscodeSettings()`/`getTranscodeSettings()`.
+- **Config file gains two new keys**: `packages/config/src/index.ts` now parses `FFMPEG_PRESET` (default `veryfast`) and `HWACCEL_MODE` (default `auto`) out of `roomies.conf`, alongside the existing `CORS_ORIGIN`/`FFMPEG_VIDEO_CODEC`, and documents them in the auto-generated default `.conf` template.
+- **Removed the now-pointless API surface**: deleted `apps/api/src/settings/` (controller, routes) entirely — no more `GET`/`PATCH /api/settings/transcode` — and its registration in `apps/api/src/bootstrap/index.ts`. Removed the corresponding `TranscodeSettingsSchema`/`UpdateTranscodeSettingsRequestSchema` (and inferred types) from `packages/contracts`, since the transcoding package now owns its own local `FfmpegPreset`/`HwAccelMode` types instead.
+- **Removed the Admin Overlay SETTINGS tab**: `apps/web/src/components/room/AdminOverlay.tsx` no longer has a SETTINGS tab, `FFMPEG_PRESETS` constant, or `SettingsTab` component — only MEDIA and USERS remain. Settings are no longer runtime-editable from the UI at all.
+- Updated `tasks/CHECKLIST.md`'s transcoding-preset item to reflect the new config-file-driven, non-UI-editable reality.
+- Verified via `pnpm install` + `turbo run build` (both `api` and `web` build clean) and by booting the dev API/web servers directly: `roomies.conf` auto-generates with the new keys, `GET /api/settings/transcode` now 404s, and VAAPI hardware detection still runs correctly at boot.
+
+**Decisions / Considerations**:
+- Settings are now immutable for the life of the process — changing the preset or hwaccel mode requires editing `roomies.conf` and restarting the API. This was an explicit simplification request (config over UI), not a regression: the resolution/bitrate ladder (`RESOLUTION_PRESETS`) was already config-only and out of scope, so this brings preset/hwaccel in line with that same pattern.
+- The public-facing port (5123, via Caddy) and the internal API port (3000) were confirmed already correct and were **not** changed as part of this work.
+
+**What is Left to do Next**:
+- Implement Voice Signaling (WebRTC audio mesh / signaling).
+- Set up auto-HTTPS certs in Caddy.
+- Restore root/leader-only permission gating on the WebSocket `playback.*` events since current websocket handlers allow arbitrary guests to command playback.
+
 
