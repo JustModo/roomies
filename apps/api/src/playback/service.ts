@@ -1,10 +1,11 @@
+import path from 'path';
 import { FastifyInstance } from 'fastify';
 import { SocketContext } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
-import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, Resolution } from '@roomies/transcoding';
+import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution } from '@roomies/transcoding';
 import { getTranscodeSettings } from '../config/settings';
 
 /** Builds the API route this app serves the dynamic master.m3u8 from. */
@@ -105,10 +106,14 @@ export class PlaybackService {
       throw new Error('Session not found');
     }
     
-    const position = roomStore.getState().playback.anchorPosition || 0;
+    // Align variant startup position with the session's active transcode offset (or 0 if none)
+    const position = session.getTranscodeOffset();
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
     await session.ensureVariantReady(resolution, position, ffmpegPreset, hwAccelMode);
-    return `${HLS_BASE_URL}/${mediaId}/${resolution}/stream.m3u8`;
+    
+    const variantDir = session.getVariantOutputDir(resolution);
+    const relativePath = path.relative(CACHE_DIR, variantDir);
+    return `${HLS_BASE_URL}/${relativePath}/stream.m3u8`;
   }
 
   // --- Socket Event Handlers ---
@@ -133,25 +138,25 @@ export class PlaybackService {
     const currentState = roomStore.getState().playback;
     const nextIntendedState = currentState.state === 'playing' || currentState.intendedState === 'playing' ? 'playing' : 'paused';
     
-    roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
-    roomStore.resetAllMembers();
-    
     const state = roomStore.getState();
     const session = TranscodeSessionManager.getSession();
+    
+    let actualOffset = payload.position;
+    
     if (session && state.mediaId === session.mediaFileId) {
-      // Seek each active variant to the new position.
-      // seekVariant() is smart: if the position is already on disk it returns
-      // instantly; only if it's beyond the transcoded window does it kill and
-      // restart FFmpeg at the new position. This eliminates the multi-second
-      // cold-start stall that the old clearVariants() approach caused.
       const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-      const resolutions: Resolution[] = ['360p', '720p', '1080p'];
-      Promise.allSettled(
-        resolutions.map(res =>
-          session.seekVariant(res, payload.position, ffmpegPreset, hwAccelMode)
-        )
-      ).catch((err) => {
-        console.error(`[playback] seekVariant failed for ${state.mediaId}:`, err);
+      
+      // Perform seek at the session level to coordinate all active variants
+      const seekPromise = session.seek(payload.position, ffmpegPreset, hwAccelMode);
+      
+      actualOffset = session.getTranscodeOffset();
+      
+      roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
+      roomStore.updateTranscodeOffset(actualOffset);
+      roomStore.resetAllMembers();
+      
+      seekPromise.catch((err) => {
+        console.error(`[playback] session.seek failed for ${state.mediaId}:`, err);
       });
 
       // Force clients to rebuild HLS from the new position
@@ -162,8 +167,13 @@ export class PlaybackService {
           title: state.mediaTitle || 'Unknown Media',
           hlsUrl: getMasterPlaylistUrl(state.mediaId),
           duration: state.duration,
+          transcodeOffset: actualOffset,
         }
       });
+    } else {
+      roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
+      roomStore.updateTranscodeOffset(actualOffset);
+      roomStore.resetAllMembers();
     }
 
     SocketEmitter.broadcastToRoom(ctx.app, {

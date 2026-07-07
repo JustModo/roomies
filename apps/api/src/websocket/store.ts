@@ -22,7 +22,7 @@ export const socketSessionStore = {
 import { registerSocketEvent, SocketContext } from './router';
 
 export const registerStoreSocketEvents = () => {
-  registerSocketEvent('system.connect', (_payload: any, ctx: SocketContext) => {
+  registerSocketEvent('system.connect', (_payload: unknown, ctx: SocketContext) => {
     socketSessionStore.add({
       userId: ctx.userId,
       socketId: ctx.socketId,

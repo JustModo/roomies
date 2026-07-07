@@ -11,7 +11,7 @@ export interface SocketContext {
   socketId: string;
 }
 
-export type SocketEventHandler = (payload: any, ctx: SocketContext) => Promise<void> | void;
+export type SocketEventHandler = (payload: unknown, ctx: SocketContext) => Promise<void> | void;
 
 const socketRegistry = new Map<string, SocketEventHandler>();
 
@@ -21,7 +21,7 @@ export const registerSocketEvent = (event: string, handler: SocketEventHandler) 
 
 export const dispatchSocketEvent = async (
   event: string,
-  payload: any,
+  payload: unknown,
   ctx: SocketContext
 ) => {
   try {

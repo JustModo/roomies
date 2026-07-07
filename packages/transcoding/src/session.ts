@@ -61,8 +61,9 @@ export class TranscodeSession {
       throw new Error('Maximum concurrent transcode variants reached');
     }
 
-    // Spawn a new FFmpeg process
-    const variantDir = path.join(this.outputBaseDir, resolution);
+    // Spawn a new FFmpeg process in a unique subdirectory
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const variantDir = path.join(this.outputBaseDir, resolution, `ss-${startPosition}-${randomSuffix}`);
     const variant = new TranscodeVariant(resolution, variantDir);
 
     variant.on('ready', () => {
@@ -135,72 +136,81 @@ export class TranscodeSession {
   }
 
   /**
-   * Handles a seek to a new position for a specific resolution variant.
-   *
-   * Rather than always nuking the cache (cold restart), this first checks
-   * whether the requested position is already covered by segments that FFmpeg
-   * has already written. If it is, the existing process is left running and the
-   * caller gets an instant response — no stall.
-   *
-   * Only if the position is NOT yet transcoded do we kill the old process and
-   * restart from the new position. Crucially we do NOT delete the cache dir on
-   * restart — segments for other variants or time regions remain usable.
+   * Checks if the seek position is covered by the transcode cache for all active variants.
    */
-  async seekVariant(
-    resolution: Resolution,
+  isSeekCovered(newPosition: number): boolean {
+    const activeVariants = Array.from(this.variants.values());
+    if (activeVariants.length === 0) return false;
+
+    for (const variant of activeVariants) {
+      const maxCoveredTime = this.getMaxCoveredTime(variant);
+      if (newPosition < variant.startPosition || newPosition > maxCoveredTime) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Performs a seek on the session level, ensuring all active variants are kept in sync.
+   */
+  async seek(
     newPosition: number,
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
-    const existing = this.variants.get(resolution);
+    const resolutions: Resolution[] = ['360p', '720p', '1080p'];
+    const isCovered = this.isSeekCovered(newPosition);
 
-    if (existing) {
-      // Check if newPosition is already within the transcoded window.
-      // The variant tracks its own startPosition; we count how many .ts
-      // files exist and derive the furthest covered timestamp.
-      const variantDir = path.join(this.outputBaseDir, resolution);
-      const maxCoveredTime = this.getMaxCoveredTime(variantDir, existing);
-
-      if (newPosition <= maxCoveredTime) {
-        // Already transcoded — nothing to do. The player's hls.js will
-        // re-request stream.m3u8 and find the right segment immediately.
-        console.log(
-          `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s is already covered ` +
-          `(max=${maxCoveredTime.toFixed(1)}s) for ${resolution} — reusing cache`
-        );
-        return;
-      }
-
-      // Position is beyond what we've transcoded. Kill just this variant
-      // process (NOT the cache dir) and restart from the new position.
+    if (isCovered) {
       console.log(
-        `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s not yet transcoded ` +
-        `(max=${maxCoveredTime.toFixed(1)}s) for ${resolution} — restarting from new position`
+        `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s is covered by all active variants — reusing cache`
       );
-      existing.stop();
-
-      // Wipe only this variant's output dir so the restarted process writes
-      // fresh segment indices from 0 (seg_00000.ts, seg_00001.ts …).
-      try {
-        fs.rmSync(variantDir, { recursive: true, force: true });
-      } catch (err) {
-        console.error(`[session:${this.mediaFileId}] Failed to clear variant dir for ${resolution}:`, err);
-      }
-
-      this.variants.delete(resolution);
+      return;
     }
 
-    // Spawn a new variant at the requested position (same path as ensureVariantReady).
-    return this.ensureVariantReady(resolution, newPosition, preset, hwAccelMode);
+    console.log(
+      `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s not covered by all active variants — restarting all variants from new position`
+    );
+
+    // Stop and clear all variants that need to be restarted
+    for (const res of resolutions) {
+      const existing = this.variants.get(res);
+      if (existing) {
+        existing.stop();
+        try {
+          fs.rmSync(existing.outputDir, { recursive: true, force: true });
+        } catch (err) {
+          console.error(`[session:${this.mediaFileId}] Failed to clear variant dir for ${res}:`, err);
+        }
+        this.variants.delete(res);
+      }
+    }
+
+    // Restart all resolutions in parallel
+    await Promise.all(
+      resolutions.map(res => this.ensureVariantReady(res, newPosition, preset, hwAccelMode))
+    );
+  }
+
+  /**
+   * Returns the dynamic output directory of a specific resolution variant.
+   */
+  getVariantOutputDir(resolution: Resolution): string {
+    const variant = this.variants.get(resolution);
+    if (!variant) {
+      throw new Error(`Variant not found for resolution ${resolution}`);
+    }
+    return variant.outputDir;
   }
 
   /**
    * Derives the furthest media timestamp that has been transcoded for a variant,
    * by counting .ts segment files in its output directory.
    */
-  private getMaxCoveredTime(variantDir: string, variant: TranscodeVariant): number {
+  private getMaxCoveredTime(variant: TranscodeVariant): number {
     try {
-      const files = fs.readdirSync(variantDir);
+      const files = fs.readdirSync(variant.outputDir);
       let maxIndex = -1;
       for (const file of files) {
         const match = file.match(/seg_(\d+)\.ts/);
@@ -216,6 +226,14 @@ export class TranscodeSession {
     } catch {
       return 0;
     }
+  }
+
+  /**
+   * Returns the actual transcode offset (startPosition) of any active variant.
+   */
+  getTranscodeOffset(): number {
+    const active = this.variants.values().next().value;
+    return active ? active.startPosition : 0;
   }
 }
 

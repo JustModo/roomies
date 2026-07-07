@@ -10,6 +10,7 @@ export interface MediaInfo {
   hlsUrl: string;
   duration?: number;
   seekKey?: number;
+  transcodeOffset: number;
 }
 
 export function useRoomSync() {
@@ -34,13 +35,16 @@ export function useRoomSync() {
         // Sync media info from room state
         if (msg.payload.room.mediaId && msg.payload.room.hlsUrl) {
           setMediaInfo((prev) => {
-            const nextKey = prev?.mediaFileId !== msg.payload.room.mediaId ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
+            const isDifferentMedia = prev?.mediaFileId !== msg.payload.room.mediaId;
+            const isDifferentOffset = prev?.transcodeOffset !== msg.payload.room.transcodeOffset;
+            const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
             return {
               mediaFileId: msg.payload.room.mediaId!,
               title: msg.payload.room.mediaTitle || '',
               hlsUrl: msg.payload.room.hlsUrl!,
               duration: msg.payload.room.duration,
               seekKey: nextKey,
+              transcodeOffset: msg.payload.room.transcodeOffset || 0,
             };
           });
         }
@@ -54,13 +58,16 @@ export function useRoomSync() {
       } else if (msg.event === 'media.changed') {
         // Server has changed the media — update media info
         setMediaInfo((prev) => {
-            const nextKey = prev?.mediaFileId !== msg.payload.mediaFileId ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
+            const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
+            const isDifferentOffset = prev?.transcodeOffset !== msg.payload.transcodeOffset;
+            const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
             return {
               mediaFileId: msg.payload.mediaFileId,
               title: msg.payload.title,
               hlsUrl: msg.payload.hlsUrl,
               duration: msg.payload.duration,
               seekKey: nextKey,
+              transcodeOffset: msg.payload.transcodeOffset || 0,
             };
         });
       } else if (msg.event === 'user.status_changed') {

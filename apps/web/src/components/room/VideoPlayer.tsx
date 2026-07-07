@@ -63,16 +63,6 @@ export function VideoPlayer({
     if (!videoRef.current || !mediaInfo?.hlsUrl) return;
 
     if (hlsRef.current) {
-      // If we already have an HLS instance and just the URL/seekKey updated
-      // but it's the exact same media (e.g. after a seek), do a soft reload
-      // from the new position instead of a full teardown.
-      const currentUrl = hlsRef.current.url;
-      if (currentUrl === mediaInfo.hlsUrl) {
-        hlsRef.current.stopLoad();
-        hlsRef.current.startLoad(localTime);
-        return;
-      }
-
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
@@ -83,7 +73,7 @@ export function VideoPlayer({
 
     if (Hls.isSupported()) {
       const hls = new Hls({
-        startPosition: localTime > 0 ? localTime : undefined,
+        startPosition: localTime > 0 ? Math.max(0, localTime - (mediaInfo?.transcodeOffset || 0)) : undefined,
         enableWorker: true,
         lowLatencyMode: false,
         manifestLoadingMaxRetry: 10,
@@ -130,7 +120,7 @@ export function VideoPlayer({
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
       videoRef.current.src = mediaInfo.hlsUrl;
-      videoRef.current.currentTime = localTime;
+      videoRef.current.currentTime = Math.max(0, localTime - (mediaInfo?.transcodeOffset || 0));
       videoRef.current.addEventListener('loadedmetadata', () => {
         onStatusChangeRef.current('ready');
       }, { once: true });
@@ -159,14 +149,24 @@ export function VideoPlayer({
     }
   }, [roomPlaybackState?.playbackRate, localCorrectionRate]);
 
-  // Apply drift correction (if server localTime differs significantly from video.currentTime)
+  // Sync playback position (including seeks and drift correction)
   useEffect(() => {
     if (!videoRef.current || isDragging) return;
-    const diff = Math.abs(videoRef.current.currentTime - localTime);
-    if (diff > 3) {
-      videoRef.current.currentTime = localTime;
+    
+    const transOffset = mediaInfo?.transcodeOffset || 0;
+    const currentAbsolute = videoRef.current.currentTime + transOffset;
+    const diff = Math.abs(currentAbsolute - localTime);
+    
+    // If the room is buffering (e.g. after a seek), we want everyone's head to be exactly at the seeked location.
+    // We use a small threshold of 0.2s to prevent micro-seeking loops.
+    // If the room is in any other state, we use a 3.0s drift threshold to avoid micro-adjustments.
+    const threshold = roomPlaybackState?.state === 'buffering' ? 0.2 : 3.0;
+    
+    if (diff > threshold) {
+      console.log(`[VideoPlayer] Seeking player to absolute ${localTime} (relative: ${localTime - transOffset})`);
+      videoRef.current.currentTime = Math.max(0, localTime - transOffset);
     }
-  }, [localTime, isDragging]);
+  }, [localTime, roomPlaybackState?.state, isDragging, mediaInfo?.transcodeOffset]);
 
   // Idle Timer
   useEffect(() => {
@@ -228,16 +228,21 @@ export function VideoPlayer({
     if (!video) return;
 
     const onTimeUpdate = () => {
+      const transOffset = mediaInfo?.transcodeOffset || 0;
       if (!isDragging) {
-        setCurrentTime(video.currentTime);
+        setCurrentTime(video.currentTime + transOffset);
       }
       setDuration(video.duration || 0);
     };
 
     const onProgress = () => {
       const ranges = [];
+      const transOffset = mediaInfo?.transcodeOffset || 0;
       for (let i = 0; i < video.buffered.length; i++) {
-        ranges.push({ start: video.buffered.start(i), end: video.buffered.end(i) });
+        ranges.push({ 
+          start: video.buffered.start(i) + transOffset, 
+          end: video.buffered.end(i) + transOffset 
+        });
       }
       setBufferedRanges(ranges);
     };
@@ -256,7 +261,7 @@ export function VideoPlayer({
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
     };
-  }, [isDragging]);
+  }, [isDragging, mediaInfo?.transcodeOffset]);
 
   // Scrubbing Logic
   const updateDragProgress = (clientX: number) => {
@@ -287,8 +292,10 @@ export function VideoPlayer({
         const totalDuration = mediaInfo?.duration || duration;
         const newPos = dragProgress * totalDuration;
         onSeek(newPos);
-        if (videoRef.current) videoRef.current.currentTime = newPos;
-        if (roomPlaybackState?.state === 'playing') onPlay();
+        if (videoRef.current) {
+          const transOffset = mediaInfo?.transcodeOffset || 0;
+          videoRef.current.currentTime = Math.max(0, newPos - transOffset);
+        }
       };
 
       window.addEventListener('pointermove', handlePointerMove);
@@ -298,7 +305,7 @@ export function VideoPlayer({
         window.removeEventListener('pointerup', handlePointerUp);
       };
     }
-  }, [isDragging, dragProgress, duration, mediaInfo?.duration, onSeek, onPlay, roomPlaybackState?.state]);
+  }, [isDragging, dragProgress, duration, mediaInfo?.duration, mediaInfo?.transcodeOffset, onSeek]);
 
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return '0:00';
@@ -321,8 +328,10 @@ export function VideoPlayer({
 
   const handleSeekOffset = (offset: number) => {
     if (!videoRef.current) return;
-    const newPos = Math.max(0, videoRef.current.currentTime + offset);
-    videoRef.current.currentTime = newPos;
+    const transOffset = mediaInfo?.transcodeOffset || 0;
+    const currentAbsolute = videoRef.current.currentTime + transOffset;
+    const newPos = Math.max(0, currentAbsolute + offset);
+    videoRef.current.currentTime = Math.max(0, newPos - transOffset);
     onSeek(newPos);
   };
 

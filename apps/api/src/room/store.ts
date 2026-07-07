@@ -19,6 +19,7 @@ export interface RoomState {
     mediaTitle: string;
     hlsUrl: string;
     duration: number;
+    transcodeOffset: number;
     playback: RoomPlaybackState;
     members: MemberState[];
 }
@@ -32,6 +33,7 @@ export class RoomStore {
             mediaTitle: '',
             hlsUrl: '',
             duration: 0,
+            transcodeOffset: 0,
             playback: {
                 state: 'waiting',
                 intendedState: 'paused',
@@ -53,11 +55,19 @@ export class RoomStore {
     /**
      * Updates the current media playing in the room.
      */
-    public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number): void {
+    public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number, transcodeOffset = 0): void {
         this.state.mediaId = mediaId;
         this.state.mediaTitle = mediaTitle;
         this.state.hlsUrl = hlsUrl;
         this.state.duration = duration;
+        this.state.transcodeOffset = transcodeOffset;
+    }
+
+    /**
+     * Updates the transcode offset.
+     */
+    public updateTranscodeOffset(offset: number): void {
+        this.state.transcodeOffset = offset;
     }
 
     /**

@@ -22,6 +22,7 @@ export const ServerRoomStateSchema = z.object({
       mediaTitle: z.string().optional(),
       hlsUrl: z.string().optional(),
       duration: z.number().optional(),
+      transcodeOffset: z.number().optional(),
       playback: z.object({
         state: z.enum(['waiting', 'playing', 'paused', 'buffering']),
         intendedState: z.enum(['playing', 'paused']),
