@@ -32,9 +32,9 @@ importers:
       '@roomies/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@roomies/shared':
+      '@roomies/transcoding':
         specifier: workspace:*
-        version: link:../../packages/shared
+        version: link:../../packages/transcoding
       bcrypt:
         specifier: ^6.0.0
         version: 6.0.0
@@ -84,9 +84,6 @@ importers:
       '@roomies/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@roomies/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       hls.js:
         specifier: ^1.5.8
         version: 1.6.16
@@ -125,17 +122,24 @@ importers:
         specifier: ^5.3.1
         version: 5.4.21
 
-  packages/config: {}
-
   packages/contracts:
     dependencies:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
 
-  packages/logger: {}
-
-  packages/shared: {}
+  packages/transcoding:
+    dependencies:
+      '@roomies/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
 
 packages:
 

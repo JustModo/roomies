@@ -4,7 +4,11 @@ import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
-import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, Resolution } from '../transcoding';
+import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, Resolution } from '@roomies/transcoding';
+import { getTranscodeSettings } from '../config/settings';
+
+/** Builds the API route this app serves the dynamic master.m3u8 from. */
+const getMasterPlaylistUrl = (mediaFileId: string) => `/api/playback/hls/${mediaFileId}/master.m3u8`;
 
 type PlayPayload = Extract<IncomingSocketMessage, { event: 'playback.play' }>['payload'];
 type PausePayload = Extract<IncomingSocketMessage, { event: 'playback.pause' }>['payload'];
@@ -25,7 +29,15 @@ export class PlaybackService {
     }
 
     const session = TranscodeSessionManager.startSession(mediaFileId, mediaFile.path);
-    const hlsUrl = session.masterPlaylistUrl;
+    const hlsUrl = getMasterPlaylistUrl(mediaFileId);
+
+    // Fast-start: pre-warm the lowest-bitrate variant immediately rather than
+    // waiting for the client's hls.js to request it, so the first segment is
+    // already on disk (or close to it) by the time playback actually starts.
+    const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+    session.ensureVariantReady('360p', 0, ffmpegPreset, hwAccelMode).catch((err) => {
+      console.error(`[playback] Failed to pre-warm 360p variant for ${mediaFileId}:`, err);
+    });
 
     roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration);
     roomStore.updatePlayback({ state: 'buffering', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
@@ -56,7 +68,7 @@ export class PlaybackService {
       mediaTitle: state.mediaTitle || undefined,
       viewersCount: state.members.length,
       state: state.playback.state,
-      hlsUrl: session?.masterPlaylistUrl || undefined,
+      hlsUrl: session ? getMasterPlaylistUrl(session.mediaFileId) : undefined,
     };
   }
 
@@ -88,7 +100,8 @@ export class PlaybackService {
     }
     
     const position = roomStore.getState().playback.anchorPosition || 0;
-    await session.ensureVariantReady(resolution, position);
+    const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+    await session.ensureVariantReady(resolution, position, ffmpegPreset, hwAccelMode);
     return `${HLS_BASE_URL}/${mediaId}/${resolution}/stream.m3u8`;
   }
 
@@ -123,13 +136,20 @@ export class PlaybackService {
       // Clear current variants and cache so they are regenerated from the new seek position
       session.clearVariants();
 
+      // Pre-warm the lowest-bitrate variant at the new position so re-seeking
+      // doesn't reintroduce the cold-start stall.
+      const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+      session.ensureVariantReady('360p', payload.position, ffmpegPreset, hwAccelMode).catch((err) => {
+        console.error(`[playback] Failed to pre-warm 360p variant after seek for ${state.mediaId}:`, err);
+      });
+
       // Force clients to rebuild HLS and request the variant from the new position
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'media.changed',
         payload: {
           mediaFileId: state.mediaId,
           title: state.mediaTitle || 'Unknown Media',
-          hlsUrl: session.masterPlaylistUrl,
+          hlsUrl: getMasterPlaylistUrl(state.mediaId),
           duration: state.duration,
         }
       });
