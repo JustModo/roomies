@@ -5,8 +5,7 @@ import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
-import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution } from '@roomies/transcoding';
-import { getTranscodeSettings } from '../config/settings';
+import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings } from '@roomies/transcoding';
 
 /** Builds the API route this app serves the dynamic master.m3u8 from. */
 const getMasterPlaylistUrl = (mediaFileId: string) => `/api/playback/hls/${mediaFileId}/master.m3u8`;

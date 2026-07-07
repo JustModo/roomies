@@ -9,7 +9,6 @@ import { userRoutes } from '../users';
 import { libraryRoutes } from '../library';
 import { chatRoutes } from '../chat';
 import { playbackRoutes } from '../playback/routes';
-import { settingsRoutes } from '../settings';
 import { initializeConfig } from '../config';
 import { registerChatSocketEvents } from '../chat/socket';
 import { registerPlaybackSocketEvents } from '../playback/socket';
@@ -109,7 +108,6 @@ export const bootstrap = async (app: FastifyInstance) => {
   await app.register(libraryRoutes, { prefix: '/api/library' });
   await app.register(chatRoutes, { prefix: '/api/chat' });
   await app.register(playbackRoutes, { prefix: '/api/playback' });
-  await app.register(settingsRoutes, { prefix: '/api/settings' });
 
   // 7. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {

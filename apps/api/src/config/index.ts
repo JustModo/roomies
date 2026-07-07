@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '../database/sqlite';
-import { loadTranscodeSettings } from './settings';
+import { initTranscodeSettings } from '@roomies/transcoding';
 
 export const Config = {
   JWT_SECRET: '',
@@ -32,5 +32,5 @@ export const initializeConfig = async () => {
   Config.JWT_SECRET = await loadOrCreateSecret('JWT_SECRET');
   Config.JWT_REFRESH_SECRET = await loadOrCreateSecret('JWT_REFRESH_SECRET');
 
-  await loadTranscodeSettings();
+  await initTranscodeSettings();
 };
