@@ -2,7 +2,7 @@
   "name": "api",
   "private": true,
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "prisma generate && prisma db push --accept-data-loss && tsx watch src/index.ts",
     "build": "tsup",
     "start": "tsx src/index.ts"
   },

@@ -1,26 +1,11 @@
 services:
-  api:
-    build:
-      target: builder
-    command: sh -c "pnpm --filter api exec prisma generate && pnpm --filter api exec prisma db push --accept-data-loss && pnpm --filter api run dev"
-    volumes:
-      - ./apps/api/src:/app/apps/api/src
-      - ./packages:/app/packages
-    environment:
-      - NODE_ENV=development
-
-  web:
-    build:
-      target: builder
-    command: pnpm --filter web run dev
-    volumes:
-      - ./apps/web/src:/app/apps/web/src
-      - ./apps/web/index.html:/app/apps/web/index.html
-      - ./apps/web/vite.config.ts:/app/apps/web/vite.config.ts
-      - ./packages:/app/packages
-    environment:
-      - NODE_ENV=development
-
   caddy:
+    image: caddy:2
+    ports:
+      - "5123:5123"
     volumes:
       - ./infra/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - ./media:/media:ro
+      - ./cache:/cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

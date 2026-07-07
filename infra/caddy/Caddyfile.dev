@@ -8,15 +8,15 @@
     }
 }
 
-:80 {
+:5123 {
     # --- API Routes (Fastify backend) ---
     handle /api/* {
-        reverse_proxy api:3000
+        reverse_proxy host.docker.internal:3000
     }
 
     # --- WebSocket Gateway ---
     handle /ws* {
-        reverse_proxy api:3000
+        reverse_proxy host.docker.internal:3000
     }
 
     # --- HLS Media Delivery ---
@@ -34,6 +34,6 @@
 
     # --- React Frontend (Vite Dev Server) ---
     handle {
-        reverse_proxy web:5173
+        reverse_proxy host.docker.internal:5173
     }
 }
