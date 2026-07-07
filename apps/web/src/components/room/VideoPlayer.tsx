@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize } from 'lucide-react';
 import Hls, { Level } from 'hls.js';
 import { IconButton } from '../ui/IconButton';
@@ -19,6 +19,19 @@ export interface VideoPlayerProps {
   onStatusChange: (status: 'ready' | 'buffering') => void;
   children?: React.ReactNode; // Used for inserting top bar UI over the player
 }
+
+const getBufferedAhead = (vid: HTMLVideoElement) => {
+  const time = vid.currentTime;
+  let maxEnd = time;
+  for (let i = 0; i < vid.buffered.length; i++) {
+    const start = vid.buffered.start(i);
+    const end = vid.buffered.end(i);
+    if (time >= start - 0.5 && time <= end) {
+      maxEnd = Math.max(maxEnd, end);
+    }
+  }
+  return maxEnd - time;
+};
 
 export function VideoPlayer({
   mediaInfo,
@@ -62,6 +75,14 @@ export function VideoPlayer({
     onStatusChangeRef.current = onStatusChange;
   }, [onStatusChange]);
 
+  const lastReportedStatusRef = useRef<'ready' | 'buffering'>('ready');
+  const reportStatus = useCallback((status: 'ready' | 'buffering') => {
+    if (lastReportedStatusRef.current !== status) {
+      lastReportedStatusRef.current = status;
+      onStatusChangeRef.current(status);
+    }
+  }, []);
+
   // Setup HLS — rebuild when media URL or seekKey changes
   useEffect(() => {
     if (!videoRef.current || !mediaInfo?.hlsUrl) return;
@@ -71,7 +92,7 @@ export function VideoPlayer({
       hlsRef.current = null;
     }
 
-    onStatusChangeRef.current('buffering');
+    reportStatus('buffering');
     setLevels([]);
     setCurrentLevel(-1);
 
@@ -90,7 +111,7 @@ export function VideoPlayer({
         maxMaxBufferLength: 120,
       });
 
-      hls.loadSource(mediaInfo.hlsUrl);
+      hls.loadSource(`${mediaInfo.hlsUrl}?t=${Date.now()}`);
       hls.attachMedia(videoRef.current);
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
@@ -126,10 +147,10 @@ export function VideoPlayer({
       videoRef.current.src = mediaInfo.hlsUrl;
       videoRef.current.currentTime = Math.max(0, localTime - (mediaInfo?.transcodeOffset || 0));
       videoRef.current.addEventListener('loadedmetadata', () => {
-        onStatusChangeRef.current('ready');
+        reportStatus('ready');
       }, { once: true });
     }
-  }, [mediaInfo?.hlsUrl, seekKey]);
+  }, [mediaInfo?.hlsUrl, seekKey, reportStatus]);
 
   // Sync playback state from server
   useEffect(() => {
@@ -159,7 +180,12 @@ export function VideoPlayer({
     
     const transOffset = mediaInfo?.transcodeOffset || 0;
     console.log(`[VideoPlayer] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
+    
+    // Reset our reported status to buffering since a seek puts the client/room in a buffering state
+    lastReportedStatusRef.current = 'buffering';
+    
     videoRef.current.currentTime = Math.max(0, syncSeekPosition - transOffset);
+    setCurrentTime(syncSeekPosition);
   }, [syncSeekTrigger, syncSeekPosition, isDragging, mediaInfo?.transcodeOffset]);
 
   // Idle Timer
@@ -195,26 +221,40 @@ export function VideoPlayer({
       // stalls during segment switches don't pause the whole room
       clearTimeout(bufferingTimeout);
       bufferingTimeout = setTimeout(() => {
-        onStatusChangeRef.current('buffering');
+        reportStatus('buffering');
       }, 1500);
     };
 
     const handleReady = () => {
-      clearTimeout(bufferingTimeout);
-      onStatusChangeRef.current('ready');
+      const bufferedAhead = getBufferedAhead(video);
+      const remainingTime = video.duration ? (video.duration - video.currentTime) : 0;
+      const threshold = video.duration ? Math.min(3.0, remainingTime) : 3.0;
+
+      if (bufferedAhead >= threshold) {
+        clearTimeout(bufferingTimeout);
+        reportStatus('ready');
+      }
+    };
+
+    const handleProgress = () => {
+      handleReady();
     };
 
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handleReady);
     video.addEventListener('canplay', handleReady);
+    video.addEventListener('progress', handleProgress);
+    video.addEventListener('seeked', handleReady);
 
     return () => {
       clearTimeout(bufferingTimeout);
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('playing', handleReady);
       video.removeEventListener('canplay', handleReady);
+      video.removeEventListener('progress', handleProgress);
+      video.removeEventListener('seeked', handleReady);
     };
-  }, []);
+  }, [reportStatus]);
 
   // Time and Progress Updates
   useEffect(() => {
@@ -389,7 +429,15 @@ export function VideoPlayer({
         muted={isMuted}
       />
 
-      {!isPlaying && !isDragging && (
+      {roomPlaybackState?.state === 'buffering' && (
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] z-20 flex items-center justify-center pointer-events-none">
+          <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/90 animate-pulse drop-shadow-2xl">
+            SYNCING
+          </h2>
+        </div>
+      )}
+
+      {!isPlaying && !isDragging && roomPlaybackState?.state !== 'buffering' && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
           <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg">
             {mediaInfo ? 'PAUSED' : 'NO MEDIA SELECTED'}

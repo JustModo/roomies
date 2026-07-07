@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { LogOut } from 'lucide-react';
 import { fetchApi } from '../api/client';
+import { setHasUserInteracted } from './Room';
 
 export default function Lobby() {
   const { logout } = useAuth();
@@ -50,7 +51,10 @@ export default function Lobby() {
             )}
           </div>
 
-          <Button onClick={() => navigate(`/room`)}>
+          <Button onClick={() => {
+            setHasUserInteracted(true);
+            navigate(`/room`);
+          }}>
             JOIN ROOM
           </Button>
         </div>

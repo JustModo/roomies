@@ -6,11 +6,22 @@ import { useRoomSync } from '../hooks/useRoomSync';
 import { useAuth } from '../contexts/AuthContext';
 import { VideoPlayer } from '../components/room/VideoPlayer';
 
+export let hasUserInteracted = false;
+export const setHasUserInteracted = (val: boolean) => {
+  hasUserInteracted = val;
+};
+
 export default function Room() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [viewersCount, setViewersCount] = useState<number>(0);
   const [showAdmin, setShowAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!hasUserInteracted) {
+      navigate('/', { replace: true });
+    }
+  }, [navigate]);
 
   const {
     roomState,

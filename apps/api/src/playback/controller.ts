@@ -34,7 +34,10 @@ export const PlaybackController = {
    */
   async getMasterPlaylist(req: FastifyRequest, reply: FastifyReply) {
     const playlist = PlaybackService.generateMasterPlaylist();
-    return reply.type('application/vnd.apple.mpegurl').send(playlist);
+    return reply
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+      .type('application/vnd.apple.mpegurl')
+      .send(playlist);
   },
 
   /**
@@ -44,7 +47,10 @@ export const PlaybackController = {
     const { mediaId, resolution } = req.params as { mediaId: string; resolution: Resolution };
     try {
       const redirectUrl = await PlaybackService.ensureVariant(mediaId, resolution);
-      return reply.redirect(redirectUrl);
+      return reply
+        .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+        .status(302)
+        .redirect(redirectUrl);
     } catch (error: any) {
       if (error.message === 'Session not found') {
         return reply.status(404).send({ error: error.message });
