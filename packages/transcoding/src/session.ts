@@ -187,9 +187,15 @@ export class TranscodeSession {
       }
     }
 
+    // Align startPosition to the segment boundary, starting at least 1 segment before
+    const alignedPosition = Math.max(
+      0,
+      Math.floor(newPosition / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION
+    );
+
     // Restart all resolutions in parallel
     await Promise.all(
-      resolutions.map(res => this.ensureVariantReady(res, newPosition, preset, hwAccelMode))
+      resolutions.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
     );
   }
 

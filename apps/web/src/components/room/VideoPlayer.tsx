@@ -227,24 +227,55 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
 
+    const updateBufferedRanges = () => {
+      const transOffset = mediaInfo?.transcodeOffset || 0;
+      const rawRanges: { start: number, end: number }[] = [];
+      for (let i = 0; i < video.buffered.length; i++) {
+        rawRanges.push({ 
+          start: video.buffered.start(i) + transOffset, 
+          end: video.buffered.end(i) + transOffset 
+        });
+      }
+
+      rawRanges.sort((a, b) => a.start - b.start);
+
+      const mergedRanges: { start: number, end: number }[] = [];
+      if (rawRanges.length > 0) {
+        let current = rawRanges[0];
+        for (let i = 1; i < rawRanges.length; i++) {
+          const next = rawRanges[i];
+          if (next.start - current.end <= 2.0) {
+            current.end = Math.max(current.end, next.end);
+          } else {
+            mergedRanges.push(current);
+            current = next;
+          }
+        }
+        mergedRanges.push(current);
+      }
+
+      const curTime = video.currentTime + transOffset;
+      const finalRanges = mergedRanges.map(range => {
+        if (range.start > curTime && range.start - curTime <= 1.0) {
+          return { ...range, start: curTime };
+        }
+        return range;
+      });
+
+      setBufferedRanges(finalRanges);
+    };
+
     const onTimeUpdate = () => {
       const transOffset = mediaInfo?.transcodeOffset || 0;
       if (!isDragging) {
         setCurrentTime(video.currentTime + transOffset);
       }
       setDuration(video.duration || 0);
+      updateBufferedRanges();
     };
 
     const onProgress = () => {
-      const ranges = [];
-      const transOffset = mediaInfo?.transcodeOffset || 0;
-      for (let i = 0; i < video.buffered.length; i++) {
-        ranges.push({ 
-          start: video.buffered.start(i) + transOffset, 
-          end: video.buffered.end(i) + transOffset 
-        });
-      }
-      setBufferedRanges(ranges);
+      updateBufferedRanges();
     };
 
     const handlePlay = () => setIsPlaying(true);

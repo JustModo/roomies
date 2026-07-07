@@ -67,11 +67,9 @@ export function useRoomSync() {
         setLocalTime(initialPos);
         localTimeRef.current = initialPos;
       } else if (msg.event === 'media.changed') {
-        // Server has changed the media — update media info
+        // Server has changed the media or seek offset — update media info and increment seekKey
         setMediaInfo((prev) => {
-            const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
-            const isDifferentOffset = prev?.transcodeOffset !== msg.payload.transcodeOffset;
-            const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
+            const nextKey = (prev?.seekKey ?? 0) + 1;
             return {
               mediaFileId: msg.payload.mediaFileId,
               title: msg.payload.title,
