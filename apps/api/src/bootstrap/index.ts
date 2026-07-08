@@ -74,7 +74,7 @@ export const bootstrap = async (app: FastifyInstance) => {
   });
 
   // NOTE: Periodically trigger transcoding cache management based on playhead position.
-  setInterval(() => {
+  const cacheInterval = setInterval(() => {
     TranscodeSessionManager.manageActiveCaches(roomStore.getCurrentPosition());
   }, 1000);
   registerChatSocketEvents();
@@ -94,6 +94,9 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   // 7. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {
+    clearInterval(cacheInterval);
     TranscodeSessionManager.stopSession();
+    await prisma.$disconnect();
+    console.log('[system] Graceful shutdown complete.');
   });
 };
