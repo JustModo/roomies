@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 
-import { X } from 'lucide-react';
+import { X, Film, ChevronLeft, Play } from 'lucide-react';
 import { IconButton } from '../ui/IconButton';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
+import { Title, Season, MediaFile } from '@roomies/contracts';
 
 interface AdminOverlayProps {
   isOpen: boolean;
@@ -184,10 +185,60 @@ const UsersTab = () => {
   );
 };
 
-const MediaTab = ({ onClose }: { onClose: () => void }) => {
-  const [media, setMedia] = useState<any[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
+const CoverTile = ({ titleId, name, onClick }: { titleId: string; name: string; onClick: () => void }) => {
+  const [src, setSrc] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    fetch(`/api/library/cover/${titleId}`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('No cover');
+        return res.blob();
+      })
+      .then(blob => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [titleId]);
+
+  return (
+    <button
+      onClick={onClick}
+      className="group relative aspect-square w-full overflow-hidden bg-ash text-left"
+    >
+      {src ? (
+        <img src={src} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Film size={32} strokeWidth={1.5} className="text-fog" />
+        </div>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-void via-void/10 to-transparent opacity-80 group-hover:opacity-95 transition-opacity" />
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <Play size={28} strokeWidth={1.5} className="text-paper" />
+      </div>
+      <span className="absolute bottom-2 left-2 right-2 text-14 font-medium text-paper truncate">
+        {name}
+      </span>
+    </button>
+  );
+};
+
+const MediaTab = ({ onClose }: { onClose: () => void }) => {
+  const [titles, setTitles] = useState<Title[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [selectedTitle, setSelectedTitle] = useState<Title | null>(null);
 
   const fetchLibrary = () => {
     fetch('/api/library', {
@@ -196,8 +247,8 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          const allMedia = data.flatMap((lib: any) => lib.mediaFiles || []);
-          setMedia(allMedia);
+          const allTitles: Title[] = data.flatMap((lib: any) => lib.titles || []);
+          setTitles(allTitles);
         }
       })
       .catch(err => console.error('[library] Failed to fetch library:', err));
@@ -226,7 +277,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
-  const handleStart = async (mediaId: string) => {
+  const handleStart = async (mediaFileId: string) => {
     try {
       const res = await fetch('/api/playback/change-media', {
         method: 'POST',
@@ -234,7 +285,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ mediaFileId: mediaId })
+        body: JSON.stringify({ mediaFileId })
       });
       if (!res.ok) {
         throw new Error('Failed to change media');
@@ -246,6 +297,41 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
+  const handleTitleClick = (title: Title) => {
+    if (title.type === 'movie') {
+      const mediaFileId = title.seasons[0]?.mediaFiles[0]?.id;
+      if (mediaFileId) handleStart(mediaFileId);
+      return;
+    }
+    setSelectedTitle(title);
+  };
+
+  if (selectedTitle) {
+    return (
+      <div className="w-full">
+        <div className="flex items-center gap-3 mb-8">
+          <IconButton icon={<ChevronLeft size={20} strokeWidth={1.5} />} onClick={() => setSelectedTitle(null)} />
+          <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">{selectedTitle.name}</h2>
+        </div>
+
+        <div className="flex flex-col gap-8">
+          {selectedTitle.seasons.map((season: Season) => (
+            <div key={season.id}>
+              <h3 className="text-12 font-medium uppercase tracking-[0.08em] text-fog mb-4">
+                {season.name || selectedTitle.name}
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                {season.mediaFiles.map((mf: MediaFile) => (
+                  <CoverTile key={mf.id} titleId={selectedTitle.id} name={mf.title} onClick={() => handleStart(mf.id)} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
       <div className="flex justify-between items-center mb-8">
@@ -255,22 +341,13 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
         </Button>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {media.length === 0 && !isScanning && (
-          <p className="text-14 text-fog">No media found. Try scanning the library.</p>
-        )}
-        {media.map(m => (
-          <div key={m.id} className="group flex items-center justify-between py-4 border-b border-ash hover:bg-ash/20 transition-colors px-4 -mx-4">
-            <div className="flex flex-col gap-1">
-              <span className="text-16 text-paper font-medium">{m.title}</span>
-              <span className="text-14 font-mono text-fog">
-                {m.year || ''} {m.year && m.duration ? '·' : ''} {m.duration ? Math.floor(m.duration / 60) + ' min' : ''}
-              </span>
-            </div>
-            <Button onClick={() => handleStart(m.id)}>
-              PLAY
-            </Button>
-          </div>
+      {titles.length === 0 && !isScanning && (
+        <p className="text-14 text-fog">No media found. Try scanning the library.</p>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        {titles.map(t => (
+          <CoverTile key={t.id} titleId={t.id} name={t.name} onClick={() => handleTitleClick(t)} />
         ))}
       </div>
     </div>
