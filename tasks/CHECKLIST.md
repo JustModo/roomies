@@ -22,11 +22,13 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
 - [x] **Users Feature** (See `[LOG:L32-34]`)
   - [x] Implement `GET /api/users/me` to fetch current user profile.
   - [x] Implement user settings update (theme, etc) via Prisma `Settings` table.
-- [x] **Library Feature** (See `[LOG:L35-37]`)
-  - [x] Implement file scanner service (recursive folder scan).
+- [x] **Library Feature** (See `[LOG:L35-37]`, extracted to `packages/library` + folder-based model `[LOG:2026-07-08 Library Package Extraction]`)
+  - [x] Extract scanning logic into `packages/library`, following the `packages/transcoding` package pattern (build-less, `PrismaClient` passed in as a parameter, `apps/api` retains schema/client ownership).
+  - [x] Switch to a folder-per-title convention (`Library → Title (movie|show) → Season → MediaFile → Subtitle`), extension-only file-role matching (video/subtitle/cover), incremental idempotent sync by path.
   - [x] Read basic metadata (name, duration) without TMDB/Internet calls.
-  - [x] Store scanned paths into `Library` and `MediaFile` Postgres tables.
-  - [x] Expose `GET /api/library` to fetch available media.
+  - [x] Expose `GET /api/library` (nested titles/seasons/episodes/subtitles) and `POST /api/library/scan`.
+  - [x] Serve cover art via authenticated `GET /api/library/cover/:titleId` (Caddy only serves `/cache`, not `MEDIA_ROOT`).
+  - [x] Admin Overlay MEDIA tab renders a grid of square cover-art tiles instead of a flat file list; movies play directly, shows drill into a season/episode picker.
 - [x] **Playback Orchestration** `[DEPENDS_ON: Library Feature]` (See `[LOG:L54]`)
   - [x] Implement HTTP route to start a party/session (`POST /api/playback/start`).
   - [x] Implement Single Active Party endpoint (`GET /api/playback/party/active`).
