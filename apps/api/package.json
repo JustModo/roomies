@@ -14,12 +14,12 @@
     "@prisma/client": "^7.8.0",
     "@roomies/config": "workspace:*",
     "@roomies/contracts": "workspace:*",
+    "@roomies/library": "workspace:*",
     "@roomies/transcoding": "workspace:*",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.8.1",
     "dotenv": "^17.4.2",
     "fastify": "^5.10.0",
-    "ffprobe-static": "^3.1.0",
     "jsonwebtoken": "^9.0.3",
     "zod": "^4.4.3"
   },
