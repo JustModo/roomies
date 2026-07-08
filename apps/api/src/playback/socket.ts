@@ -1,4 +1,5 @@
 import { registerSocketEvent, SocketContext } from '../websocket/router';
+import { withPlaybackLock } from './middleware';
 import { PlaybackService } from './service';
 import { IncomingSocketMessage } from '@roomies/contracts';
 
@@ -8,19 +9,31 @@ type SeekPayload = Extract<IncomingSocketMessage, { event: 'playback.seek' }>['p
 type SetRatePayload = Extract<IncomingSocketMessage, { event: 'playback.set_rate' }>['payload'];
 
 export const registerPlaybackSocketEvents = () => {
-  registerSocketEvent('playback.play', async (payload: unknown, ctx: SocketContext) => {
-    await PlaybackService.handlePlay(payload as PlayPayload, ctx);
-  });
+  registerSocketEvent(
+    'playback.play',
+    withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+      await PlaybackService.handlePlay(payload as PlayPayload, ctx);
+    })
+  );
 
-  registerSocketEvent('playback.pause', async (payload: unknown, ctx: SocketContext) => {
-    await PlaybackService.handlePause(payload as PausePayload, ctx);
-  });
+  registerSocketEvent(
+    'playback.pause',
+    withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+      await PlaybackService.handlePause(payload as PausePayload, ctx);
+    })
+  );
 
-  registerSocketEvent('playback.seek', async (payload: unknown, ctx: SocketContext) => {
-    await PlaybackService.handleSeek(payload as SeekPayload, ctx);
-  });
+  registerSocketEvent(
+    'playback.seek',
+    withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+      await PlaybackService.handleSeek(payload as SeekPayload, ctx);
+    })
+  );
 
-  registerSocketEvent('playback.set_rate', async (payload: unknown, ctx: SocketContext) => {
-    await PlaybackService.handleSetRate(payload as SetRatePayload, ctx);
-  });
+  registerSocketEvent(
+    'playback.set_rate',
+    withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+      await PlaybackService.handleSetRate(payload as SetRatePayload, ctx);
+    })
+  );
 };

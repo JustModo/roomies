@@ -14,6 +14,7 @@ export const IconButton: React.FC<IconButtonProps> = ({ icon, active, className 
         transition-colors duration-150 ease-out
         ${active ? 'text-paper' : 'text-fog'}
         hover:text-paper
+        disabled:opacity-30 disabled:cursor-not-allowed
         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-paper focus-visible:ring-offset-2 focus-visible:ring-offset-void
         ${className}
       `}

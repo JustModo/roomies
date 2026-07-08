@@ -54,6 +54,17 @@ export function VideoPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting';
+
+  const overlayTextRef = useRef(!mediaInfo ? 'THE PARTY WILL START SOON' : 'PAUSED');
+  if (!mediaInfo) {
+    overlayTextRef.current = 'THE PARTY WILL START SOON';
+  } else if (roomPlaybackState?.state === 'buffering') {
+    overlayTextRef.current = 'SYNCING';
+  } else if (roomPlaybackState?.state === 'paused' || roomPlaybackState?.state === 'waiting') {
+    overlayTextRef.current = 'PAUSED';
+  }
+
   const [levels, setLevels] = useState<Level[]>([]);
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
@@ -66,6 +77,7 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const lastProcessedTriggerRef = useRef(0);
 
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
@@ -172,8 +184,17 @@ export function VideoPlayer({
 
   // NOTE: Sync playback position (triggered explicitly by the sync engine).
   useEffect(() => {
-    if (!videoRef.current || isDragging || syncSeekTrigger === 0) return;
+    if (syncSeekTrigger <= lastProcessedTriggerRef.current) return;
+
+    if (isDragging) {
+      lastProcessedTriggerRef.current = syncSeekTrigger;
+      return;
+    }
+
+    if (!videoRef.current || syncSeekTrigger === 0) return;
     
+    lastProcessedTriggerRef.current = syncSeekTrigger;
+
     const transOffset = mediaInfo?.transcodeOffset || 0;
     console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
     
@@ -332,6 +353,7 @@ export function VideoPlayer({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isLocked) return;
     const totalDuration = mediaInfo?.duration || duration;
     if (!totalDuration) return;
     setIsDragging(true);
@@ -344,10 +366,18 @@ export function VideoPlayer({
       const handlePointerMove = (e: PointerEvent) => {
         updateDragProgress(e.clientX);
       };
-      const handlePointerUp = () => {
+      const handlePointerUp = (e: PointerEvent) => {
         setIsDragging(false);
+        let pos = dragProgress;
+        if (progressBarRef.current) {
+          const rect = progressBarRef.current.getBoundingClientRect();
+          pos = (e.clientX - rect.left) / rect.width;
+          pos = Math.max(0, Math.min(1, pos));
+          setDragProgress(pos);
+          setCurrentTime(pos * (mediaInfo?.duration || duration));
+        }
         const totalDuration = mediaInfo?.duration || duration;
-        const newPos = dragProgress * totalDuration;
+        const newPos = pos * totalDuration;
         onSeek(newPos);
         if (videoRef.current) {
           const transOffset = mediaInfo?.transcodeOffset || 0;
@@ -376,21 +406,23 @@ export function VideoPlayer({
   };
 
   const handlePlayPause = useCallback(() => {
+    if (isLocked) return;
     if (roomPlaybackState?.state === 'playing') {
       onPause();
     } else {
       onPlay();
     }
-  }, [roomPlaybackState?.state, onPlay, onPause]);
+  }, [roomPlaybackState?.state, onPlay, onPause, isLocked]);
 
   const handleSeekOffset = useCallback((offset: number) => {
+    if (isLocked) return;
     if (!videoRef.current) return;
     const transOffset = mediaInfo?.transcodeOffset || 0;
     const currentAbsolute = videoRef.current.currentTime + transOffset;
     const newPos = Math.max(0, currentAbsolute + offset);
     videoRef.current.currentTime = Math.max(0, newPos - transOffset);
     onSeek(newPos);
-  }, [mediaInfo?.transcodeOffset, onSeek]);
+  }, [mediaInfo?.transcodeOffset, onSeek, isLocked]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -429,6 +461,7 @@ export function VideoPlayer({
   };
 
   const cyclePlaybackRate = () => {
+    if (isLocked) return;
     const rates = [0.5, 1, 1.25, 1.5, 2];
     const currentRate = roomPlaybackState?.playbackRate || 1;
     const next = rates[(rates.indexOf(currentRate) + 1) % rates.length];
@@ -455,10 +488,8 @@ export function VideoPlayer({
           (roomPlaybackState?.state === 'buffering' || (!isPlaying && !isDragging)) ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <h2 className="text-28 font-medium uppercase tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg">
-          {roomPlaybackState?.state === 'buffering' 
-            ? 'SYNCING' 
-            : (mediaInfo ? 'PAUSED' : 'NO MEDIA SELECTED')}
+        <h2 className={`text-28 font-medium tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg text-center px-6 ${mediaInfo ? 'uppercase' : ''}`}>
+          {overlayTextRef.current}
         </h2>
       </div>
 
@@ -471,7 +502,7 @@ export function VideoPlayer({
       <div className={`absolute bottom-0 left-0 w-full z-30 transition-opacity duration-200 bg-linear-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
 
         {/* Seek Bar */}
-        <div className="w-full py-2 px-2 cursor-pointer group" onPointerDown={handlePointerDown}>
+        <div className={`w-full py-2 px-2 relative ${isLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer group'}`} onPointerDown={isLocked ? undefined : handlePointerDown}>
           <div ref={progressBarRef} className="w-full h-[4px] group-hover:h-[6px] transition-all duration-100 bg-ash/30 relative flex items-center rounded-full overflow-hidden group-hover:overflow-visible">
 
             {/* Buffered Ranges */}
@@ -497,10 +528,10 @@ export function VideoPlayer({
         {/* Control Row */}
         <div className="flex items-center justify-between px-4 pb-3 pt-1">
           <div className="flex items-center gap-4">
-            <IconButton icon={roomPlaybackState?.state === 'playing' ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />} onClick={handlePlayPause} />
+            <IconButton disabled={isLocked} icon={roomPlaybackState?.state === 'playing' ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />} onClick={handlePlayPause} />
             <div className="flex items-center gap-2">
-              <IconButton icon={<RotateCcw size={18} strokeWidth={1.5} />} onClick={() => handleSeekOffset(-10)} />
-              <IconButton icon={<RotateCw size={18} strokeWidth={1.5} />} onClick={() => handleSeekOffset(10)} />
+              <IconButton disabled={isLocked} icon={<RotateCcw size={18} strokeWidth={1.5} />} onClick={() => handleSeekOffset(-10)} />
+              <IconButton disabled={isLocked} icon={<RotateCw size={18} strokeWidth={1.5} />} onClick={() => handleSeekOffset(10)} />
             </div>
             <div className="flex items-center group relative">
               <IconButton icon={isMuted ? <VolumeX size={18} strokeWidth={1.5} /> : <Volume2 size={18} strokeWidth={1.5} />} onClick={() => setIsMuted(!isMuted)} />
@@ -511,7 +542,7 @@ export function VideoPlayer({
           </div>
 
           <div className="flex items-center gap-4 relative">
-            <button onClick={cyclePlaybackRate} className="text-14 font-mono text-paper hover:text-fog transition-colors w-8 text-center opacity-80 hover:opacity-100">
+            <button disabled={isLocked} onClick={cyclePlaybackRate} className="text-14 font-mono text-paper hover:text-fog transition-colors w-8 text-center opacity-80 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed">
               {roomPlaybackState?.playbackRate || 1}x
             </button>
 

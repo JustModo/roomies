@@ -100,6 +100,7 @@ export class PlaybackService {
   }
 
   static async handlePlay(payload: PlayPayload, ctx: SocketContext) {
+
     roomStore.updatePlayback({ state: 'playing', intendedState: 'playing', anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
@@ -108,6 +109,7 @@ export class PlaybackService {
   }
 
   static async handlePause(payload: PausePayload, ctx: SocketContext) {
+
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
@@ -116,10 +118,11 @@ export class PlaybackService {
   }
 
   static async handleSeek(payload: SeekPayload, ctx: SocketContext) {
-    const currentState = roomStore.getState().playback;
+    const state = roomStore.getState();
+
+    const currentState = state.playback;
     const nextIntendedState = currentState.state === 'playing' || currentState.intendedState === 'playing' ? 'playing' : 'paused';
     
-    const state = roomStore.getState();
     const session = TranscodeSessionManager.getSession();
     
     let actualOffset = payload.position;
@@ -162,6 +165,7 @@ export class PlaybackService {
   }
 
   static async handleSetRate(payload: SetRatePayload, ctx: SocketContext) {
+
     roomStore.updatePlayback({ playbackRate: payload.rate, anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
