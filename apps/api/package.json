@@ -2,7 +2,7 @@
   "name": "api",
   "private": true,
   "scripts": {
-    "dev": "prisma generate && prisma db push --accept-data-loss && tsx watch src/index.ts",
+    "dev": "DATABASE_URL=file:../../config/roomies.db prisma generate && DATABASE_URL=file:../../config/roomies.db prisma db push --accept-data-loss && tsx watch src/index.ts",
     "build": "tsup",
     "start": "tsx src/index.ts"
   },
