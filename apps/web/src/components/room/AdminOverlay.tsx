@@ -71,7 +71,7 @@ const UsersTab = () => {
       .then(data => {
         if (Array.isArray(data)) setUsers(data);
       })
-      .catch(console.error);
+      .catch(err => console.error('[library] Failed to fetch users:', err));
   };
 
   useEffect(() => {
@@ -86,7 +86,7 @@ const UsersTab = () => {
       });
       fetchUsers();
     } catch (err) {
-      console.error(err);
+      console.error('[library] Failed to delete user:', err);
     }
   };
 
@@ -200,7 +200,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           setMedia(allMedia);
         }
       })
-      .catch(console.error);
+      .catch(err => console.error('[library] Failed to fetch library:', err));
   };
 
   useEffect(() => {
@@ -220,7 +220,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
       });
       fetchLibrary();
     } catch (err) {
-      console.error(err);
+      console.error('[library] Failed to scan library:', err);
     } finally {
       setIsScanning(false);
     }
@@ -242,7 +242,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
       // NOTE: Close overlay. The media.changed event will update the player.
       onClose();
     } catch (err) {
-      console.error(err);
+      console.error('[playback] Failed to change media:', err);
     }
   };
 

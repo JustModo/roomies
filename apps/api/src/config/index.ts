@@ -17,12 +17,12 @@ const loadOrCreateSecret = async (key: string): Promise<string> => {
     create: { key, value: generated },
   });
 
-  console.log(config.value === generated ? `Generated new ${key} and saved to database.` : `Loaded ${key} from database.`);
+  console.log(`[config] ${config.value === generated ? 'Generated new ' + key + ' and saved to database.' : 'Loaded ' + key + ' from database.'}`);
   return config.value;
 };
 
 export const initializeConfig = async () => {
-  console.log('Initializing server configuration...');
+  console.log('[config] Initializing server configuration.');
 
   Config.JWT_SECRET = await loadOrCreateSecret('JWT_SECRET');
   Config.JWT_REFRESH_SECRET = await loadOrCreateSecret('JWT_REFRESH_SECRET');

@@ -29,7 +29,7 @@ export class SyncService {
     if (driftMs > HARD_THRESHOLD_MS && !isSeekingCooldown) {
       (ctx.socket as any).lastSeekTime = now;
 
-      console.warn(`[SYNC] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
+      console.warn(`[sync] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
       SocketEmitter.sendToClient(ctx.socket, {
         event: 'sync.correct',
         payload: {
@@ -46,7 +46,7 @@ export class SyncService {
         const speedDelta = Math.abs(correctionRate - playback.playbackRate);
         const correctionDurationMs = Math.round(driftMs / speedDelta);
 
-        console.warn(`[SYNC] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate}x rate for ${correctionDurationMs}ms`);
+        console.warn(`[sync] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate}x rate for ${correctionDurationMs}ms`);
         SocketEmitter.sendToClient(ctx.socket, {
           event: 'sync.correct',
           payload: {
@@ -59,7 +59,7 @@ export class SyncService {
     } else {
       // NOTE: Reset playbackRate if the client is in sync but still correcting.
       if (payload.playbackRate !== playback.playbackRate) {
-        console.log(`[SYNC] User ${ctx.userId} is in sync. Resetting playbackRate to ${playback.playbackRate}x`);
+        console.log(`[sync] User ${ctx.userId} is in sync. Resetting playbackRate to ${playback.playbackRate}x`);
         SocketEmitter.sendToClient(ctx.socket, {
           event: 'sync.correct',
           payload: {

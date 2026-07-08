@@ -122,7 +122,7 @@ export const LibraryService = {
       await prisma.mediaFile.deleteMany({
         where: { id: { in: missingFileIds } }
       });
-      console.log(`Pruned ${missingFileIds.length} missing files from database.`);
+      console.log(`[library] Pruned ${missingFileIds.length} missing files from database.`);
     }
 
     // NOTE: Process files in parallel via bounded concurrency.
@@ -140,7 +140,7 @@ export const LibraryService = {
             },
           });
         } catch (err) {
-          console.error(`Failed to process media file: ${file}`, err);
+          console.error(`[library] Failed to process media file ${file}:`, err);
         }
       }
     });

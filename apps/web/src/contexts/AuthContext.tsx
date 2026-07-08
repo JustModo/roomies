@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData = await fetchApi('/users/me');
       setUser(userData);
     } catch (err) {
-      console.error('Failed to load user session', err);
+      console.error('[auth] Failed to load user session:', err);
       logout();
     } finally {
       setIsLoading(false);

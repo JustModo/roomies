@@ -17,14 +17,14 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
     method: 'GET',
     url: '/ws',
     handler: (req, reply) => {
-      console.warn('Received HTTP GET on /ws instead of WebSocket Upgrade', { headers: req.headers, query: req.query });
+      console.warn('[sync] Received HTTP GET on /ws instead of WebSocket Upgrade');
       reply.status(400).send({ error: 'WebSocket upgrade required' });
     },
     wsHandler: async (connection, req) => {
       const userPayload = authenticateWebSocket(req);
 
       if (!userPayload) {
-        console.warn('WS Unauthorized', { query: req.query, headers: req.headers });
+        console.warn('[sync] WS Unauthorized');
         connection.send(JSON.stringify({ error: 'Unauthorized' }));
         connection.close();
         return;
@@ -35,7 +35,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
 
       const ctx: SocketContext = { app, socket: connection, userId, username, socketId };
 
-      console.log('User connected via WebSocket', { userId, socketId });
+      console.log(`[sync] User connected via WebSocket: ${userId}`);
 
       app.room.add(connection);
 
@@ -47,13 +47,13 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
           const parsedData = IncomingSocketMessageSchema.safeParse(rawData);
 
           if (!parsedData.success) {
-            console.warn('Invalid WS message format', { errors: parsedData.error });
+            console.warn('[sync] Invalid WS message format');
             return;
           }
 
           await dispatchSocketEvent(parsedData.data.event, parsedData.data.payload, ctx);
         } catch (e) {
-          console.error('Failed to parse WS message JSON', e);
+          console.error('[sync] Failed to parse WS message JSON:', e);
         }
       };
 
@@ -61,7 +61,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
       connection.on('message', rateLimiter(handleMessage));
 
       connection.on('close', async () => {
-        console.log('User disconnected from WebSocket', { userId, socketId });
+        console.log(`[sync] User disconnected from WebSocket: ${userId}`);
 
         app.room.delete(connection);
         

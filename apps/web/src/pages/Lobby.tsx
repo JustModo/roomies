@@ -18,7 +18,7 @@ export default function Lobby() {
       .then(data => {
         setActivePlayback(data);
       })
-      .catch(err => console.error(err))
+      .catch(err => console.error('[playback] Failed to fetch active playback:', err))
       .finally(() => setLoading(false));
   }, []);
 

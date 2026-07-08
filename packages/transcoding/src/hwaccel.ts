@@ -30,16 +30,16 @@ export const detectHardwareEncoder = async (): Promise<HardwareEncoder> => {
       cached = 'cpu';
     }
   } catch (err) {
-    console.error('[hwaccel] Failed to detect hardware encoders, falling back to CPU:', err);
+    console.error('[transcode] Failed to detect hardware encoders, falling back to CPU:', err);
     cached = 'cpu';
   }
 
-  console.log(`[hwaccel] Detected encoder backend: ${cached}`);
+  console.log(`[transcode] Detected encoder backend: ${cached}`);
   return cached;
 };
 
 export const markHardwareEncoderFailed = () => {
-  console.log('[hwaccel] Hardware encoder permanently disabled for this run due to a failure.');
+  console.log('[transcode] Hardware encoder permanently disabled for this run due to a failure.');
   hwFallbackTriggered = true;
 };
 

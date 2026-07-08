@@ -164,7 +164,7 @@ export class TranscodeVariant extends EventEmitter {
       const line = data.toString().trim();
       if (line) {
         if (line.toLowerCase().includes('error') || line.toLowerCase().includes('fatal')) {
-          console.error(`[transcode:${this.resolution}] ${line}`);
+          console.error(`[transcode] variant ${this.resolution} error: ${line}`);
         }
       }
     });
@@ -193,7 +193,7 @@ export class TranscodeVariant extends EventEmitter {
     if (hw !== null && !this._isReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
       markHardwareEncoderFailed();
-      console.error(`[transcode:${this.resolution}] Hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
+      console.error(`[transcode] variant ${this.resolution} hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
       this.spawnProcess(null);
       return;
     }
@@ -241,17 +241,17 @@ export class TranscodeVariant extends EventEmitter {
         const aheadBy = newestSegmentTime - currentPlayhead;
 
         if (aheadBy > 300 && !this._isSuspended) {
-          console.log(`[transcode:${this.resolution}] Suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          console.log(`[transcode] variant ${this.resolution} suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGSTOP');
           this._isSuspended = true;
         } else if (aheadBy < 60 && this._isSuspended) {
-          console.log(`[transcode:${this.resolution}] Resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          console.log(`[transcode] variant ${this.resolution} resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGCONT');
           this._isSuspended = false;
         }
       }
     } catch (err) {
-      console.error(`Error managing cache for ${this.resolution}:`, err);
+      console.error(`[transcode] Error managing cache for ${this.resolution}:`, err);
     }
   }
 

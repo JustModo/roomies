@@ -31,9 +31,9 @@ export const bootstrap = async (app: FastifyInstance) => {
     } else {
       fs.mkdirSync(CACHE_DIR, { recursive: true });
     }
-    console.log('Cleaned up global transcode cache directory');
+    console.log('[transcode] Cleaned up global transcode cache directory.');
   } catch (err) {
-    console.error('Failed to clean global cache directory', err);
+    console.error('[transcode] Failed to clean global cache directory:', err);
   }
 
   // NOTE: JWT authorization uses headers, so credentialed CORS is not required.
@@ -53,17 +53,17 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   try {
     await prisma.$connect();
-    console.log('Connected to SQLite via Prisma');
+    console.log('[system] Connected to SQLite via Prisma.');
 
     await initializeConfig();
   } catch (err) {
-    console.error('Database connection failed', err);
+    console.error('[system] Database connection failed:', err);
     process.exit(1);
   }
 
   // NOTE: Broadcast transcoding failures to all clients.
   TranscodeSessionManager.onError((resolution, error) => {
-    console.error('Transcoding variant error', { resolution, error: error.message });
+    console.error('[transcode] Transcoding variant error:', { resolution, error: error.message });
     SocketEmitter.broadcastToRoom(app, {
       event: 'error',
       payload: {

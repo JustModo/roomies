@@ -12,9 +12,9 @@ const start = async () => {
     
     await app.listen({ port: PORT, host: '0.0.0.0' });
     
-    console.log(`Server listening at http://localhost:${PORT}`);
+    console.log(`[system] Server listening at http://localhost:${PORT}`);
   } catch (err) {
-    console.error(err);
+    console.error('[system] Server failed to start:', err);
     process.exit(1);
   }
 };

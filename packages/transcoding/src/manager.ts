@@ -24,7 +24,7 @@ class TranscodeSessionManagerImpl {
     });
 
     this.currentSession = session;
-    console.log(`[manager] Started new session for media ${mediaFileId}`);
+    console.log(`[transcode] Started new session for media ${mediaFileId}`);
 
     return session;
   }
@@ -41,7 +41,7 @@ class TranscodeSessionManagerImpl {
 
   stopSession(): void {
     if (this.currentSession) {
-      console.log(`[manager] Stopping session for media ${this.currentSession.mediaFileId}`);
+      console.log(`[transcode] Stopping session for media ${this.currentSession.mediaFileId}`);
       this.currentSession.stop();
       this.currentSession = null;
     }
@@ -57,7 +57,7 @@ class TranscodeSessionManagerImpl {
         fs.rmSync(dir, { recursive: true, force: true });
       }
     } catch (err) {
-      console.error(`[manager] Failed to clean directory ${dir}:`, err);
+      console.error(`[transcode] Failed to clean directory ${dir}:`, err);
     }
   }
 }

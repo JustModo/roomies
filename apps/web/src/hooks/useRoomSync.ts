@@ -110,7 +110,7 @@ export function useRoomSync() {
         });
       } else if (msg.event === 'sync.correct') {
         if (msg.payload.seek) {
-          console.warn(`[SYNC] Hard seek correction from ${localTimeRef.current.toFixed(2)} to ${msg.payload.position.toFixed(2)}`);
+          console.warn(`[sync] Hard seek correction from ${localTimeRef.current.toFixed(2)} to ${msg.payload.position.toFixed(2)}`);
           setLocalTime(msg.payload.position);
           localTimeRef.current = msg.payload.position;
           setSyncSeekPosition(msg.payload.position);
@@ -122,13 +122,13 @@ export function useRoomSync() {
             setLocalCorrectionRate(null);
             if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
           } else {
-            console.warn(`[SYNC] Soft rate correction: ${msg.payload.playbackRate}x for ${msg.payload.correctionDurationMs}ms`);
+            console.warn(`[sync] Soft rate correction: ${msg.payload.playbackRate}x for ${msg.payload.correctionDurationMs}ms`);
             setLocalCorrectionRate(msg.payload.playbackRate);
             
             if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
             if (msg.payload.correctionDurationMs) {
               correctionTimeoutRef.current = setTimeout(() => {
-                console.warn(`[SYNC] Soft rate correction expired, reverting to normal`);
+                console.warn(`[sync] Soft rate correction expired, reverting to normal`);
                 setLocalCorrectionRate(null);
               }, msg.payload.correctionDurationMs);
             }

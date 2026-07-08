@@ -63,7 +63,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
         })));
       }
     })
-    .catch(err => console.error('Failed to fetch chat history', err));
+    .catch(err => console.error('[chat] Failed to fetch chat history:', err));
   }, []);
 
   const handleSend = (e: React.FormEvent) => {

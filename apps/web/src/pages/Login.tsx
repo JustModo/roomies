@@ -19,7 +19,7 @@ export default function Login() {
           navigate('/register');
         }
       })
-      .catch(console.error);
+      .catch(err => console.error('[auth] Failed to check auth status:', err));
   }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {

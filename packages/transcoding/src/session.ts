@@ -43,7 +43,7 @@ export class TranscodeSession {
     }
 
     if (this.variants.size >= MAX_CONCURRENT_VARIANTS) {
-      console.error(`[session:${this.mediaFileId}] Refusing to spawn variant ${resolution}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
+      console.error(`[transcode] Refusing to spawn variant ${resolution}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
       throw new Error('Maximum concurrent transcode variants reached');
     }
 
@@ -52,11 +52,11 @@ export class TranscodeSession {
     const variant = new TranscodeVariant(resolution, variantDir);
 
     variant.on('ready', () => {
-      console.log(`[session:${this.mediaFileId}] Variant ${resolution} ready (first segment available)`);
+      console.log(`[transcode] Variant ${resolution} ready (first segment available)`);
     });
 
     variant.on('error', (err: Error) => {
-      console.error(`[session:${this.mediaFileId}] Variant ${resolution} error:`, err.message);
+      console.error(`[transcode] Variant ${resolution} error:`, err.message);
       if (this.onErrorCallback) {
         this.onErrorCallback(resolution, err);
       }
@@ -64,7 +64,7 @@ export class TranscodeSession {
 
     variant.on('exit', (code: number | null) => {
       if (code === 0) {
-        console.log(`[session:${this.mediaFileId}] Variant ${resolution} completed successfully`);
+        console.log(`[transcode] Variant ${resolution} completed successfully`);
       }
     });
 
@@ -93,7 +93,7 @@ export class TranscodeSession {
 
   stop(): void {
     for (const [resolution, variant] of this.variants) {
-      console.log(`[session:${this.mediaFileId}] Stopping variant ${resolution}`);
+      console.log(`[transcode] Stopping variant ${resolution}`);
       variant.stop();
     }
     this.variants.clear();
@@ -103,7 +103,7 @@ export class TranscodeSession {
         fs.rmSync(this.outputBaseDir, { recursive: true, force: true });
       }
     } catch (err) {
-      console.error(`[session:${this.mediaFileId}] Failed to delete cache directory on stop:`, err);
+      console.error(`[transcode] Failed to delete cache directory on stop:`, err);
     }
   }
 
@@ -130,13 +130,13 @@ export class TranscodeSession {
 
     if (isCovered) {
       console.log(
-        `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s is covered by all active variants — reusing cache`
+        `[transcode] Seek to ${newPosition.toFixed(1)}s is covered by all active variants, reusing cache`
       );
       return;
     }
 
     console.log(
-      `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s not covered by all active variants — restarting all variants from new position`
+      `[transcode] Seek to ${newPosition.toFixed(1)}s not covered, restarting all variants from new position`
     );
 
     for (const res of resolutions) {
@@ -146,7 +146,7 @@ export class TranscodeSession {
         try {
           fs.rmSync(existing.outputDir, { recursive: true, force: true });
         } catch (err) {
-          console.error(`[session:${this.mediaFileId}] Failed to clear variant dir for ${res}:`, err);
+          console.error(`[transcode] Failed to clear variant dir for ${res}:`, err);
         }
         this.variants.delete(res);
       }

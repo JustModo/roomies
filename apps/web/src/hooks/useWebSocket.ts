@@ -33,7 +33,7 @@ export function useWebSocket() {
         const message = JSON.parse(event.data) as OutgoingSocketMessage;
         handlersRef.current.forEach(handler => handler(message));
       } catch (err) {
-        console.error('Failed to parse websocket message', err);
+        console.error('[sync] Failed to parse websocket message:', err);
       }
     };
 
@@ -43,7 +43,7 @@ export function useWebSocket() {
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
+      console.error('[sync] WebSocket error:', err);
       setError(new Error('WebSocket connection error'));
     };
 
@@ -67,7 +67,7 @@ export function useWebSocket() {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     } else {
-      console.warn('Cannot send message, WebSocket is not open');
+      console.warn('[sync] Cannot send message, WebSocket is not open');
     }
   }, []);
 

@@ -114,7 +114,7 @@ export function VideoPlayer({
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         setLevels(data.levels);
         if (roomPlaybackState?.state === 'playing') {
-          videoRef.current?.play().catch(console.error);
+          videoRef.current?.play().catch(err => console.error('[playback] Play failed:', err));
           setIsPlaying(true);
         }
       });
@@ -125,7 +125,7 @@ export function VideoPlayer({
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
-          console.error('[HLS] Fatal error:', data.type, data.details);
+          console.error('[playback] HLS fatal error:', data.type, data.details);
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad(videoRef.current?.currentTime ?? -1);
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
@@ -152,7 +152,7 @@ export function VideoPlayer({
   useEffect(() => {
     if (!videoRef.current) return;
     if (roomPlaybackState?.state === 'playing' && !isPlaying && !isDragging) {
-      videoRef.current.play().catch(console.error);
+      videoRef.current.play().catch(err => console.error('[playback] Play failed:', err));
       setIsPlaying(true);
     } else if (roomPlaybackState?.state !== 'playing' && isPlaying) {
       videoRef.current.pause();
@@ -175,7 +175,7 @@ export function VideoPlayer({
     if (!videoRef.current || isDragging || syncSeekTrigger === 0) return;
     
     const transOffset = mediaInfo?.transcodeOffset || 0;
-    console.log(`[VideoPlayer] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
+    console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
     
     // NOTE: Reset status to buffering because seek triggers client/room buffering.
     lastReportedStatusRef.current = 'buffering';
