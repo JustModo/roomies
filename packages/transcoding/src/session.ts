@@ -5,12 +5,7 @@ import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
 
-/**
- * Manages all transcoding variants for a single media file.
- *
- * Variants are created on-demand: when a client requests a specific resolution,
- * the session either returns an existing (cached) variant or spawns a new one.
- */
+/** Manages all transcoding variants for a single media file. */
 export class TranscodeSession {
   public readonly mediaFileId: string;
   public readonly inputPath: string;
@@ -24,21 +19,13 @@ export class TranscodeSession {
     this.inputPath = inputPath;
     this.outputBaseDir = outputBaseDir;
 
-    // Ensure the base output directory exists
     fs.mkdirSync(this.outputBaseDir, { recursive: true });
   }
 
-  /**
-   * Registers an error callback for variant failures.
-   */
   onError(callback: (resolution: Resolution, error: Error) => void): void {
     this.onErrorCallback = callback;
   }
 
-  /**
-   * Ensures a variant for the given resolution exists and is running.
-   * Resolves only when the variant is ready (first segment written).
-   */
   async ensureVariantReady(
     resolution: Resolution,
     startPosition: number = 0,
@@ -50,7 +37,6 @@ export class TranscodeSession {
       if (existing.isReady) {
         return;
       }
-      // Wait for it to become ready
       return new Promise((resolve) => {
         existing.once('ready', resolve);
       });
@@ -61,7 +47,6 @@ export class TranscodeSession {
       throw new Error('Maximum concurrent transcode variants reached');
     }
 
-    // Spawn a new FFmpeg process in a unique subdirectory
     const randomSuffix = Math.random().toString(36).substring(2, 8);
     const variantDir = path.join(this.outputBaseDir, resolution, `ss-${startPosition}-${randomSuffix}`);
     const variant = new TranscodeVariant(resolution, variantDir);
@@ -85,7 +70,6 @@ export class TranscodeSession {
 
     this.variants.set(resolution, variant);
 
-    // Start the FFmpeg process (non-blocking)
     variant.start(this.inputPath, startPosition, preset, hwAccelMode);
 
     return new Promise((resolve) => {
@@ -93,32 +77,20 @@ export class TranscodeSession {
     });
   }
 
-  /**
-   * Returns the list of currently active resolutions.
-   */
   getActiveResolutions(): Resolution[] {
     return Array.from(this.variants.keys());
   }
 
-  /**
-   * Checks if a specific variant has cached segments ready.
-   */
   isVariantReady(resolution: Resolution): boolean {
     return this.variants.get(resolution)?.isReady ?? false;
   }
 
-  /**
-   * Manages caching for all variants in this session based on the current playhead.
-   */
   manageActiveCaches(currentPlayhead: number): void {
     for (const variant of this.variants.values()) {
       variant.manageCache(currentPlayhead);
     }
   }
 
-  /**
-   * Stops all running FFmpeg processes and completely deletes the cache directory for this session.
-   */
   stop(): void {
     for (const [resolution, variant] of this.variants) {
       console.log(`[session:${this.mediaFileId}] Stopping variant ${resolution}`);
@@ -135,9 +107,6 @@ export class TranscodeSession {
     }
   }
 
-  /**
-   * Checks if the seek position is covered by the transcode cache for all active variants.
-   */
   isSeekCovered(newPosition: number): boolean {
     const activeVariants = Array.from(this.variants.values());
     if (activeVariants.length === 0) return false;
@@ -151,9 +120,6 @@ export class TranscodeSession {
     return true;
   }
 
-  /**
-   * Performs a seek on the session level, ensuring all active variants are kept in sync.
-   */
   async seek(
     newPosition: number,
     preset: FfmpegPreset = 'veryfast',
@@ -173,7 +139,6 @@ export class TranscodeSession {
       `[session:${this.mediaFileId}] Seek to ${newPosition.toFixed(1)}s not covered by all active variants — restarting all variants from new position`
     );
 
-    // Stop and clear all variants that need to be restarted
     for (const res of resolutions) {
       const existing = this.variants.get(res);
       if (existing) {
@@ -187,21 +152,17 @@ export class TranscodeSession {
       }
     }
 
-    // Align startPosition to the segment boundary, starting at least 1 segment before
+    // NOTE: Align startPosition to segment boundary, starting at least 1 segment before.
     const alignedPosition = Math.max(
       0,
       Math.floor(newPosition / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION
     );
 
-    // Restart all resolutions in parallel
     await Promise.all(
       resolutions.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
     );
   }
 
-  /**
-   * Returns the dynamic output directory of a specific resolution variant.
-   */
   getVariantOutputDir(resolution: Resolution): string {
     const variant = this.variants.get(resolution);
     if (!variant) {
@@ -210,10 +171,6 @@ export class TranscodeSession {
     return variant.outputDir;
   }
 
-  /**
-   * Derives the furthest media timestamp that has been transcoded for a variant,
-   * by counting .ts segment files in its output directory.
-   */
   private getMaxCoveredTime(variant: TranscodeVariant): number {
     try {
       const files = fs.readdirSync(variant.outputDir);
@@ -226,17 +183,12 @@ export class TranscodeSession {
         }
       }
       if (maxIndex < 0) return 0;
-      // Each segment covers SEGMENT_DURATION seconds; the variant started at its startPosition.
-      // We expose startPosition via a public accessor added to TranscodeVariant.
       return variant.startPosition + (maxIndex + 1) * SEGMENT_DURATION;
     } catch {
       return 0;
     }
   }
 
-  /**
-   * Returns the actual transcode offset (startPosition) of any active variant.
-   */
   getTranscodeOffset(): number {
     const active = this.variants.values().next().value;
     return active ? active.startPosition : 0;

@@ -26,10 +26,7 @@ const getMediaDuration = async (filePath: string): Promise<number> => {
 
 const SUPPORTED_EXTENSIONS = ['.mp4', '.mkv', '.webm'];
 
-// Bound how many ffprobe subprocesses run at once during a scan. A fully
-// sequential loop over a large library (thousands of files) can take tens of
-// minutes for one scan request; a small worker pool speeds this up without
-// spawning an unbounded number of subprocesses at once.
+// NOTE: Bounded worker pool to run ffprobe concurrently and speed up scanning.
 const SCAN_CONCURRENCY = 4;
 
 const runWithConcurrency = async <T>(items: T[], worker: (item: T) => Promise<void>): Promise<void> => {
@@ -43,21 +40,14 @@ const runWithConcurrency = async <T>(items: T[], worker: (item: T) => Promise<vo
   await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, items.length) }, runNext));
 };
 
-// All library scans must stay within this root. Matches the read-only media
-// mount configured in docker-compose.yml (/media).
+// NOTE: Restricts scans to configured MEDIA_ROOT path.
 import { MEDIA_ROOT as CONFIG_MEDIA_ROOT } from '@roomies/config';
 
 const MEDIA_ROOT = CONFIG_MEDIA_ROOT;
 
-/**
- * Resolves a user-supplied scan path and verifies it stays within MEDIA_ROOT.
- * Rejects absolute escapes, `..` traversal, and paths outside the allowed root.
- */
+/** Resolves the scan path and verifies it stays within MEDIA_ROOT. */
 const resolveScanPath = (rootPath: string): string => {
-  // Absolute paths (e.g. "/media", matching the container mount) are
-  // resolved as-is; relative paths resolve against MEDIA_ROOT. Either way,
-  // the result must land inside MEDIA_ROOT — this rejects both an absolute
-  // escape like "/etc" and a traversal like "../../etc".
+  // NOTE: Rejects directory traversal or absolute escapes outside MEDIA_ROOT.
   const resolved = path.isAbsolute(rootPath)
     ? path.resolve(rootPath)
     : path.resolve(MEDIA_ROOT, rootPath);
@@ -93,7 +83,6 @@ export const LibraryService = {
     const name = "Library";
     const safeRootPath = MEDIA_ROOT;
 
-    // Upsert the library
     let library = await prisma.library.findFirst({ where: { path: safeRootPath } });
     if (!library) {
       library = await prisma.library.create({
@@ -101,9 +90,7 @@ export const LibraryService = {
       });
     }
 
-    // Recursively scan folder. Symlinks are skipped rather than followed so a
-    // symlink planted inside an allowed directory can't be used to escape
-    // MEDIA_ROOT.
+    // NOTE: Skips symlinks to prevent directory traversal escapes.
     const walk = async (dir: string): Promise<string[]> => {
       let results: string[] = [];
       const list = await fs.readdir(dir, { withFileTypes: true });
@@ -124,7 +111,6 @@ export const LibraryService = {
 
     const mediaFiles = await walk(safeRootPath);
 
-    // Delete entries from the DB that no longer exist on disk
     const existingDbFiles = await prisma.mediaFile.findMany({ where: { libraryId: library.id } });
     const diskFilesSet = new Set(mediaFiles);
     
@@ -139,8 +125,7 @@ export const LibraryService = {
       console.log(`Pruned ${missingFileIds.length} missing files from database.`);
     }
 
-    // Process files with a small bounded concurrency so scanning a large
-    // library doesn't take one ffprobe-process-at-a-time to complete.
+    // NOTE: Process files in parallel via bounded concurrency.
     await runWithConcurrency(mediaFiles, async (file) => {
       const existing = await prisma.mediaFile.findFirst({ where: { path: file, libraryId: library.id } });
       if (!existing) {
@@ -160,7 +145,6 @@ export const LibraryService = {
       }
     });
 
-    // Fetch updated library
     const updatedLibrary = await prisma.library.findUniqueOrThrow({
       where: { id: library.id },
       include: { mediaFiles: true },

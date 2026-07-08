@@ -1,7 +1,4 @@
-/**
- * Creates a simple sliding-window rate limiter.
- * Returns a higher-order function that wraps a message handler.
- */
+/** Creates a sliding-window rate limiter for WebSocket message handlers. */
 export const createRateLimiter = (windowMs: number, maxMessages: number) => {
   let windowStart = Date.now();
   let messagesInWindow = 0;
@@ -18,7 +15,6 @@ export const createRateLimiter = (windowMs: number, maxMessages: number) => {
       messagesInWindow += 1;
       
       if (messagesInWindow > maxMessages) {
-        // Drop message if rate limit exceeded
         return;
       }
       

@@ -23,12 +23,7 @@ const isFfmpegPreset = (value: string): value is FfmpegPreset =>
 const isHwAccelMode = (value: string): value is HwAccelMode =>
   (['auto', 'cpu'] as const).includes(value as HwAccelMode);
 
-/**
- * Reads the transcode preset/hwaccel mode from `roomies.conf` (via
- * `@roomies/config`) and detects available hardware. Settings are immutable
- * for the lifetime of the process — change the `.conf` file and restart to
- * take effect. Called once at API startup.
- */
+/** Initializes and caches transcode settings from config and hardware detection. */
 export const initTranscodeSettings = async (): Promise<TranscodeSettings> => {
   const detectedHardware = await detectHardwareEncoder();
 
@@ -41,5 +36,4 @@ export const initTranscodeSettings = async (): Promise<TranscodeSettings> => {
   return cache;
 };
 
-/** Returns the current in-memory transcode settings. */
 export const getTranscodeSettings = (): TranscodeSettings => cache;

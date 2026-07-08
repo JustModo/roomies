@@ -21,8 +21,7 @@ import { SocketEmitter } from '../websocket/emitter';
 import { roomStore } from '../room/store';
 
 export const bootstrap = async (app: FastifyInstance) => {
-  // 0. Global Cache Cleanup
-  // Ensure we start with a clean slate to prevent disk leaks from past crashes
+  // NOTE: Clean up cache directory to prevent disk leaks from past crashes.
   try {
     if (fs.existsSync(CACHE_DIR)) {
       const files = fs.readdirSync(CACHE_DIR);
@@ -37,12 +36,7 @@ export const bootstrap = async (app: FastifyInstance) => {
     console.error('Failed to clean global cache directory', err);
   }
 
-  // 1. Register Plugins
-  // The JWT is sent via the `Authorization` header (not cookies), so credentialed
-  // CORS is not required. Origin is restricted to an explicit allow-list — a
-  // literal '*' combined with `credentials: true` causes @fastify/cors to reflect
-  // the caller's Origin, which would let any website make authenticated requests
-  // on a logged-in user's behalf.
+  // NOTE: JWT authorization uses headers, so credentialed CORS is not required.
   const allowedOrigins = CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
 
   await app.register(fastifyCors, {
@@ -57,7 +51,6 @@ export const bootstrap = async (app: FastifyInstance) => {
     },
   });
 
-  // 2. Connect Database & Config
   try {
     await prisma.$connect();
     console.log('Connected to SQLite via Prisma');
@@ -68,10 +61,7 @@ export const bootstrap = async (app: FastifyInstance) => {
     process.exit(1);
   }
 
-  // 3. Wire up live transcoding error callback
-  // When an FFmpeg variant process crashes during a live session, broadcast
-  // the error to all connected clients in the room so the player UI
-  // can react (e.g. fall back to another quality, show an error message).
+  // NOTE: Broadcast transcoding failures to all clients.
   TranscodeSessionManager.onError((resolution, error) => {
     console.error('Transcoding variant error', { resolution, error: error.message });
     SocketEmitter.broadcastToRoom(app, {
@@ -83,17 +73,10 @@ export const bootstrap = async (app: FastifyInstance) => {
     });
   });
 
-  // 4. Drive the transcoding cache/throttle loop
-  // The package itself has no notion of "the room" or "the current playhead" —
-  // this app owns both, so it's responsible for the scheduling.
-  // Poll every 1 second (down from 5s) so a SIGSTOP'd FFmpeg process is
-  // resumed within 1s of the player catching up to the transcoded window,
-  // preventing unnecessary buffering stalls when FFmpeg was suspended.
+  // NOTE: Periodically trigger transcoding cache management based on playhead position.
   setInterval(() => {
     TranscodeSessionManager.manageActiveCaches(roomStore.getCurrentPosition());
   }, 1000);
-
-  // 5. Register Global Hooks & Gateway
   registerChatSocketEvents();
   registerPlaybackSocketEvents();
   registerRoomSocketEvents();

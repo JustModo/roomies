@@ -6,11 +6,11 @@ import { ConfigSchema, Config } from './schema';
 import { defaultConf } from './templates';
 
 export function loadConfig(): Config {
-  // Single Source of Truth for Config Location
+  // NOTE: Single source of truth for config location.
   const configPath = process.env.ROOMIES_CONFIG_PATH || path.resolve(projectRoot, 'config', 'roomies.conf');
   const configDir = path.dirname(configPath);
 
-  // Automatically create the default conf if it doesn't exist
+  // NOTE: Creates default config if missing.
   if (!fs.existsSync(configPath)) {
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
@@ -18,10 +18,8 @@ export function loadConfig(): Config {
     fs.writeFileSync(configPath, defaultConf);
   }
 
-  // Parse the conf file
   const parsedConf = dotenv.parse(fs.readFileSync(configPath, 'utf8'));
 
-  // Environment-specific default configurations
   const devDefaults = {
     MEDIA_ROOT: path.resolve(projectRoot, 'media'),
     CACHE_DIR: path.resolve(projectRoot, 'cache'),
@@ -36,15 +34,12 @@ export function loadConfig(): Config {
 
   const defaults = isDev ? devDefaults : prodDefaults;
 
-  // Merge everything into a raw configuration object
   const rawConfig = {
-    // Properties from config file:
     CORS_ORIGIN: parsedConf.CORS_ORIGIN,
     FFMPEG_VIDEO_CODEC: parsedConf.FFMPEG_VIDEO_CODEC,
     FFMPEG_PRESET: parsedConf.FFMPEG_PRESET,
     HWACCEL_MODE: parsedConf.HWACCEL_MODE,
 
-    // Properties from environment or defaults:
     PORT: process.env.PORT,
     MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,
     CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
@@ -52,7 +47,6 @@ export function loadConfig(): Config {
     FFMPEG_PATH: process.env.FFMPEG_PATH || defaults.FFMPEG_PATH,
   };
 
-  // Validate using Zod schema
   const parsed = ConfigSchema.safeParse(rawConfig);
 
   if (!parsed.success) {

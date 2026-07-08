@@ -45,16 +45,10 @@ export class RoomStore {
         };
     }
 
-    /**
-     * Returns a reference to the current state.
-     */
     public getState(): Readonly<RoomState> {
         return this.state;
     }
 
-    /**
-     * Updates the current media playing in the room.
-     */
     public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number, transcodeOffset = 0): void {
         this.state.mediaId = mediaId;
         this.state.mediaTitle = mediaTitle;
@@ -63,16 +57,10 @@ export class RoomStore {
         this.state.transcodeOffset = transcodeOffset;
     }
 
-    /**
-     * Updates the transcode offset.
-     */
     public updateTranscodeOffset(offset: number): void {
         this.state.transcodeOffset = offset;
     }
 
-    /**
-     * Calculates the true current position of the video based on anchor time and rate.
-     */
     public getCurrentPosition(): number {
         const p = this.state.playback;
         if (p.state === 'playing') {
@@ -82,13 +70,8 @@ export class RoomStore {
         return p.anchorPosition;
     }
 
-    /**
-     * Merges partial updates into the playback state.
-     * Automatically bakes in elapsed time to anchorPosition if state/rate changes while playing.
-     */
+    /** NOTE: Merges playback state updates and recalculates anchorPosition if state/rate changes while playing. */
     public updatePlayback(updates: Partial<RoomPlaybackState>): void {
-        // If playing and we aren't explicitly seeking, lock in the current calculated position
-        // before applying the new state or rate.
         if (this.state.playback.state === 'playing' && updates.anchorPosition === undefined) {
             if (updates.state !== undefined || updates.playbackRate !== undefined) {
                 this.state.playback.anchorPosition = this.getCurrentPosition();
@@ -101,18 +84,10 @@ export class RoomStore {
         };
     }
 
-    /**
-     * Convenience method to just change the playback state (e.g. paused -> playing)
-     * and update the anchor time to now.
-     */
     public setPlaybackState(status: RoomPlaybackState['state']): void {
         this.updatePlayback({ state: status, anchorTime: Date.now() });
     }
 
-    /**
-     * Resets all members to not ready and not buffering.
-     * Called when media changes to force a re-sync.
-     */
     public resetAllMembers(): void {
         for (const member of this.state.members) {
             member.status = 'buffering';
@@ -140,5 +115,4 @@ export class RoomStore {
     }
 }
 
-// Export a singleton instance representing the global room state
 export const roomStore = new RoomStore();

@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import Lobby from '../pages/Lobby';
-import Room from '../pages/Room'; // I will create this next
+import Room from '../pages/Room';
 
 const ProtectedRoute = () => {
   const { token, isLoading } = useAuth();
@@ -30,7 +30,6 @@ export default function AppRouter() {
         <Route path="/room" element={<Room />} />
       </Route>
       
-      {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -4,10 +4,8 @@ import { JWTPayload } from '@roomies/contracts';
 import { Config } from '../config';
 
 /**
- * Extracts the JWT for a WS upgrade request.
- * Prefers the `Sec-WebSocket-Protocol` header (`bearer.<token>`) since query
- * strings are commonly captured in proxy/CDN access logs and browser history.
- * Falls back to `?token=` for simpler clients.
+ * Extracts the JWT from Sec-WebSocket-Protocol header or ?token= query parameter.
+ * NOTE: Prefer header to avoid tokens leaking into access logs.
  */
 const extractToken = (req: FastifyRequest): string | undefined => {
   const protocolHeader = req.headers['sec-websocket-protocol'];

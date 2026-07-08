@@ -13,6 +13,4 @@ export const registerRoomSocketEvents = () => {
   registerSocketEvent('room.leave', async (payload: unknown, ctx: SocketContext) => {
     await RoomService.handleLeave(payload as RoomLeavePayload, ctx);
   });
-
-  // Removed room.ready and room.not_ready
 };

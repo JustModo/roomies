@@ -6,8 +6,7 @@ import { Config } from '../config';
 
 const BCRYPT_ROUNDS = 12;
 
-// A fixed, never-matching hash used to keep login response timing consistent
-// whether or not the username exists, avoiding a user-enumeration side channel.
+// NOTE: Dummy hash for bcrypt comparisons to prevent user-enumeration timing attacks.
 const DUMMY_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO/pF5X3XG5pXHIe9Rq3z1e6nS3s3z3sK';
 
 export const AuthService = {
@@ -21,10 +20,7 @@ export const AuthService = {
 
     let user;
     try {
-      // Atomic guard against concurrent setup requests: ServerConfig.key is
-      // unique, so only one concurrent caller can successfully create the
-      // 'ROOT_INITIALIZED' row. The earlier count() check above is a fast
-      // path only — it is not itself safe under concurrency.
+      // NOTE: Transaction handles race conditions on initial root setup via ServerConfig.key uniqueness.
       user = await prisma.$transaction(async (tx) => {
         await tx.serverConfig.create({ data: { key: 'ROOT_INITIALIZED', value: 'true' } });
         return tx.user.create({
@@ -82,8 +78,7 @@ export const AuthService = {
       where: { username: data.username },
     });
 
-    // Always run bcrypt.compare, even for an unknown username, so response
-    // timing doesn't reveal whether the account exists.
+    // NOTE: Avoid response timing differences for unknown usernames.
     const isValid = await bcrypt.compare(data.password, user?.password ?? DUMMY_HASH);
     if (!user || !isValid) {
       throw new Error('Invalid credentials');

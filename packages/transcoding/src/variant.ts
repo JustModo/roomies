@@ -23,18 +23,7 @@ const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
   slow: 'p6',
 };
 
-/**
- * Manages a single FFmpeg child process that transcodes one resolution variant.
- *
- * Lifecycle:
- *   start() → spawns ffmpeg → emits 'ready' when first segment appears → emits 'exit' when done
- *   stop()  → sends SIGTERM, cleans up
- *
- * Events:
- *   'ready'  — first .ts segment written to disk (client can start fetching)
- *   'error'  — ffmpeg process error (only emitted after the CPU fallback, if any, also fails)
- *   'exit'   — ffmpeg process exited (code, signal)
- */
+/** Manages a single FFmpeg child process that transcodes one resolution variant. */
 export class TranscodeVariant extends EventEmitter {
   public readonly resolution: Resolution;
   public readonly outputDir: string;
@@ -64,17 +53,7 @@ export class TranscodeVariant extends EventEmitter {
     return this._isRunning;
   }
 
-  /** The media time (in seconds) from which this variant started encoding. */
-  get startPosition(): number {
-    return this._startPosition;
-  }
-
-  /**
-   * Spawns the FFmpeg process to transcode the input file into HLS segments.
-   * Non-blocking — returns immediately, segments are written asynchronously.
-   *
-   * @param startPosition The time in seconds to start transcoding from
-   */
+  /** Spawns the FFmpeg process to transcode the input file into HLS segments. */
   start(
     inputPath: string,
     startPosition: number = 0,
@@ -102,17 +81,13 @@ export class TranscodeVariant extends EventEmitter {
     const segmentPattern = path.join(this.outputDir, 'seg_%05d.ts');
     const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`;
 
-    // GOP size = SEGMENT_DURATION × a conservative 24fps baseline. This ensures
-    // every segment boundary lands on a keyframe regardless of the source frame
-    // rate (23.976, 25, 29.97, 30). Using encoder-native -g instead of the
-    // filtergraph `force_key_frames` expression saves measurable CPU — the filter
-    // evaluates on every decoded frame, the encoder flag is essentially free.
+    // WHY: Use encoder-native -g instead of filtergraph force_key_frames to save CPU.
+    // GOP size matches SEGMENT_DURATION assuming a 24fps baseline.
     const gopSize = SEGMENT_DURATION * 24;
 
     let videoArgs: string[];
     if (hw === 'vaapi' || hw === 'qsv') {
-      // Software decode + scale, then upload to the VAAPI device for hardware
-      // encoding. QSV on Linux typically layers on the same VAAPI device path.
+      // NOTE: Software decode and scale, then upload to VAAPI device for hardware encoding.
       videoArgs = [
         '-vf', `${scaleFilter},format=nv12,hwupload`,
         '-vaapi_device', '/dev/dri/renderD128',
@@ -131,8 +106,7 @@ export class TranscodeVariant extends EventEmitter {
         '-vf', scaleFilter,
         '-c:v', VIDEO_CODEC,
         '-preset', this.preset,
-        // zerolatency tune minimises internal encoder lookahead buffering so
-        // the first completed segment appears on disk as fast as possible.
+        // NOTE: Minimize internal buffering for faster first segment write.
         '-tune', 'zerolatency',
         '-g', String(gopSize),
         '-keyint_min', String(gopSize),
@@ -140,44 +114,29 @@ export class TranscodeVariant extends EventEmitter {
     }
 
     return [
-      // Fast seek (before -i) snaps to the nearest keyframe before the target
-      // time. -noaccurate_seek skips the slow subsequent frame-accurate decode
-      // to the exact timestamp — for HLS we only need keyframe alignment.
+      // NOTE: Fast seek to keyframe. HLS only needs keyframe alignment.
       ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString(), '-noaccurate_seek'] : []),
 
-      // Input
       '-i', this.inputPath,
 
-      // Normalise timestamps to 0 when seeking mid-file so segment indices
-      // are contiguous and the playlist is well-formed.
+      // NOTE: Normalize timestamps to 0 so segment indices are contiguous.
       ...(this.startPosition > 0 ? ['-avoid_negative_ts', 'make_zero'] : []),
 
-      // Use all available CPU threads for decoding and encoding
       '-threads', '0',
 
-      // Disable scene-cut adaptive keyframes — conflicts with our fixed GOP
+      // NOTE: Disable scene-cut adaptive keyframes to keep fixed GOP.
       '-sc_threshold', '0',
 
-      // Video encoding
       ...videoArgs,
       '-b:v', preset.videoBitrate,
       '-maxrate', preset.maxRate,
       '-bufsize', preset.bufSize,
 
-      // Audio encoding
       '-c:a', 'aac',
       '-b:a', preset.audioBitrate,
       '-ac', '2',
 
-      // HLS output — VOD mode:
-      //   hls_list_size 0  → keep ALL segments for the session lifetime so the
-      //                       player can buffer far ahead and seek backwards
-      //                       into already-transcoded regions without a restart.
-      //   independent_segments → every segment is independently decodable
-      //                          (required for bitrate-switch seeks in hls.js).
-      //   NO delete_segments   → segments are never deleted by ffmpeg mid-run.
-      //   NO append_list       → the playlist is fully rewritten each time,
-      //                          which is correct for an HLS VOD playlist.
+      // NOTE: HLS VOD mode configuration to keep all segments and ensure they are independent.
       '-f', 'hls',
       '-hls_time', String(SEGMENT_DURATION),
       '-hls_list_size', String(HLS_LIST_SIZE),
@@ -186,7 +145,6 @@ export class TranscodeVariant extends EventEmitter {
       '-hls_segment_filename', segmentPattern,
       '-hls_allow_cache', '1',
 
-      // Output playlist
       playlistPath,
     ];
   }
@@ -202,11 +160,9 @@ export class TranscodeVariant extends EventEmitter {
     this.process = proc;
     this._isRunning = true;
 
-    // Log stderr (ffmpeg progress/errors go to stderr)
     proc.stderr?.on('data', (data: Buffer) => {
       const line = data.toString().trim();
       if (line) {
-        // Only log actual errors, not progress lines
         if (line.toLowerCase().includes('error') || line.toLowerCase().includes('fatal')) {
           console.error(`[transcode:${this.resolution}] ${line}`);
         }
@@ -229,16 +185,10 @@ export class TranscodeVariant extends EventEmitter {
       this.emit('exit', code, signal);
     });
 
-    // Watch for the first .ts segment to appear → emit 'ready'
     this.watchForFirstSegment();
   }
 
-  /**
-   * If a hardware-encoded attempt fails before ever becoming ready, retry
-   * once via the plain CPU path instead of surfacing the error — hardware
-   * detection can still be wrong (permissions, half-supported drivers), and
-   * this must never break playback for it. Only ever retries once.
-   */
+  /** NOTE: Fall back to CPU encoding once if hardware encoding fails before becoming ready. */
   private handleFailure(hw: HardwareEncoder | null, err: Error): void {
     if (hw !== null && !this._isReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
@@ -250,14 +200,11 @@ export class TranscodeVariant extends EventEmitter {
     this.emit('error', err);
   }
 
-  /**
-   * Stops the FFmpeg process gracefully.
-   */
   stop(): void {
     this.stopWatcher();
 
     if (this.process && this._isRunning) {
-      // If the process was suspended, it won't process SIGTERM until resumed
+      // NOTE: SIGCONT is required to process SIGTERM if suspended.
       if (this._isSuspended) {
         this.process.kill('SIGCONT');
       }
@@ -268,13 +215,7 @@ export class TranscodeVariant extends EventEmitter {
     }
   }
 
-  /**
-   * Throttles FFmpeg based on how far ahead of the playhead it's encoded.
-   * Segment file deletion/rotation is handled natively by ffmpeg itself now
-   * (`-hls_list_size` + `hls_flags delete_segments`), so this only needs to
-   * manage the SIGSTOP/SIGCONT throttle to cap CPU/disk use when a viewer is
-   * paused or lagging far behind the live edge.
-   */
+  /** NOTE: Manages SIGSTOP/SIGCONT throttling based on playhead distance to cap CPU/disk usage. */
   manageCache(currentPlayhead: number): void {
     if (!this._isReady) return;
 
@@ -295,14 +236,7 @@ export class TranscodeVariant extends EventEmitter {
         }
       }
 
-      // Throttle FFmpeg based on how far ahead of the playhead it has encoded.
-      //
-      // Suspend threshold 300s: with VOD-mode HLS, running far ahead is free
-      // — those segments are already on disk and any future seek into them
-      // will be instant. Only suspend to protect CPU/disk when very far ahead.
-      //
-      // Resume threshold 60s: bring FFmpeg back online quickly so the player
-      // always has a healthy look-ahead buffer.
+      // NOTE: Suspend FFmpeg if ahead by >300s, resume when <60s to protect CPU/disk.
       if (this.process && this._isRunning) {
         const aheadBy = newestSegmentTime - currentPlayhead;
 
@@ -321,12 +255,9 @@ export class TranscodeVariant extends EventEmitter {
     }
   }
 
-  /**
-   * Watches the output directory for the first .ts segment file.
-   * Once detected, marks the variant as ready and stops watching.
-   */
+  /** Watches the output directory for the first .ts segment file. */
   private watchForFirstSegment(): void {
-    // Check if enough segments already exist (cache hit from a previous start)
+    // NOTE: Check if lookahead segments already exist from a previous run.
     try {
       const files = fs.readdirSync(this.outputDir);
       const tsCount = files.filter(f => f.endsWith('.ts')).length;
@@ -336,12 +267,9 @@ export class TranscodeVariant extends EventEmitter {
         return;
       }
     } catch {
-      // Directory might not have files yet
     }
 
-    // Watch for new .ts files; emit 'ready' once LOOK_AHEAD_SEGMENTS are present.
-    // This gives the player a healthy initial buffer (LOOK_AHEAD_SEGMENTS × SEGMENT_DURATION
-    // seconds) before it starts pulling, preventing the first-segment stall.
+    // NOTE: Emits 'ready' once enough lookahead segments are present to prevent initial stall.
     const checkReady = () => {
       try {
         const files = fs.readdirSync(this.outputDir);
@@ -352,14 +280,13 @@ export class TranscodeVariant extends EventEmitter {
           this.emit('ready');
         }
       } catch {
-        // Keep watching
       }
     };
 
     try {
       this.watcher = fs.watch(this.outputDir, checkReady);
     } catch (err) {
-      // If watching fails, fall back to polling
+      // NOTE: Fall back to polling if directory watching fails.
       const poll = setInterval(checkReady, 500);
       this.once('exit', () => clearInterval(poll));
     }

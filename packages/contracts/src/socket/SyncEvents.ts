@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-// Client -> Server
 export const ClientSyncHeartbeatSchema = z.object({
   event: z.literal('sync.heartbeat'),
   payload: z.object({
@@ -18,7 +17,6 @@ export const ClientSyncStatusSchema = z.object({
   }),
 });
 
-// Server -> Client
 export const ServerSyncCorrectSchema = z.object({
   event: z.literal('sync.correct'),
   payload: z.object({

@@ -15,9 +15,7 @@ export function useWebSocket() {
   const connect = useCallback(() => {
     if (!token) return;
 
-    // Use wss:// or ws:// depending on the current protocol
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Connect to the proxy URL and pass the token as a query param
     const wsUrl = `${protocol}//${window.location.host}/ws?token=${token}`;
     
     const ws = new WebSocket(wsUrl);
@@ -26,7 +24,6 @@ export function useWebSocket() {
       setIsConnected(true);
       setError(null);
       
-      // Automatically join the room once connected
       const joinMsg: IncomingSocketMessage = { event: 'room.join', payload: {} };
       ws.send(JSON.stringify(joinMsg));
     };
@@ -42,7 +39,6 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       setIsConnected(false);
-      // Simple reconnect logic
       setTimeout(connect, 2000);
     };
 
@@ -54,7 +50,7 @@ export function useWebSocket() {
     wsRef.current = ws;
 
     return () => {
-      ws.onclose = null; // Prevent reconnect logic from firing on unmount
+      ws.onclose = null;
       ws.close();
       wsRef.current = null;
     };

@@ -22,11 +22,9 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
 
-  // Handle toasts when closed
   const [toasts, setToasts] = useState<Message[]>([]);
 
   useEffect(() => {
-    // Listen for incoming chat messages
     const removeHandler = addMessageHandler((msg) => {
       if (msg.event === 'chat.message') {
         const newMsg = {
@@ -38,10 +36,8 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
         
         setMessages((prev) => [...prev, newMsg]);
         
-        // Add to toasts if closed
         if (!isOpen) {
           setToasts((prev) => [...prev, newMsg]);
-          // Auto remove toast after 5s
           setTimeout(() => {
             setToasts((prev) => prev.filter(t => t.id !== newMsg.id));
           }, 5000);
@@ -53,7 +49,6 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
   }, [addMessageHandler, isOpen]);
 
   useEffect(() => {
-    // Fetch initial chat history
     fetch(`/api/chat/history`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
@@ -86,12 +81,10 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose, viewe
   };
 
   if (!isOpen) {
-    // Render toasts
     return (
       <div className="fixed bottom-24 right-0 w-[360px] flex flex-col justify-end gap-2 p-4 pointer-events-none z-40">
         {toasts.map(toast => (
           <div key={toast.id} className="bg-void/85 border-t border-ash p-3 pointer-events-auto cursor-pointer" onClick={() => {
-            // Open chat
           }}>
             <div className="flex justify-between items-baseline mb-1">
               <span className="text-12 font-medium uppercase tracking-[0.08em] text-paper">{toast.username}</span>

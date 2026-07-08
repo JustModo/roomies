@@ -4,13 +4,11 @@ import { ScanLibraryRequestSchema } from '@roomies/contracts';
 import { verifyJwt, requireRole } from '../auth/middleware';
 
 export const libraryRoutes = async (app: FastifyInstance) => {
-  // Protect library routes
   app.addHook('preHandler', verifyJwt);
 
   app.get('/', LibraryController.getLibraries);
 
-  // Root-only: scanning walks the host filesystem, so it must not be
-  // reachable by guest accounts.
+  // NOTE: Library scanning is restricted to root accounts.
   app.post('/scan', { preHandler: requireRole('root') }, async (req, reply) => {
     const parsedBody = ScanLibraryRequestSchema.safeParse(req.body);
     if (!parsedBody.success) {

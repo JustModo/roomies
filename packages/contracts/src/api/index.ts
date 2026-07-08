@@ -38,7 +38,6 @@ export const UserProfileSchema = z.object({
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
-// --- Library & Media ---
 export const MediaFileSchema = z.object({
   id: z.string(),
   libraryId: z.string(),
@@ -60,7 +59,6 @@ export type Library = z.infer<typeof LibrarySchema>;
 export const ScanLibraryRequestSchema = z.object({});
 export type ScanLibraryRequest = z.infer<typeof ScanLibraryRequestSchema>;
 
-// --- Playback ---
 export const ChangeMediaRequestSchema = z.object({
   mediaFileId: z.string().uuid(),
 });
@@ -82,7 +80,6 @@ export const ActivePlaybackResponseSchema = z.object({
 });
 export type ActivePlaybackResponse = z.infer<typeof ActivePlaybackResponseSchema>;
 
-// --- Chat ---
 export const ChatMessageResponseSchema = z.object({
   userId: z.string(),
   message: z.string(),

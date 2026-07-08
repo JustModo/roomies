@@ -5,7 +5,6 @@ import { SocketEmitter } from '../websocket/emitter';
 
 type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
 type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>['payload'];
-// Removed ready/not_ready payloads
 
 export class RoomService {
   static async handleJoin(payload: RoomJoinPayload, ctx: SocketContext) {
@@ -33,7 +32,7 @@ export class RoomService {
     const state = roomStore.getState();
     const anyoneBuffering = state.members.some(m => m.status === 'buffering');
 
-    // If the person who left was the only one buffering, unpause the room!
+    // NOTE: Resume playback if the departing member was the only one buffering.
     if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering')) {
       roomStore.updatePlayback({ state: state.playback.intendedState, anchorTime: Date.now() });
       SocketEmitter.broadcastToRoom(ctx.app, {
@@ -47,6 +46,4 @@ export class RoomService {
       payload: { userId: ctx.userId }
     });
   }
-
-  // Removed handleReady and handleNotReady
 }

@@ -19,7 +19,6 @@ export const IconButton: React.FC<IconButtonProps> = ({ icon, active, className 
       `}
       {...props}
     >
-      {/* We expect the icon to inherit currentColor and use strokeWidth={1.5} */}
       {icon}
     </button>
   );

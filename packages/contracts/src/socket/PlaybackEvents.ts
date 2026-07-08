@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-// Client -> Server
 export const ClientPlaybackPlaySchema = z.object({
   event: z.literal('playback.play'),
   payload: z.object({}),
@@ -25,7 +24,6 @@ export const ClientPlaybackSetRateSchema = z.object({
   }),
 });
 
-// Server -> Client
 export const ServerPlaybackStateSchema = z.object({
   event: z.literal('playback.state'),
   payload: z.object({

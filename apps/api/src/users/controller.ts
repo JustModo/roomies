@@ -49,7 +49,6 @@ export const UsersController = {
   async createGuest(req: FastifyRequest, reply: FastifyReply) {
     const userPayload = (req as any).user as JWTPayload;
     
-    // Only root users can create accounts
     if (userPayload.role !== 'root') {
       return reply.status(403).send({ error: 'Forbidden: Only root users can create guest accounts.' });
     }

@@ -4,9 +4,6 @@ import { PlaybackService } from './service';
 import { Resolution } from '@roomies/transcoding';
 
 export const PlaybackController = {
-  /**
-   * POST /api/playback/change-media
-   */
   async changeMedia(req: FastifyRequest<{ Body: ChangeMediaRequest }>, reply: FastifyReply) {
     try {
       const result = await PlaybackService.changeMedia(req.body.mediaFileId, req.server);
@@ -21,17 +18,11 @@ export const PlaybackController = {
     }
   },
 
-  /**
-   * GET /api/playback/active
-   */
   async getActive(req: FastifyRequest, reply: FastifyReply) {
     const active = PlaybackService.getActivePlayback();
     return reply.send(active);
   },
 
-  /**
-   * GET /api/playback/hls/:mediaId/master.m3u8
-   */
   async getMasterPlaylist(req: FastifyRequest, reply: FastifyReply) {
     const playlist = PlaybackService.generateMasterPlaylist();
     return reply
@@ -40,9 +31,6 @@ export const PlaybackController = {
       .send(playlist);
   },
 
-  /**
-   * GET /api/playback/hls/:mediaId/:resolution/stream.m3u8
-   */
   async getVariantStream(req: FastifyRequest, reply: FastifyReply) {
     const { mediaId, resolution } = req.params as { mediaId: string; resolution: Resolution };
     try {

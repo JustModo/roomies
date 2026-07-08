@@ -4,9 +4,7 @@ export interface SocketSession {
   connectedAt: Date;
 }
 
-// Single-node, in-memory replacement for the old Redis OM socketSession
-// schema. Kept for parity with future presence work; nothing currently reads
-// this besides the gateway's own add/remove-on-disconnect.
+// NOTE: In-memory replacement for the old Redis OM socketSession schema. Kept for future presence work.
 const sessionsBySocketId = new Map<string, SocketSession>();
 
 export const socketSessionStore = {

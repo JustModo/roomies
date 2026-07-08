@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-// Client -> Server
 export const ClientRoomJoinSchema = z.object({
   event: z.literal('room.join'),
   payload: z.object({}),
@@ -11,9 +10,6 @@ export const ClientRoomLeaveSchema = z.object({
   payload: z.object({}),
 });
 
-// Removed ready/not_ready in favor of sync.status
-
-// Server -> Client
 export const ServerRoomStateSchema = z.object({
   event: z.literal('room.state'),
   payload: z.object({
@@ -54,5 +50,3 @@ export const ServerUserLeftSchema = z.object({
     userId: z.string(),
   }),
 });
-
-// Removed user.ready_changed in favor of user.status_changed

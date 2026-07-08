@@ -29,7 +29,7 @@ export function useLibrary() {
         method: 'POST', 
         body: { name: 'Main Library', path: '/media' }
       });
-      await fetchLibrary(); // Refresh after scan
+      await fetchLibrary();
     } catch (err: any) {
       setError(err.message || 'Failed to scan library');
     } finally {

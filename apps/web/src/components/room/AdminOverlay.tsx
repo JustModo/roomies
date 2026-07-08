@@ -20,7 +20,6 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) =
   return (
     <div className="fixed inset-0 bg-void z-50 flex flex-col">
 
-      {/* Header */}
       <div className="border-b border-ash flex justify-between items-center p-6">
         <h1 className="text-20 font-medium uppercase tracking-[0.08em] text-paper">
           MANAGE ROOM
@@ -28,7 +27,6 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) =
         <IconButton icon={<X size={24} strokeWidth={1.5} />} onClick={onClose} />
       </div>
 
-      {/* Tabs */}
       <div className="border-b border-ash px-6 flex gap-8">
         {(['MEDIA', 'USERS'] as Tab[]).map((tab) => (
           <button
@@ -47,7 +45,6 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) =
         ))}
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'USERS' && <UsersTab />}
         {activeTab === 'MEDIA' && <MediaTab onClose={onClose} />}
@@ -198,7 +195,6 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
     })
       .then(res => res.json())
       .then(data => {
-        // API currently returns an array of libraries which contain mediaFiles
         if (Array.isArray(data)) {
           const allMedia = data.flatMap((lib: any) => lib.mediaFiles || []);
           setMedia(allMedia);
@@ -243,7 +239,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
       if (!res.ok) {
         throw new Error('Failed to change media');
       }
-      // Close the overlay — the media.changed socket event will update the player
+      // NOTE: Close overlay. The media.changed event will update the player.
       onClose();
     } catch (err) {
       console.error(err);

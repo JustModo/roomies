@@ -18,13 +18,12 @@ export function useRoomSync() {
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
 
-  // We maintain a local "simulated" position for the player
   const [localTime, setLocalTime] = useState(0);
   const [localCorrectionRate, setLocalCorrectionRate] = useState<number | null>(null);
   const localTimeRef = useRef(0);
   const correctionTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Explicit seek triggers sent to the VideoPlayer to prevent continuous alignment loops
+  // NOTE: Explicit seek triggers to prevent seek feedback loops.
   const [syncSeekTrigger, setSyncSeekTrigger] = useState(0);
   const [syncSeekPosition, setSyncSeekPosition] = useState(0);
 
@@ -37,7 +36,6 @@ export function useRoomSync() {
     return pos;
   }, []);
 
-  // Sync state incoming from server
   useEffect(() => {
     const remove = addMessageHandler((msg) => {
       if (msg.event === 'room.state') {
@@ -46,11 +44,9 @@ export function useRoomSync() {
         setLocalTime(initialPos);
         localTimeRef.current = initialPos;
 
-        // Trigger initial seek to align with the room's current position
         setSyncSeekPosition(initialPos);
         setSyncSeekTrigger((prev) => prev + 1);
 
-        // Sync media info from room state
         if (msg.payload.room.mediaId && msg.payload.room.hlsUrl) {
           setMediaInfo((prev) => {
             const isDifferentMedia = prev?.mediaFileId !== msg.payload.room.mediaId;
@@ -75,13 +71,12 @@ export function useRoomSync() {
         setLocalTime(initialPos);
         localTimeRef.current = initialPos;
 
-        // If the state is 'buffering', it means a room seek occurred!
         if (msg.payload.state === 'buffering') {
           setSyncSeekPosition(initialPos);
           setSyncSeekTrigger((prev) => prev + 1);
         }
       } else if (msg.event === 'media.changed') {
-        // Server has changed the media or seek offset — update media info and increment seekKey if offset/media changed
+        // NOTE: Server changed media or seek offset. Rebuild HLS if offset/media changed.
         setMediaInfo((prev) => {
             const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
             const isDifferentOffset = prev?.transcodeOffset !== msg.payload.transcodeOffset;
@@ -124,7 +119,7 @@ export function useRoomSync() {
         
         if (msg.payload.playbackRate !== undefined) {
           if (msg.payload.playbackRate === 1.0) {
-            setLocalCorrectionRate(null); // In sync
+            setLocalCorrectionRate(null);
             if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
           } else {
             console.warn(`[SYNC] Soft rate correction: ${msg.payload.playbackRate}x for ${msg.payload.correctionDurationMs}ms`);
@@ -145,7 +140,6 @@ export function useRoomSync() {
     return () => remove();
   }, [addMessageHandler, getInitialPosition]);
 
-  // Player simulation loop
   useEffect(() => {
     let lastTick = Date.now();
     const interval = setInterval(() => {
@@ -153,7 +147,6 @@ export function useRoomSync() {
       const delta = (now - lastTick) / 1000;
       lastTick = now;
 
-      // Only advance local time if playing. Stop if buffering/waiting.
       if (roomState?.playback.state === 'playing') {
         setLocalTime(prev => {
           const rate = localCorrectionRate ?? roomState.playback.playbackRate;
@@ -166,7 +159,6 @@ export function useRoomSync() {
     return () => clearInterval(interval);
   }, [roomState?.playback.state, roomState?.playback.playbackRate, localCorrectionRate]);
 
-  // Use refs for heartbeat loop to prevent interval resets
   const playbackStateRef = useRef(roomState?.playback.state);
   const playbackRateRef = useRef(roomState?.playback.playbackRate);
   const activeRateRef = useRef(1);
@@ -177,7 +169,6 @@ export function useRoomSync() {
     activeRateRef.current = localCorrectionRate ?? roomState?.playback.playbackRate ?? 1;
   }, [roomState?.playback.state, roomState?.playback.playbackRate, localCorrectionRate]);
 
-  // Heartbeat loop
   useEffect(() => {
     if (!isConnected) return;
     const interval = setInterval(() => {
@@ -193,7 +184,6 @@ export function useRoomSync() {
     return () => clearInterval(interval);
   }, [isConnected, sendMessage]);
 
-  // Actions
   const play = useCallback(() => {
     sendMessage({ event: 'playback.play', payload: {} });
   }, [sendMessage]);

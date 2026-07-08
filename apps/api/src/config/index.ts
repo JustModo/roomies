@@ -7,12 +7,7 @@ export const Config = {
   JWT_REFRESH_SECRET: '',
 };
 
-/**
- * Idempotently loads (or generates and persists) a secret keyed by `key`.
- * Uses an upsert so concurrent API instances starting against a fresh DB
- * race safely: only one write wins, and every instance reads back the same
- * persisted value instead of each generating its own.
- */
+/** Idempotently loads, or generates and persists, a secret keyed by key. */
 const loadOrCreateSecret = async (key: string): Promise<string> => {
   const generated = randomBytes(64).toString('hex');
 

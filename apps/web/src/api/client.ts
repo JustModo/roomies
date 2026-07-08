@@ -21,13 +21,11 @@ export async function fetchApi(endpoint: string, options: ApiOptions = {}) {
   const headers = new Headers(options.headers || {});
   let body = options.body;
   
-  // Set JSON content type if body is an object
   if (body && typeof body === 'object' && !(body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
     body = JSON.stringify(body);
   }
 
-  // Attach auth token
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }

@@ -3,10 +3,8 @@ import { loadConfig } from './loader';
 
 export { NODE_ENV };
 
-// Instantiate and validate the configuration singleton
 export const config = loadConfig();
 
-// Maintain backward compatibility exports
 export const {
   CORS_ORIGIN,
   FFMPEG_PRESET,
@@ -18,9 +16,4 @@ export const {
   FFMPEG_PATH,
 } = config;
 
-// Export VIDEO_CODEC as alias to FFMPEG_VIDEO_CODEC
 export const VIDEO_CODEC = config.FFMPEG_VIDEO_CODEC;
-
-
-
-

@@ -17,7 +17,7 @@ export interface VideoPlayerProps {
   onSeek: (position: number) => void;
   onSetRate: (rate: number) => void;
   onStatusChange: (status: 'ready' | 'buffering') => void;
-  children?: React.ReactNode; // Used for inserting top bar UI over the player
+  children?: React.ReactNode;
 }
 
 const getBufferedAhead = (vid: HTMLVideoElement) => {
@@ -54,12 +54,10 @@ export function VideoPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  // Quality / Codec Selection
   const [levels, setLevels] = useState<Level[]>([]);
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
 
-  // Seek Bar / Scrubbing
   const [bufferedRanges, setBufferedRanges] = useState<{ start: number, end: number }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
@@ -69,7 +67,6 @@ export function VideoPlayer({
   const hlsRef = useRef<Hls | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
 
-  // Stable ref for status callbacks to prevent listener thrash
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
     onStatusChangeRef.current = onStatusChange;
@@ -83,7 +80,7 @@ export function VideoPlayer({
     }
   }, []);
 
-  // Setup HLS — rebuild when media URL or seekKey changes
+  // NOTE: Setup HLS (rebuilds when media URL or seekKey changes).
   useEffect(() => {
     if (!videoRef.current || !mediaInfo?.hlsUrl) return;
 
@@ -152,7 +149,6 @@ export function VideoPlayer({
     }
   }, [mediaInfo?.hlsUrl, seekKey, reportStatus]);
 
-  // Sync playback state from server
   useEffect(() => {
     if (!videoRef.current) return;
     if (roomPlaybackState?.state === 'playing' && !isPlaying && !isDragging) {
@@ -164,7 +160,7 @@ export function VideoPlayer({
     }
   }, [roomPlaybackState?.state, isDragging]);
 
-  // Apply playback rate (favor local temporary correction over global rate)
+  // NOTE: Apply playback rate, favoring local temporary correction over global rate.
   useEffect(() => {
     if (videoRef.current) {
       const targetRate = localCorrectionRate ?? roomPlaybackState?.playbackRate ?? 1;
@@ -174,21 +170,20 @@ export function VideoPlayer({
     }
   }, [roomPlaybackState?.playbackRate, localCorrectionRate]);
 
-  // Sync playback position (only when a seek event is explicitly triggered by the sync engine)
+  // NOTE: Sync playback position (triggered explicitly by the sync engine).
   useEffect(() => {
     if (!videoRef.current || isDragging || syncSeekTrigger === 0) return;
     
     const transOffset = mediaInfo?.transcodeOffset || 0;
     console.log(`[VideoPlayer] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
     
-    // Reset our reported status to buffering since a seek puts the client/room in a buffering state
+    // NOTE: Reset status to buffering because seek triggers client/room buffering.
     lastReportedStatusRef.current = 'buffering';
     
     videoRef.current.currentTime = Math.max(0, syncSeekPosition - transOffset);
     setCurrentTime(syncSeekPosition);
   }, [syncSeekTrigger, syncSeekPosition, isDragging, mediaInfo?.transcodeOffset]);
 
-  // Idle Timer
   useEffect(() => {
     const resetIdleTimer = () => {
       setIdle(false);
@@ -209,7 +204,6 @@ export function VideoPlayer({
     };
   }, []);
 
-  // Status update event listeners (Stable, no dragging dependencies)
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -217,8 +211,7 @@ export function VideoPlayer({
     let bufferingTimeout: ReturnType<typeof setTimeout>;
 
     const handleWaiting = () => {
-      // Debounce the 'waiting' event so minor 100ms internal decoder 
-      // stalls during segment switches don't pause the whole room
+      // NOTE: Debounce waiting event to prevent segment switches from pausing the room.
       clearTimeout(bufferingTimeout);
       bufferingTimeout = setTimeout(() => {
         reportStatus('buffering');
@@ -256,7 +249,6 @@ export function VideoPlayer({
     };
   }, [reportStatus]);
 
-  // Time and Progress Updates
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
