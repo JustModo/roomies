@@ -16,7 +16,7 @@ FROM base AS pruner
 WORKDIR /app
 RUN npm install -g turbo
 COPY . .
-RUN turbo prune api web --docker
+RUN turbo prune @roomies/server @roomies/web --docker
 
 # ---- Installer Stage ----
 FROM base AS installer
@@ -31,7 +31,7 @@ WORKDIR /app
 COPY --from=installer /app/ .
 COPY --from=pruner /app/out/full/ .
 RUN cd apps/api && DATABASE_URL="file:./dummy.db" npx prisma generate
-RUN pnpm turbo run build --filter=api --filter=web
+RUN pnpm turbo run build --filter=@roomies/server --filter=@roomies/web
 
 # ---- Runner Stage ----
 FROM base AS runner

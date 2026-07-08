@@ -1,14 +1,15 @@
 {
-  "name": "watch-party-monorepo",
+  "name": "@roomies",
   "private": true,
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "start": "docker compose up -d --build",
+    "start": "docker compose up --build",
     "dev": "concurrently \"docker compose -f docker-compose.dev.yml up\" \"turbo run dev\"",
     "build": "turbo run build",
     "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
     "clean": "turbo run clean"
   },
   "devDependencies": {

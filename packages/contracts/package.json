@@ -7,7 +7,13 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
   }
 }

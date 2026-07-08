@@ -1,9 +1,10 @@
 {
-  "name": "api",
+  "name": "@roomies/server",
   "private": true,
   "scripts": {
     "dev": "DATABASE_URL=file:../../config/roomies.db prisma generate && DATABASE_URL=file:../../config/roomies.db prisma db push --accept-data-loss && tsx watch src/index.ts",
     "build": "tsup",
+    "typecheck": "tsc --noEmit",
     "start": "tsx src/index.ts"
   },
   "dependencies": {

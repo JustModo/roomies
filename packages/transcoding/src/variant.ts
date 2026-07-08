@@ -53,6 +53,10 @@ export class TranscodeVariant extends EventEmitter {
     return this._isRunning;
   }
 
+  get startPosition(): number {
+    return this._startPosition;
+  }
+
   /** Spawns the FFmpeg process to transcode the input file into HLS segments. */
   start(
     inputPath: string,
