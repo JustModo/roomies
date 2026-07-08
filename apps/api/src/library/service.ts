@@ -83,11 +83,33 @@ export const LibraryService = {
     const name = "Library";
     const safeRootPath = MEDIA_ROOT;
 
-    let library = await prisma.library.findFirst({ where: { path: safeRootPath } });
+    let library = await prisma.library.findFirst();
     if (!library) {
       library = await prisma.library.create({
         data: { name, path: safeRootPath },
       });
+    } else if (library.path !== safeRootPath) {
+      const oldLibraryPath = library.path;
+      console.log(`[library] Environment path change detected. Migrating library path from ${oldLibraryPath} to ${safeRootPath}`);
+      
+      library = await prisma.library.update({
+        where: { id: library.id },
+        data: { path: safeRootPath },
+      });
+
+      const mediaFiles = await prisma.mediaFile.findMany({
+        where: { libraryId: library.id }
+      });
+
+      for (const mf of mediaFiles) {
+        const relativePath = path.relative(oldLibraryPath, mf.path);
+        const newPath = path.resolve(safeRootPath, relativePath);
+        await prisma.mediaFile.update({
+          where: { id: mf.id },
+          data: { path: newPath }
+        });
+      }
+      console.log(`[library] Migrated ${mediaFiles.length} media file paths.`);
     }
 
     // NOTE: Skips symlinks to prevent directory traversal escapes.
