@@ -104,7 +104,11 @@ export class PlaybackService {
     roomStore.updatePlayback({ state: 'playing', intendedState: 'playing', anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
-      payload: roomStore.getState().playback
+      payload: {
+        ...roomStore.getState().playback,
+        username: ctx.username,
+        action: 'play',
+      }
     });
   }
 
@@ -113,7 +117,11 @@ export class PlaybackService {
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
-      payload: roomStore.getState().playback
+      payload: {
+        ...roomStore.getState().playback,
+        username: ctx.username,
+        action: 'pause',
+      }
     });
   }
 
@@ -160,7 +168,11 @@ export class PlaybackService {
 
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
-      payload: roomStore.getState().playback
+      payload: {
+        ...roomStore.getState().playback,
+        username: ctx.username,
+        action: 'seek',
+      }
     });
   }
 
@@ -169,7 +181,11 @@ export class PlaybackService {
     roomStore.updatePlayback({ playbackRate: payload.rate, anchorTime: Date.now() });
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
-      payload: roomStore.getState().playback
+      payload: {
+        ...roomStore.getState().playback,
+        username: ctx.username,
+        action: 'rate',
+      }
     });
   }
 }

@@ -11,6 +11,7 @@ export const ChatController = {
 
     const response: ChatHistoryResponse = messages.map((m) => ({
       userId: m.userId,
+      username: m.username,
       message: m.message,
       timestamp: m.timestamp.toISOString(),
     }));

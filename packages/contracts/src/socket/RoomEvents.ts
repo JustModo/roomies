@@ -48,5 +48,6 @@ export const ServerUserLeftSchema = z.object({
   event: z.literal('user.left'),
   payload: z.object({
     userId: z.string(),
+    username: z.string(),
   }),
 });

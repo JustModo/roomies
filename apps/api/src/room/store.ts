@@ -100,8 +100,10 @@ export class RoomStore {
         }
     }
 
-    public removeMember(userId: string): void {
+    public removeMember(userId: string): boolean {
+        const initialLength = this.state.members.length;
         this.state.members = this.state.members.filter(m => m.userId !== userId);
+        return this.state.members.length < initialLength;
     }
 
     public updateMember(userId: string, updates: Partial<MemberState>): void {

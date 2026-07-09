@@ -1,5 +1,5 @@
 services:
-  app:
+  roomies:
     build:
       context: .
       dockerfile: Dockerfile

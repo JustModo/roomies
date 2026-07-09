@@ -24,10 +24,19 @@ export class RoomService {
       event: 'room.state',
       payload: { room: roomStore.getState() }
     });
+
+    SocketEmitter.broadcastToRoom(ctx.app, {
+      event: 'user.joined',
+      payload: {
+        userId: ctx.userId,
+        username: ctx.username,
+      }
+    });
   }
 
   static async handleLeave(payload: RoomLeavePayload, ctx: SocketContext) {
-    roomStore.removeMember(ctx.userId);
+    const wasRemoved = roomStore.removeMember(ctx.userId);
+    if (!wasRemoved) return;
 
     const state = roomStore.getState();
     const anyoneBuffering = state.members.some(m => m.status === 'buffering');
@@ -43,7 +52,10 @@ export class RoomService {
 
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'user.left',
-      payload: { userId: ctx.userId }
+      payload: {
+        userId: ctx.userId,
+        username: ctx.username,
+      }
     });
   }
 }

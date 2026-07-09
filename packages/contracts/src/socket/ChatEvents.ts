@@ -11,6 +11,7 @@ export const ServerChatMessageSchema = z.object({
   event: z.literal('chat.message'),
   payload: z.object({
     userId: z.string(),
+    username: z.string(),
     message: z.string(),
     timestamp: z.string(),
   }),

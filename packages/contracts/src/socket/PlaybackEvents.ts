@@ -32,6 +32,8 @@ export const ServerPlaybackStateSchema = z.object({
     anchorPosition: z.number(),
     anchorTime: z.number(),
     playbackRate: z.number(),
+    username: z.string().optional(),
+    action: z.enum(['play', 'pause', 'seek', 'rate']).optional(),
   }),
 });
 

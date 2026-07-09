@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize } from 'lucide-react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, MessageSquare } from 'lucide-react';
 import Hls, { Level } from 'hls.js';
 import { IconButton } from '../ui/IconButton';
 import { MediaInfo, RoomState } from '../../hooks/useRoomSync';
@@ -17,6 +17,8 @@ export interface VideoPlayerProps {
   onSeek: (position: number) => void;
   onSetRate: (rate: number) => void;
   onStatusChange: (status: 'ready' | 'buffering') => void;
+  showChat?: boolean;
+  onToggleChat?: () => void;
   children?: React.ReactNode;
 }
 
@@ -46,6 +48,8 @@ export function VideoPlayer({
   onSeek,
   onSetRate,
   onStatusChange,
+  showChat,
+  onToggleChat,
   children
 }: VideoPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -580,6 +584,14 @@ export function VideoPlayer({
                   </div>
                 )}
               </div>
+            )}
+
+            {onToggleChat && (
+              <IconButton
+                icon={<MessageSquare size={18} strokeWidth={1.5} />}
+                onClick={onToggleChat}
+                active={showChat}
+              />
             )}
 
             <IconButton icon={<Maximize size={18} strokeWidth={1.5} />} onClick={() => {

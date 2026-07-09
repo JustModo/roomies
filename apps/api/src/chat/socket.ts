@@ -13,6 +13,7 @@ export const handleClientChat = async (payload: unknown, ctx: SocketContext) => 
   // 1. Persist to the in-memory chat store
   chatStore.append({
     userId: ctx.userId,
+    username: ctx.username,
     message: chatPayload.message,
     timestamp,
   });
@@ -24,6 +25,7 @@ export const handleClientChat = async (payload: unknown, ctx: SocketContext) => 
       event: 'chat.message',
       payload: {
         userId: ctx.userId,
+        username: ctx.username,
         message: chatPayload.message,
         timestamp: timestamp.toISOString(),
       },
