@@ -38,6 +38,9 @@ importers:
       '@roomies/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@roomies/library':
+        specifier: workspace:*
+        version: link:../../packages/library
       '@roomies/transcoding':
         specifier: workspace:*
         version: link:../../packages/transcoding
@@ -53,9 +56,6 @@ importers:
       fastify:
         specifier: ^5.10.0
         version: 5.10.0
-      ffprobe-static:
-        specifier: ^3.1.0
-        version: 3.1.0
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3
@@ -153,6 +153,28 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
+  packages/library:
+    dependencies:
+      '@prisma/client':
+        specifier: ^7.8.0
+        version: 7.8.0(prisma@7.8.0)(typescript@5.9.3)
+      '@roomies/config':
+        specifier: workspace:*
+        version: link:../config
+      '@roomies/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      ffprobe-static:
+        specifier: ^3.1.0
+        version: 3.1.0
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
       typescript:
         specifier: ^5.0.0
         version: 5.9.3

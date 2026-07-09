@@ -1,0 +1,23 @@
+{
+  "name": "@roomies/library",
+  "private": true,
+  "version": "1.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@roomies/config": "workspace:*",
+    "@roomies/contracts": "workspace:*",
+    "@prisma/client": "^7.8.0",
+    "ffprobe-static": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -51,7 +51,8 @@ watch-party/
       shared/ (Enums, Interfaces)
       contracts/ (Zod Schemas, Socket Events)
       config/ (ESLint/Prettier)
-      logger/ (Pino)
+      transcoding/ (FFmpeg job runner, hwaccel detection)
+      library/ (Media folder scanner + sync, Prisma-agnostic)
   infra/
       docker/
       caddy/
@@ -61,7 +62,7 @@ watch-party/
 ```
 
 ## Database Philosophy
-**SQLite Tables**: `User`, `Library`, `MediaFile`, `RefreshToken`, `ServerConfig`.
+**SQLite Tables**: `User`, `Library`, `Title`, `Season`, `MediaFile`, `Subtitle`, `RefreshToken`, `ServerConfig`.
 **In-Memory State** (module-level `Map`s/variables, one per feature): `playbackState` (`apps/api/src/playback/store.ts`), `chat history` (`apps/api/src/chat/store.ts`, capped ring buffer per party), `socket sessions` (`apps/api/src/websocket/store.ts`), `active transcode session` (`apps/api/src/transcoding/manager.ts`, tracks live FFmpeg child processes).
 
 There is no chat table or presence table in SQLite. Those are intentionally ephemeral and live only in memory — none of it is expected to survive an API process restart, matching how this data behaved even when it was Redis-backed.
@@ -99,6 +100,17 @@ Quality profiles (`apps/api/src/transcoding/profiles.ts`) define resolution, bit
 
 If an FFmpeg variant process crashes during a session, the `TranscodeSessionManager` fires an error callback that broadcasts a `server.transcode.error` WebSocket event to all connected clients in the party room.
 
-### 4. Ephemeral Chat
+### 4. Media Library Scanning (`packages/library`)
+The library scanner lives in its own workspace package, `packages/library`, consumed by `apps/api` the same way `@roomies/transcoding` is: it is Prisma-agnostic (only imports `@prisma/client` for types) and every exported function takes a `PrismaClient` instance as a parameter — `apps/api` remains the single source of truth for the Prisma schema and client (`apps/api/src/database/sqlite.ts`).
+
+The on-disk convention is **folder-per-title**, scanned non-recursively one level at a time by `scanLibraryFolder()` (`packages/library/src/scanner.ts`), with file roles decided purely by extension (no filename convention required):
+- A folder with video files directly inside it is a **movie** — the first video file (alphabetically) becomes its single episode, every subtitle file in that folder is attached to it, and the first image file becomes its cover.
+- A folder whose subfolders contain video files is a **show** — each such subfolder is a season, every video file inside becomes its own episode, and every subtitle file in that season folder is attached to all episodes in it (extension-only matching; no per-episode filename-stem disambiguation is implemented).
+
+This maps onto a 5-model Prisma hierarchy: `Library → Title (movie|show) → Season → MediaFile → Subtitle`. A movie is simply a `Title` with one implicit `Season` (`name: ""`). `MediaFile` deliberately kept its original field names (`title`, `path`, `duration`, `id`) from the pre-extraction flat schema, so `apps/api/src/playback/service.ts` (which resolves a stream purely by `MediaFile.id`) needed zero changes across the migration.
+
+`LibraryService.scanLibrary(prisma)` (`packages/library/src/service.ts`) is incremental and idempotent: it diffs each level (titles, seasons, media files, subtitles) against disk by path, prunes rows whose file disappeared, and only re-runs `ffprobe` (duration extraction) for newly-discovered video files. Cover art is not served statically by Caddy (which only exposes `/cache` for HLS) — it goes through an authenticated Fastify route, `GET /api/library/cover/:titleId` (`apps/api/src/library/controller.ts`), which streams the file after verifying it still resolves inside `MEDIA_ROOT`.
+
+### 5. Ephemeral Chat
 SQLite is strictly avoided for high-throughput ephemeral data.
 When a user joins, the Gateway tracks their connection in an in-memory session map (`apps/api/src/websocket/store.ts`). Chat messages (`client.chat`) are validated, appended to a capped in-memory ring buffer per party (`apps/api/src/chat/store.ts`, last 500 messages), and immediately broadcast (`server.chat`) to other room members. `GET /api/chat/history?partyId=` returns that same buffer for clients joining mid-conversation. This ensures the database is never bottlenecked by casual conversation, at the cost of history not surviving an API restart (an accepted tradeoff for this single-node deployment).

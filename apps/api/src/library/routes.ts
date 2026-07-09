@@ -7,6 +7,7 @@ export const libraryRoutes = async (app: FastifyInstance) => {
   app.addHook('preHandler', verifyJwt);
 
   app.get('/', LibraryController.getLibraries);
+  app.get('/cover/:titleId', LibraryController.getCover);
 
   // NOTE: Library scanning is restricted to root accounts.
   app.post('/scan', { preHandler: requireRole('root') }, async (req, reply) => {

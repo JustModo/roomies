@@ -38,21 +38,51 @@ export const UserProfileSchema = z.object({
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
+export const SubtitleSchema = z.object({
+  id: z.string(),
+  mediaFileId: z.string(),
+  path: z.string(),
+  language: z.string().nullable(),
+});
+export type Subtitle = z.infer<typeof SubtitleSchema>;
+
 export const MediaFileSchema = z.object({
   id: z.string(),
-  libraryId: z.string(),
+  seasonId: z.string(),
   title: z.string(),
   path: z.string(),
   duration: z.number(),
+  number: z.number().nullable(),
   createdAt: z.string(),
+  subtitles: z.array(SubtitleSchema),
 });
 export type MediaFile = z.infer<typeof MediaFileSchema>;
+
+export const SeasonSchema = z.object({
+  id: z.string(),
+  titleId: z.string(),
+  name: z.string(),
+  number: z.number().nullable(),
+  mediaFiles: z.array(MediaFileSchema),
+});
+export type Season = z.infer<typeof SeasonSchema>;
+
+export const TitleSchema = z.object({
+  id: z.string(),
+  libraryId: z.string(),
+  type: z.enum(['movie', 'show']),
+  name: z.string(),
+  path: z.string(),
+  coverPath: z.string().nullable(),
+  seasons: z.array(SeasonSchema),
+});
+export type Title = z.infer<typeof TitleSchema>;
 
 export const LibrarySchema = z.object({
   id: z.string(),
   name: z.string(),
   path: z.string(),
-  mediaFiles: z.array(MediaFileSchema),
+  titles: z.array(TitleSchema),
 });
 export type Library = z.infer<typeof LibrarySchema>;
 

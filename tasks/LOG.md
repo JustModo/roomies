@@ -485,3 +485,27 @@ Closed out the two remaining loose ends from the transcoding-optimization work: 
 - Restore root/leader-only permission gating on the WebSocket `playback.*` events since current websocket handlers allow arbitrary guests to command playback.
 
 
+
+---
+
+## [2026-07-08] Library Package Extraction
+**Agent**: Claude
+**Summary of Work Done**:
+- **Extracted library scanning into `packages/library`**: moved the inline `apps/api/src/library/service.ts` scanner into a new workspace package following the exact `packages/transcoding` convention (build-less, `"typecheck": "tsc --noEmit"` only, consumed as raw TS via `workspace:*`). `apps/api` keeps owning the Prisma schema/client — `LibraryService.getLibraries(prisma)`/`scanLibrary(prisma)` take a `PrismaClient` instance as a parameter, and the package only imports `@prisma/client` for types.
+- **Switched to a folder-per-title on-disk convention**: previously the library was a flat list of every video file found under `MEDIA_ROOT` with no subtitles or cover art. Now each immediate subfolder is a "title" — a folder with video files directly inside it is a movie (first video file wins, all subtitles in that folder attach to it, first image file is the cover); a folder whose subfolders contain videos is a show (each subfolder is a season, every video file inside becomes its own episode). File roles are decided by extension only, no filename convention required.
+- **New Prisma schema**: replaced the 2-table `Library`/`MediaFile` model with a 5-table hierarchy — `Library → Title (type: movie|show) → Season → MediaFile → Subtitle`. `MediaFile` deliberately kept its pre-existing field names (`id`, `title`, `path`, `duration`), so `apps/api/src/playback/service.ts` needed zero code changes despite the schema restructure.
+- **New route**: `GET /api/library/cover/:titleId` streams cover art through an authenticated Fastify handler (`apps/api/src/library/controller.ts`) — Caddy only exposes `/cache` (HLS) publicly, not `MEDIA_ROOT`, so cover images can't be served as static files without going through the API.
+- **`packages/contracts`**: added `Subtitle`/`Season`/`Title` Zod schemas; `Library`/`MediaFile` schemas updated to the nested shape.
+- **Admin Overlay MEDIA tab redesigned**: the flat file-list rows were replaced with a responsive grid of square cover-art tiles (`AdminOverlay.tsx`'s new `CoverTile` component, fetching `/api/library/cover/:titleId` as an authenticated blob → object URL). Clicking a movie tile plays it immediately; clicking a show tile drills into a season/episode picker rendered as the same tile grid, one level down, via local component state (no new route).
+- Verified end-to-end with real `ffmpeg`-generated test media (not committed): a movie folder and a `Season 01` show folder were both scanned and classified correctly, rescanning was idempotent (same row IDs, no duplicates), `GET /api/library/cover/:titleId` returned a valid image with correct auth gating, and `POST /api/playback/change-media` correctly resolved the new `MediaFile.id` with zero playback-side changes required.
+
+**Decisions / Considerations**:
+- Multi-episode subtitle disambiguation (e.g. matching `e01.srt` to `e01.mp4` specifically when a season folder has several episodes) was intentionally left out of scope — subtitle matching stays extension-only and folder-scoped (every subtitle in a season folder attaches to every episode in that folder). Documented as a known limitation in `ARCHITECTURE.md` rather than silently adding filename-stem-matching heuristics beyond what was asked for.
+- Subtitle `language` field exists in the schema but is always `null` for now — no filename-based language parsing (e.g. `movie.en.srt`) was implemented, same reasoning as above.
+- This was a breaking schema change; existing `dev.db`/`roomies.db` data is wiped on the next `prisma db push --accept-data-loss` (already the dev script's standing behavior) and repopulated by a rescan.
+
+**What is Left to do Next**:
+- Implement Voice Signaling (WebRTC audio mesh / signaling).
+- Set up auto-HTTPS certs in Caddy.
+- Restore root/leader-only permission gating on the WebSocket `playback.*` events since current websocket handlers allow arbitrary guests to command playback.
+- Consider per-episode subtitle filename-stem matching if multi-episode-per-folder shows with per-episode subtitles turn out to be a real use case.
