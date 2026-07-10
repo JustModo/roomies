@@ -33,13 +33,13 @@ export const LibraryController = {
     }
   },
 
-  async getCover(req: FastifyRequest<{ Params: { titleId: string } }>, reply: FastifyReply) {
-    const title = await prisma.title.findUnique({ where: { id: req.params.titleId } });
-    if (!title || !title.coverPath) {
+  async getCover(req: FastifyRequest<{ Params: { movieId: string } }>, reply: FastifyReply) {
+    const movie = await prisma.movie.findUnique({ where: { id: req.params.movieId } });
+    if (!movie || !movie.coverPath) {
       return reply.status(404).send({ error: 'Cover not found' });
     }
 
-    const resolved = path.resolve(title.coverPath);
+    const resolved = path.resolve(movie.coverPath);
     if (resolved !== MEDIA_ROOT && !resolved.startsWith(MEDIA_ROOT + path.sep)) {
       return reply.status(404).send({ error: 'Cover not found' });
     }

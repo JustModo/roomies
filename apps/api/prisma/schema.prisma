@@ -24,10 +24,10 @@ model Library {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  titles Title[]
+  movies Movie[]
 }
 
-model Title {
+model Movie {
   id        String   @id @default(uuid())
   libraryId String
   library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
@@ -38,26 +38,13 @@ model Title {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  seasons Season[]
-}
-
-model Season {
-  id        String   @id @default(uuid())
-  titleId   String
-  title     Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
-  name      String   // "" for a movie's single implicit season
-  number    Int?
-  path      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
   mediaFiles MediaFile[]
 }
 
 model MediaFile {
   id        String   @id @default(uuid())
-  seasonId  String
-  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  movieId   String
+  movie     Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
   title     String
   path      String
   duration  Int      @default(0) // Duration in seconds

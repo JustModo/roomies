@@ -1,11 +1,11 @@
 import path from 'path';
 import type { PrismaClient } from '@prisma/client';
 import { MEDIA_ROOT as CONFIG_MEDIA_ROOT } from '@roomies/config';
-import { Library, Season, MediaFile as MediaFileContract, Subtitle, Title } from '@roomies/contracts';
+import { Library, MediaFile as MediaFileContract, Subtitle, Movie } from '@roomies/contracts';
 import { scanLibraryFolder } from './scanner';
 import { getMediaDuration } from './ffprobe';
 import { runWithConcurrency } from './concurrency';
-import { ScannedEpisode, ScannedTitle } from './types';
+import { ScannedEpisode, ScannedMovie } from './types';
 
 const MEDIA_ROOT = CONFIG_MEDIA_ROOT;
 
@@ -17,11 +17,11 @@ const serializeSubtitle = (s: { id: string; mediaFileId: string; path: string; l
 });
 
 const serializeMediaFile = (mf: {
-  id: string; seasonId: string; title: string; path: string; duration: number; number: number | null;
+  id: string; movieId: string; title: string; path: string; duration: number; number: number | null;
   createdAt: Date; subtitles: { id: string; mediaFileId: string; path: string; language: string | null }[];
 }): MediaFileContract => ({
   id: mf.id,
-  seasonId: mf.seasonId,
+  movieId: mf.movieId,
   title: mf.title,
   path: mf.path,
   duration: mf.duration,
@@ -30,47 +30,36 @@ const serializeMediaFile = (mf: {
   subtitles: mf.subtitles.map(serializeSubtitle),
 });
 
-const serializeSeason = (season: {
-  id: string; titleId: string; name: string; number: number | null;
-  mediaFiles: Parameters<typeof serializeMediaFile>[0][];
-}): Season => ({
-  id: season.id,
-  titleId: season.titleId,
-  name: season.name,
-  number: season.number,
-  mediaFiles: season.mediaFiles.map(serializeMediaFile),
-});
-
-const serializeTitle = (title: {
+const serializeMovie = (movie: {
   id: string; libraryId: string; type: string; name: string; path: string; coverPath: string | null;
-  seasons: Parameters<typeof serializeSeason>[0][];
-}): Title => ({
-  id: title.id,
-  libraryId: title.libraryId,
-  type: title.type as 'movie' | 'show',
-  name: title.name,
-  path: title.path,
-  coverPath: title.coverPath,
-  seasons: title.seasons.map(serializeSeason),
+  mediaFiles: Parameters<typeof serializeMediaFile>[0][];
+}): Movie => ({
+  id: movie.id,
+  libraryId: movie.libraryId,
+  type: movie.type as 'movie' | 'show',
+  name: movie.name,
+  path: movie.path,
+  coverPath: movie.coverPath,
+  mediaFiles: movie.mediaFiles.map(serializeMediaFile),
 });
 
 const libraryInclude = {
-  titles: { include: { seasons: { include: { mediaFiles: { include: { subtitles: true } } } } } },
+  movies: { include: { mediaFiles: { include: { subtitles: true } } } },
 } as const;
 
 const serializeLibrary = (lib: {
   id: string; name: string; path: string;
-  titles: Parameters<typeof serializeTitle>[0][];
+  movies: Parameters<typeof serializeMovie>[0][];
 }): Library => ({
   id: lib.id,
   name: lib.name,
   path: lib.path,
-  titles: lib.titles.map(serializeTitle),
+  movies: lib.movies.map(serializeMovie),
 });
 
-/** Syncs one folder's episode + subtitle rows against an existing (or new) Season row. */
-const syncEpisodes = async (prisma: PrismaClient, seasonId: string, episodes: ScannedEpisode[]) => {
-  const existing = await prisma.mediaFile.findMany({ where: { seasonId } });
+/** Syncs one movie's media-file + subtitle rows against disk. */
+const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: ScannedEpisode[]) => {
+  const existing = await prisma.mediaFile.findMany({ where: { movieId } });
   const diskPaths = new Set(episodes.map((e) => e.path));
 
   const staleIds = existing.filter((mf) => !diskPaths.has(mf.path)).map((mf) => mf.id);
@@ -85,7 +74,7 @@ const syncEpisodes = async (prisma: PrismaClient, seasonId: string, episodes: Sc
         const duration = await getMediaDuration(episode.path);
         mediaFile = await prisma.mediaFile.create({
           data: {
-            seasonId,
+            movieId,
             title: path.basename(episode.path, path.extname(episode.path)),
             path: episode.path,
             duration,
@@ -96,81 +85,57 @@ const syncEpisodes = async (prisma: PrismaClient, seasonId: string, episodes: Sc
         console.error(`[library] Failed to process media file ${episode.path}:`, err);
         return;
       }
+    } else if (mediaFile.number !== episode.number) {
+      mediaFile = await prisma.mediaFile.update({
+        where: { id: mediaFile.id },
+        data: { number: episode.number },
+      });
     }
 
-    const existingSubs = await prisma.subtitle.findMany({ where: { mediaFileId: mediaFile.id } });
-    const diskSubPaths = new Set(episode.subtitlePaths);
-    const staleSubIds = existingSubs.filter((s) => !diskSubPaths.has(s.path)).map((s) => s.id);
-    if (staleSubIds.length > 0) {
-      await prisma.subtitle.deleteMany({ where: { id: { in: staleSubIds } } });
+    const existingSub = await prisma.subtitle.findFirst({ where: { mediaFileId: mediaFile.id } });
+    if (existingSub && existingSub.path !== episode.subtitlePath) {
+      await prisma.subtitle.delete({ where: { id: existingSub.id } });
     }
-    const newSubPaths = episode.subtitlePaths.filter((p) => !existingSubs.some((s) => s.path === p));
-    for (const subPath of newSubPaths) {
-      await prisma.subtitle.create({ data: { mediaFileId: mediaFile.id, path: subPath, language: null } });
+    if (episode.subtitlePath && (!existingSub || existingSub.path !== episode.subtitlePath)) {
+      await prisma.subtitle.create({ data: { mediaFileId: mediaFile.id, path: episode.subtitlePath, language: null } });
     }
   });
 };
 
-/** Syncs one title's season rows (and their episodes) against disk. */
-const syncSeasons = async (prisma: PrismaClient, titleId: string, scannedTitle: ScannedTitle) => {
-  const existing = await prisma.season.findMany({ where: { titleId } });
-  const diskPaths = new Set(scannedTitle.seasons.map((s) => s.path));
+/** Syncs a library's movie rows (and their episodes) against disk. */
+const syncMovies = async (prisma: PrismaClient, libraryId: string, scannedMovies: ScannedMovie[]) => {
+  const existing = await prisma.movie.findMany({ where: { libraryId } });
+  const diskPaths = new Set(scannedMovies.map((m) => m.path));
 
-  const staleIds = existing.filter((s) => !diskPaths.has(s.path)).map((s) => s.id);
+  const staleIds = existing.filter((m) => !diskPaths.has(m.path)).map((m) => m.id);
   if (staleIds.length > 0) {
-    await prisma.season.deleteMany({ where: { id: { in: staleIds } } });
+    await prisma.movie.deleteMany({ where: { id: { in: staleIds } } });
+    console.log(`[library] Pruned ${staleIds.length} missing movies from database.`);
   }
 
-  for (const scannedSeason of scannedTitle.seasons) {
-    let season = existing.find((s) => s.path === scannedSeason.path);
-    if (!season) {
-      season = await prisma.season.create({
-        data: { titleId, name: scannedSeason.name, number: scannedSeason.number, path: scannedSeason.path },
-      });
-    } else if (season.name !== scannedSeason.name || season.number !== scannedSeason.number) {
-      season = await prisma.season.update({
-        where: { id: season.id },
-        data: { name: scannedSeason.name, number: scannedSeason.number },
-      });
-    }
-    await syncEpisodes(prisma, season.id, scannedSeason.episodes);
-  }
-};
-
-/** Syncs a library's title rows (and their seasons/episodes) against disk. */
-const syncTitles = async (prisma: PrismaClient, libraryId: string, scannedTitles: ScannedTitle[]) => {
-  const existing = await prisma.title.findMany({ where: { libraryId } });
-  const diskPaths = new Set(scannedTitles.map((t) => t.path));
-
-  const staleIds = existing.filter((t) => !diskPaths.has(t.path)).map((t) => t.id);
-  if (staleIds.length > 0) {
-    await prisma.title.deleteMany({ where: { id: { in: staleIds } } });
-    console.log(`[library] Pruned ${staleIds.length} missing titles from database.`);
-  }
-
-  for (const scannedTitle of scannedTitles) {
-    let title = existing.find((t) => t.path === scannedTitle.path);
-    if (!title) {
-      title = await prisma.title.create({
+  for (const scannedMovie of scannedMovies) {
+    let movie = existing.find((m) => m.path === scannedMovie.path);
+    if (!movie) {
+      movie = await prisma.movie.create({
         data: {
           libraryId,
-          type: scannedTitle.type,
-          name: scannedTitle.name,
-          path: scannedTitle.path,
-          coverPath: scannedTitle.coverPath,
+          type: scannedMovie.type,
+          name: scannedMovie.name,
+          path: scannedMovie.path,
+          coverPath: scannedMovie.coverPath,
         },
       });
     } else if (
-      title.type !== scannedTitle.type ||
-      title.name !== scannedTitle.name ||
-      title.coverPath !== scannedTitle.coverPath
+      movie.type !== scannedMovie.type ||
+      movie.name !== scannedMovie.name ||
+      movie.coverPath !== scannedMovie.coverPath
     ) {
-      title = await prisma.title.update({
-        where: { id: title.id },
-        data: { type: scannedTitle.type, name: scannedTitle.name, coverPath: scannedTitle.coverPath },
+      movie = await prisma.movie.update({
+        where: { id: movie.id },
+        data: { type: scannedMovie.type, name: scannedMovie.name, coverPath: scannedMovie.coverPath },
       });
     }
-    await syncSeasons(prisma, title.id, scannedTitle);
+    await syncEpisodes(prisma, movie.id, scannedMovie.episodes);
   }
 };
 
@@ -194,36 +159,31 @@ export const LibraryService = {
 
       const rewrite = (p: string) => path.resolve(safeRootPath, path.relative(oldLibraryPath, p));
 
-      const titles = await prisma.title.findMany({ where: { libraryId: library.id } });
-      for (const t of titles) {
-        await prisma.title.update({
-          where: { id: t.id },
-          data: { path: rewrite(t.path), coverPath: t.coverPath ? rewrite(t.coverPath) : null },
+      const movies = await prisma.movie.findMany({ where: { libraryId: library.id } });
+      for (const m of movies) {
+        await prisma.movie.update({
+          where: { id: m.id },
+          data: { path: rewrite(m.path), coverPath: m.coverPath ? rewrite(m.coverPath) : null },
         });
       }
 
-      const seasons = await prisma.season.findMany({ where: { title: { libraryId: library.id } } });
-      for (const s of seasons) {
-        await prisma.season.update({ where: { id: s.id }, data: { path: rewrite(s.path) } });
-      }
-
-      const mediaFiles = await prisma.mediaFile.findMany({ where: { season: { title: { libraryId: library.id } } } });
+      const mediaFiles = await prisma.mediaFile.findMany({ where: { movie: { libraryId: library.id } } });
       for (const mf of mediaFiles) {
         await prisma.mediaFile.update({ where: { id: mf.id }, data: { path: rewrite(mf.path) } });
       }
 
       const subtitles = await prisma.subtitle.findMany({
-        where: { mediaFile: { season: { title: { libraryId: library.id } } } },
+        where: { mediaFile: { movie: { libraryId: library.id } } },
       });
       for (const s of subtitles) {
         await prisma.subtitle.update({ where: { id: s.id }, data: { path: rewrite(s.path) } });
       }
 
-      console.log(`[library] Migrated ${titles.length} titles, ${seasons.length} seasons, ${mediaFiles.length} media files.`);
+      console.log(`[library] Migrated ${movies.length} movies, ${mediaFiles.length} media files.`);
     }
 
-    const scannedTitles = await scanLibraryFolder(safeRootPath);
-    await syncTitles(prisma, library.id, scannedTitles);
+    const scannedMovies = await scanLibraryFolder(safeRootPath);
+    await syncMovies(prisma, library.id, scannedMovies);
 
     const updatedLibrary = await prisma.library.findUniqueOrThrow({
       where: { id: library.id },

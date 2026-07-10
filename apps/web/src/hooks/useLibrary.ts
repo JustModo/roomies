@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchApi } from '../api/client';
-import { Title } from '@roomies/contracts';
+import { Movie } from '@roomies/contracts';
 
 export function useLibrary() {
-  const [library, setLibrary] = useState<Title[]>([]);
+  const [library, setLibrary] = useState<Movie[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -13,8 +13,8 @@ export function useLibrary() {
       setIsLoading(true);
       setError(null);
       const data = await fetchApi('/library/');
-      const allTitles = data.flatMap((lib: any) => lib.titles);
-      setLibrary(allTitles);
+      const allMovies = data.flatMap((lib: any) => lib.movies);
+      setLibrary(allMovies);
     } catch (err: any) {
       setError(err.message || 'Failed to load library');
     } finally {
