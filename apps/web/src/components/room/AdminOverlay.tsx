@@ -4,7 +4,7 @@ import { X, Film, ChevronLeft, Play } from 'lucide-react';
 import { IconButton } from '../ui/IconButton';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
-import { Title, Season, MediaFile } from '@roomies/contracts';
+import { Movie, MediaFile } from '@roomies/contracts';
 
 interface AdminOverlayProps {
   isOpen: boolean;
@@ -185,14 +185,14 @@ const UsersTab = () => {
   );
 };
 
-const CoverTile = ({ titleId, name, onClick }: { titleId: string; name: string; onClick: () => void }) => {
+const CoverTile = ({ movieId, name, onClick }: { movieId: string; name: string; onClick: () => void }) => {
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    fetch(`/api/library/cover/${titleId}`, {
+    fetch(`/api/library/cover/${movieId}`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
       .then(res => {
@@ -210,7 +210,7 @@ const CoverTile = ({ titleId, name, onClick }: { titleId: string; name: string; 
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [titleId]);
+  }, [movieId]);
 
   return (
     <button
@@ -236,9 +236,9 @@ const CoverTile = ({ titleId, name, onClick }: { titleId: string; name: string; 
 };
 
 const MediaTab = ({ onClose }: { onClose: () => void }) => {
-  const [titles, setTitles] = useState<Title[]>([]);
+  const [movies, setMovies] = useState<Movie[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const [selectedTitle, setSelectedTitle] = useState<Title | null>(null);
+  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
 
   const fetchLibrary = () => {
     fetch('/api/library', {
@@ -247,8 +247,8 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          const allTitles: Title[] = data.flatMap((lib: any) => lib.titles || []);
-          setTitles(allTitles);
+          const allMovies: Movie[] = data.flatMap((lib: any) => lib.movies || []);
+          setMovies(allMovies);
         }
       })
       .catch(err => console.error('[library] Failed to fetch library:', err));
@@ -297,35 +297,26 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
-  const handleTitleClick = (title: Title) => {
-    if (title.type === 'movie') {
-      const mediaFileId = title.seasons[0]?.mediaFiles[0]?.id;
+  const handleMovieClick = (movie: Movie) => {
+    if (movie.type === 'movie') {
+      const mediaFileId = movie.mediaFiles[0]?.id;
       if (mediaFileId) handleStart(mediaFileId);
       return;
     }
-    setSelectedTitle(title);
+    setSelectedMovie(movie);
   };
 
-  if (selectedTitle) {
+  if (selectedMovie) {
     return (
       <div className="w-full">
         <div className="flex items-center gap-3 mb-8">
-          <IconButton icon={<ChevronLeft size={20} strokeWidth={1.5} />} onClick={() => setSelectedTitle(null)} />
-          <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">{selectedTitle.name}</h2>
+          <IconButton icon={<ChevronLeft size={20} strokeWidth={1.5} />} onClick={() => setSelectedMovie(null)} />
+          <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">{selectedMovie.name}</h2>
         </div>
 
-        <div className="flex flex-col gap-8">
-          {selectedTitle.seasons.map((season: Season) => (
-            <div key={season.id}>
-              <h3 className="text-12 font-medium uppercase tracking-[0.08em] text-fog mb-4">
-                {season.name || selectedTitle.name}
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                {season.mediaFiles.map((mf: MediaFile) => (
-                  <CoverTile key={mf.id} titleId={selectedTitle.id} name={mf.title} onClick={() => handleStart(mf.id)} />
-                ))}
-              </div>
-            </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          {selectedMovie.mediaFiles.map((mf: MediaFile) => (
+            <CoverTile key={mf.id} movieId={selectedMovie.id} name={mf.title} onClick={() => handleStart(mf.id)} />
           ))}
         </div>
       </div>
@@ -341,13 +332,13 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
         </Button>
       </div>
 
-      {titles.length === 0 && !isScanning && (
+      {movies.length === 0 && !isScanning && (
         <p className="text-14 text-fog">No media found. Try scanning the library.</p>
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {titles.map(t => (
-          <CoverTile key={t.id} titleId={t.id} name={t.name} onClick={() => handleTitleClick(t)} />
+        {movies.map(m => (
+          <CoverTile key={m.id} movieId={m.id} name={m.name} onClick={() => handleMovieClick(m)} />
         ))}
       </div>
     </div>
