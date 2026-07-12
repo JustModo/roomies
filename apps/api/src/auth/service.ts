@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../database/sqlite';
 import { SetupRootRequest, CreateGuestRequest, LoginRequest } from '@roomies/contracts';
