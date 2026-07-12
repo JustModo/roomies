@@ -29,12 +29,14 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Expose `GET /api/library` (nested titles/seasons/episodes/subtitles) and `POST /api/library/scan`.
   - [x] Serve cover art via authenticated `GET /api/library/cover/:titleId` (Caddy only serves `/cache`, not `MEDIA_ROOT`).
   - [x] Admin Overlay MEDIA tab renders a grid of square cover-art tiles instead of a flat file list; movies play directly, shows drill into a season/episode picker.
+  - [x] Implement logical filename episode parsing (TV formats, anime, digits) and context-aware outlier detection (duplicates, gap > 10) in `packages/library/src/parser.ts` and `scanner.ts`.
+  - [x] Preserved natural sorting based on physical file paths in `AdminOverlay.tsx`.
 - [x] **Playback Orchestration** `[DEPENDS_ON: Library Feature]` (See `[LOG:L54]`)
   - [x] Implement HTTP route to start a party/session (`POST /api/playback/start`).
   - [x] Implement Single Active Party endpoint (`GET /api/playback/party/active`).
   - [x] Seed in-memory `playbackState` with initial movie, leader, and position 0.
   - [x] `client.join` event registers socket into in-memory party room.
-  - [x] `client.play`/`client.pause`/`client.seek` update in-memory state and broadcast `server.*` to all room members (leader-only, per the security audit).
+  - [x] `client.play`/`client.pause`/`client.seek` update in-memory state and broadcast `server.*` to all room members.
   - [x] `client.heartbeat` drives the Sync Engine (see below).
 - [x] **Sync Engine** `[DEPENDS_ON: Playback Orchestration]` (See `[LOG:L220]`)
   - [x] Implement drift computation (compare `client.heartbeat` position against server expected position).
@@ -76,7 +78,7 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
 - [ ] **Social UI (THE ROOM Spec)**
   - [x] Chat sidebar UI and toast notifications.
   - [x] Render `GET /api/chat/history` and real-time incoming `server.chat` messages.
-  - [ ] Implement enhanced chat sidebar design (e.g., transparent/opacity-based chat bubbles for a seamless viewing experience).
+  - [x] Implement enhanced chat sidebar design (e.g., transparent/opacity-based chat bubbles for a seamless viewing experience).
   - [ ] Voice channel toggle (WebRTC audio-only mesh or SFU signaling).
 - [ ] **Player & UX Enhancements**
   - [ ] Implement player error boundaries and fallback handling.
@@ -100,7 +102,7 @@ This checklist tracks the remaining work for the Watch Party architecture. Keep 
   - [x] Set `origin` in CORS to an explicit allow-list (`CORS_ORIGIN` env var), drop `credentials: true` (JWT travels via `Authorization` header, not cookies).
   - [x] Require `verifyJwt` on the transcoding status endpoint (was fully unauthenticated).
   - [x] Constrain library scans to `MEDIA_ROOT`, reject path traversal / absolute-path escapes, skip symlinks during the walk.
-  - [x] Add `requireRole('root')` to library scan and playback start; enforce party-leader check on socket `client.play`/`pause`/`seek`.
+  - [x] Add `requireRole('root')` to library scan and playback start.
   - [x] Close root-account bootstrap race condition (atomic guard via `ServerConfig` unique key inside a transaction).
   - [x] Require a Redis password (`REDIS_PASSWORD`) — previously unauthenticated on the shared Docker network.
   - [x] Pin `jwt.verify` to `algorithms: ['HS256']` explicitly (was relying on library defaults).

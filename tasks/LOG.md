@@ -509,3 +509,26 @@ Closed out the two remaining loose ends from the transcoding-optimization work: 
 - Set up auto-HTTPS certs in Caddy.
 - Restore root/leader-only permission gating on the WebSocket `playback.*` events since current websocket handlers allow arbitrary guests to command playback.
 - Consider per-episode subtitle filename-stem matching if multi-episode-per-folder shows with per-episode subtitles turn out to be a real use case.
+
+---
+
+## [2026-07-13] Chat Decoupling, Playback Stop, Logical Naming & Player Polish
+**Agent**: Antigravity
+**Summary of Work Done**:
+- **Chat Component Refactoring & Organizing**: Extracted chat history storage logic into `packages/chat` workspace package to decouple Fastify WS handlers from business state. Improved chat interface styling, margins, transparent overlay background opacity modifiers, and bubble structures.
+- **Playback Control & Stop Handler**: Implemented a `POST /api/playback/stop` endpoint. Integrated a "Stop Playing" button in the room manager overlay and added a quick status banner in the overlay displaying currently active media status.
+- **Logical Filename Renaming Parser**: Created `packages/library/src/parser.ts` to parse episode numbers out of standard TV formats (`S01E01`, `1x01`), absolute anime numbering (`1098.mkv`), and standalone digits (`Episode 01`).
+- **Context-Aware Outlier Detection**: Engineered duplicate episode number rejection and contiguous grouping analysis (nearest-neighbor distance <= 10) in `scanner.ts`. Outliers and duplicates fall back to using their raw filenames.
+- **Deep Directory Scanner**: Updated `scanner.ts` to recursively scan nested season folders (e.g. `Season 01/`).
+- **Physical Position Sorting**: Swapped frontend episode sorting from title-based to path-based natural sorting via `localeCompare(..., { numeric: true })`. Unparsed specials or files are now placed exactly in the slot they would occupy if sorted unnamed.
+- **HLS Player Cache & State Wiping**: Added a state-clearing effect in `VideoPlayer.tsx` to clear out buffer metrics, HLS instances, progress timelines, and native `<video>` buffers whenever media stops. The video canvas now cuts to black and displays `THE PARTY WILL START SOON` immediately.
+- **Playback UI z-index fix**: Elevated video player controls and top overlays to `z-50` so that they remain fully clickable on top of the chat panel.
+
+**Decisions / Considerations**:
+- Keeping sorting based on the physical file path ensures directory names (like `Season 01`) and logical numbers align naturally in the UI, even when custom video files fail to parse.
+- Wiping HLS state completely on stop prevents the canvas from rendering frozen frames of the previous video.
+
+**What is Left to do Next**:
+- Implement Voice Signaling (WebRTC audio mesh / signaling).
+- Set up auto-HTTPS certs in Caddy.
+- Restore root/leader-only permission gating on the WebSocket `playback.*` events.
