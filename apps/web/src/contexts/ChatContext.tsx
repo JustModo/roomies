@@ -72,7 +72,7 @@ export function ChatProvider({
 
   const appendMessage = useCallback((msg: Message) => {
     setMessages((prev) => {
-      const next = [...prev, msg];
+      const next = [...prev, msg].slice(-150);
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       return next;
     });
