@@ -1,5 +1,6 @@
 export interface ScannedEpisode {
   path: string;
+  title: string;
   number: number | null;
   subtitlePath: string | null;
 }

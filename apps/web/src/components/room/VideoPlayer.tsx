@@ -514,12 +514,12 @@ export function VideoPlayer({
       </div>
 
       {/* Top Bar Container passed as children */}
-      <div className={`absolute top-0 left-0 w-full z-30 transition-opacity duration-200 ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className={`absolute top-0 left-0 w-full z-50 transition-opacity duration-200 ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         {children}
       </div>
 
       {/* Bottom Controls */}
-      <div className={`absolute bottom-0 left-0 w-full z-30 transition-opacity duration-200 bg-linear-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-linear-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
 
         {/* Seek Bar */}
         <div className={`w-full py-2 px-2 relative ${isLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer group'}`} onPointerDown={isLocked ? undefined : handlePointerDown}>

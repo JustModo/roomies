@@ -75,7 +75,7 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
         mediaFile = await prisma.mediaFile.create({
           data: {
             movieId,
-            title: path.basename(episode.path, path.extname(episode.path)),
+            title: episode.title,
             path: episode.path,
             duration,
             number: episode.number,
@@ -85,10 +85,10 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
         console.error(`[library] Failed to process media file ${episode.path}:`, err);
         return;
       }
-    } else if (mediaFile.number !== episode.number) {
+    } else if (mediaFile.number !== episode.number || mediaFile.title !== episode.title) {
       mediaFile = await prisma.mediaFile.update({
         where: { id: mediaFile.id },
-        data: { number: episode.number },
+        data: { number: episode.number, title: episode.title },
       });
     }
 

@@ -359,7 +359,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
 
   if (selectedMovie) {
     const sortedEpisodes = [...selectedMovie.mediaFiles].sort((a, b) =>
-      a.title.localeCompare(b.title)
+      a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
     );
 
     return (
