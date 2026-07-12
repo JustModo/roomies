@@ -9,14 +9,28 @@ import { Movie, MediaFile } from '@roomies/contracts';
 interface AdminOverlayProps {
   isOpen: boolean;
   onClose: () => void;
+  mediaTitle?: string | null;
 }
 
 type Tab = 'USERS' | 'MEDIA';
 
-export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) => {
+export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, mediaTitle }) => {
   const [activeTab, setActiveTab] = useState<Tab>('MEDIA');
 
   if (!isOpen) return null;
+
+  const handleStop = async () => {
+    try {
+      await fetch('/api/playback/stop', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+    } catch (err) {
+      console.error('Failed to stop media', err);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-void z-50 flex flex-col">
@@ -28,13 +42,45 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose }) =
         <IconButton icon={<X size={24} strokeWidth={1.5} />} onClick={onClose} />
       </div>
 
-      <div className="border-b border-ash px-6 flex gap-8">
+      {mediaTitle ? (
+        <div className="bg-ash/5 px-6 py-4 flex items-center justify-between border-b border-ash/50">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 flex items-center justify-center text-blue-400">
+              <Play size={18} fill="currentColor" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-11 text-blue-400/80 font-semibold tracking-[0.15em] uppercase mb-1">Now Playing</span>
+              <span className="text-15 text-paper font-medium truncate max-w-md">{mediaTitle}</span>
+            </div>
+          </div>
+          <button
+            onClick={handleStop}
+            className="font-semibold text-sm uppercase tracking-widest text-fog hover:text-red-400 transition-colors px-4 py-2"
+          >
+            Stop
+          </button>
+        </div>
+      ) : (
+        <div className="bg-ash/5 px-6 py-4 flex items-center justify-between border-b border-ash/50 opacity-60">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-ash/10 flex items-center justify-center text-fog">
+              <Film size={18} />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-11 text-fog font-semibold tracking-[0.15em] uppercase mb-1">Status</span>
+              <span className="text-14 text-fog font-medium">No media selected</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="border-b border-ash flex w-full">
         {(['MEDIA', 'USERS'] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`
-              py-4 text-14 uppercase tracking-[0.08em] transition-colors duration-150 relative
+              flex-1 py-4 text-14 uppercase tracking-[0.1em] transition-colors duration-150 relative text-center
               ${activeTab === tab ? 'text-paper font-medium' : 'text-fog hover:text-paper'}
             `}
           >
@@ -125,60 +171,65 @@ const UsersTab = () => {
     }
   };
 
-  return (
-    <div className="max-w-3xl">
-      <div className="grid grid-cols-[2fr_1fr_1fr_auto] gap-4 mb-4 text-12 font-medium uppercase tracking-[0.08em] text-fog">
-        <div>USERNAME</div>
-        <div>ROLE</div>
-        <div>JOINED</div>
-        <div className="w-8"></div>
-      </div>
+  if (isCreating) {
+    return (
+      <div className="w-full">
+        <div className="flex items-center gap-3 mb-8 w-full">
+          <IconButton icon={<ChevronLeft size={20} strokeWidth={1.5} />} onClick={() => setIsCreating(false)} />
+          <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">NEW GUEST USER</h2>
+        </div>
 
-      <div className="flex flex-col gap-4">
-        {users.map(u => (
-          <div key={u.id} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-4 items-center">
-            <div className="text-16 text-paper">{u.username}</div>
-            <div className="text-14 text-paper lowercase">{u.role}</div>
-            <div className="text-14 font-mono text-fog">{u.joined}</div>
-            <div className="w-8 flex justify-end">
-              {u.role !== 'root' && (
-                <IconButton
-                  icon={<X size={16} strokeWidth={1.5} />}
-                  onClick={() => handleDelete(u.id)}
-                />
-              )}
+        <div className="flex flex-col gap-8 w-full max-w-sm bg-ash/5 border border-ash/15 p-8 mx-auto mt-12">
+          <div className="flex flex-col gap-4 w-full">
+            <Input label="USERNAME" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} autoComplete="off" />
+            <Input label="PASSWORD" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
+            <Input label="CONFIRM PASSWORD" type="password" value={newConfirm} onChange={(e) => setNewConfirm(e.target.value)} autoComplete="new-password" />
+          </div>
+
+          <div className="flex flex-col w-full items-center gap-4 mt-2">
+            {error && <span className="text-13 text-red-400">{error}</span>}
+            <div className="flex w-full">
+              <Button onClick={handleCreate} disabled={loading} className="w-full">CREATE</Button>
             </div>
           </div>
-        ))}
+        </div>
+      </div>
+    );
+  }
 
-        <div className="mt-8 border-t border-ash pt-8">
-          {!isCreating ? (
-            <button
-              className="text-14 font-medium uppercase tracking-[0.08em] text-paper flex items-center gap-2 hover:text-fog transition-colors"
-              onClick={() => setIsCreating(true)}
-            >
-              + NEW USER
-            </button>
-          ) : (
-            <div className="flex flex-col gap-6 max-w-xl">
-              <div className="grid grid-cols-3 gap-6">
-                <Input label="USERNAME" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
-                <Input label="PASSWORD" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                <Input label="CONFIRM" type="password" value={newConfirm} onChange={(e) => setNewConfirm(e.target.value)} />
+  return (
+    <div className="w-full flex flex-col items-center">
+      <div className="flex justify-between items-center w-full mb-8">
+        <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">ALL USERS</h2>
+        <Button onClick={() => setIsCreating(true)}>+ ADD USER</Button>
+      </div>
+
+      <div className="w-full">
+        <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
+          {users.map(u => (
+            <div key={u.id} className="flex items-center justify-between p-4.5 hover:bg-ash/5 transition-all duration-200 group w-full">
+              <div className="flex items-center gap-6 min-w-0">
+                <div className="w-2" />
+                <div className="min-w-0">
+                  <p className="text-15 font-medium text-paper/85">{u.username}</p>
+                  <p className="text-12 text-fog/60 font-mono mt-1 lowercase">
+                    {u.role === 'root' ? 'admin' : u.role} • joined {u.joined}
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex gap-4">
-                  <span className="text-14 uppercase tracking-[0.08em] text-paper border-b border-paper pb-1">member</span>
-                  <span className="text-14 uppercase tracking-[0.08em] text-fog cursor-not-allowed">admin</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  {error && <span className="text-14 text-paper">{error}</span>}
-                  <button onClick={() => setIsCreating(false)} className="text-14 uppercase tracking-[0.08em] text-fog hover:text-paper">CANCEL</button>
-                  <Button onClick={handleCreate} disabled={loading}>CREATE</Button>
-                </div>
+
+              <div className="flex items-center gap-4 pr-2">
+                {u.role !== 'root' && (
+                  <button
+                    onClick={() => handleDelete(u.id)}
+                    className="text-12 font-medium tracking-wider text-fog group-hover:text-red-400 uppercase opacity-0 group-hover:opacity-100 transition-all duration-300 hover:scale-105"
+                  >
+                    REMOVE
+                  </button>
+                )}
               </div>
             </div>
-          )}
+          ))}
         </div>
       </div>
     </div>
@@ -204,7 +255,7 @@ const CoverTile = ({ movieId, name, onClick }: { movieId: string; name: string; 
         objectUrl = URL.createObjectURL(blob);
         setSrc(objectUrl);
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => {
       cancelled = true;
@@ -215,12 +266,12 @@ const CoverTile = ({ movieId, name, onClick }: { movieId: string; name: string; 
   return (
     <button
       onClick={onClick}
-      className="group relative aspect-square w-full overflow-hidden bg-ash text-left"
+      className="group relative aspect-[3/4] w-full overflow-hidden bg-ash text-left cursor-pointer"
     >
       {src ? (
         <img src={src} alt="" className="absolute inset-0 w-full h-full object-cover" />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center bg-void">
           <Film size={32} strokeWidth={1.5} className="text-fog" />
         </div>
       )}
@@ -307,6 +358,10 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
   };
 
   if (selectedMovie) {
+    const sortedEpisodes = [...selectedMovie.mediaFiles].sort((a, b) =>
+      a.title.localeCompare(b.title)
+    );
+
     return (
       <div className="w-full">
         <div className="flex items-center gap-3 mb-8">
@@ -314,10 +369,45 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">{selectedMovie.name}</h2>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {selectedMovie.mediaFiles.map((mf: MediaFile) => (
-            <CoverTile key={mf.id} movieId={selectedMovie.id} name={mf.title} onClick={() => handleStart(mf.id)} />
-          ))}
+        <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
+          {sortedEpisodes.map((mf: MediaFile) => {
+            const formatDuration = (sec: number) => {
+              const m = Math.floor(sec / 60);
+              const s = Math.floor(sec % 60);
+              return `${m}:${s.toString().padStart(2, '0')}`;
+            };
+
+            return (
+              <div
+                key={mf.id}
+                className="flex items-center justify-between p-4.5 hover:bg-ash/5 transition-all duration-200 group cursor-pointer w-full"
+                onClick={() => handleStart(mf.id)}
+              >
+                <div className="flex items-center gap-6 min-w-0">
+                  <div className="flex items-center justify-center w-6 h-6 transition-all duration-300">
+                    <Play
+                      size={14}
+                      className="text-fog group-hover:text-paper fill-current opacity-35 group-hover:opacity-100 scale-90 group-hover:scale-110 transition-all duration-300 ease-out"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-15 font-medium text-paper/85 group-hover:text-paper transition-colors truncate">
+                      {mf.title}
+                    </p>
+                    {mf.duration > 0 && (
+                      <p className="text-12 text-fog/60 font-mono mt-1">
+                        {formatDuration(mf.duration)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <span className="text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                  PLAY NOW
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     );

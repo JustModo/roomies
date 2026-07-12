@@ -61,6 +61,8 @@ export function useRoomSync() {
               transcodeOffset: msg.payload.room.transcodeOffset || 0,
             };
           });
+        } else {
+          setMediaInfo(null);
         }
       } else if (msg.event === 'playback.state') {
         setRoomState((prev) => {
@@ -76,20 +78,23 @@ export function useRoomSync() {
           setSyncSeekTrigger((prev) => prev + 1);
         }
       } else if (msg.event === 'media.changed') {
-        // NOTE: Server changed media or seek offset. Rebuild HLS if offset/media changed.
-        setMediaInfo((prev) => {
-            const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
-            const isDifferentOffset = prev?.transcodeOffset !== msg.payload.transcodeOffset;
-            const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
-            return {
-              mediaFileId: msg.payload.mediaFileId,
-              title: msg.payload.title,
-              hlsUrl: msg.payload.hlsUrl,
-              duration: msg.payload.duration,
-              seekKey: nextKey,
-              transcodeOffset: msg.payload.transcodeOffset || 0,
-            };
-        });
+        if (msg.payload.mediaFileId && msg.payload.hlsUrl) {
+          setMediaInfo((prev) => {
+              const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
+              const isDifferentOffset = prev?.transcodeOffset !== msg.payload.transcodeOffset;
+              const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
+              return {
+                mediaFileId: msg.payload.mediaFileId,
+                title: msg.payload.title,
+                hlsUrl: msg.payload.hlsUrl,
+                duration: msg.payload.duration,
+                seekKey: nextKey,
+                transcodeOffset: msg.payload.transcodeOffset || 0,
+              };
+          });
+        } else {
+          setMediaInfo(null);
+        }
       } else if (msg.event === 'user.status_changed') {
         setRoomState((prev) => {
           if (!prev) return prev;

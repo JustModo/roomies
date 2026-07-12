@@ -83,6 +83,18 @@ export function VideoPlayer({
   const progressBarRef = useRef<HTMLDivElement>(null);
   const lastProcessedTriggerRef = useRef(0);
 
+  useEffect(() => {
+    if (!mediaInfo) {
+      setCurrentTime(0);
+      setDuration(0);
+      setBufferedRanges([]);
+      setIsPlaying(false);
+      setDragProgress(0);
+      setLevels([]);
+      setCurrentLevel(-1);
+    }
+  }, [mediaInfo]);
+
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
     onStatusChangeRef.current = onStatusChange;
@@ -98,12 +110,16 @@ export function VideoPlayer({
 
   // NOTE: Setup HLS (rebuilds when media URL or seekKey changes).
   useEffect(() => {
-    if (!videoRef.current || !mediaInfo?.hlsUrl) return;
+    if (!videoRef.current) return;
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    videoRef.current.removeAttribute('src');
+    videoRef.current.load();
+
+    if (!mediaInfo?.hlsUrl) return;
 
     reportStatus('buffering');
     setLevels([]);

@@ -81,7 +81,7 @@ export const ScanLibraryRequestSchema = z.object({});
 export type ScanLibraryRequest = z.infer<typeof ScanLibraryRequestSchema>;
 
 export const ChangeMediaRequestSchema = z.object({
-  mediaFileId: z.string().uuid(),
+  mediaFileId: z.string(),
 });
 export type ChangeMediaRequest = z.infer<typeof ChangeMediaRequestSchema>;
 

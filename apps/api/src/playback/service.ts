@@ -55,6 +55,23 @@ export class PlaybackService {
     return { hlsUrl, mediaFileId, title: mediaFile.title };
   }
 
+  static async stopMedia(server: FastifyInstance) {
+    TranscodeSessionManager.stopSession();
+    roomStore.updateMedia('', '', '', 0);
+    roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
+    roomStore.resetAllMembers();
+
+    SocketEmitter.broadcastToRoom(server, {
+      event: 'media.changed',
+      payload: { mediaFileId: '', title: '', hlsUrl: '', duration: 0 },
+    });
+
+    SocketEmitter.broadcastToRoom(server, {
+      event: 'room.state',
+      payload: { room: roomStore.getState() },
+    });
+  }
+
   static getActivePlayback() {
     const state = roomStore.getState();
     const session = TranscodeSessionManager.getSession();

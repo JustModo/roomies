@@ -160,7 +160,7 @@ function RoomInner({
       <ChatSidebar />
 
       {user?.role === 'root' && (
-        <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} />
+        <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />
       )}
     </div>
   );

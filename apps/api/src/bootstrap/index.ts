@@ -9,6 +9,7 @@ import { userRoutes } from '../users';
 import { libraryRoutes } from '../library';
 import { chatRoutes } from '../chat';
 import { playbackRoutes } from '../playback/routes';
+import { LibraryService } from '@roomies/library';
 import { initializeConfig } from '../config';
 import { registerChatSocketEvents } from '../chat/socket';
 import { registerPlaybackSocketEvents } from '../playback/socket';
@@ -56,6 +57,14 @@ export const bootstrap = async (app: FastifyInstance) => {
     console.log('[system] Connected to SQLite via Prisma.');
 
     await initializeConfig();
+
+    try {
+      console.log('[system] Initiating automatic startup library rescan...');
+      await LibraryService.scanLibrary(prisma);
+      console.log('[system] Startup library rescan completed.');
+    } catch (scanErr) {
+      console.error('[system] Failed to execute startup library rescan:', scanErr);
+    }
   } catch (err) {
     console.error('[system] Database connection failed:', err);
     process.exit(1);

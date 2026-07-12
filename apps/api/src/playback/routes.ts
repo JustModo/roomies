@@ -21,6 +21,10 @@ export const playbackRoutes = async (app: FastifyInstance) => {
     return PlaybackController.changeMedia(req as any, reply);
   });
 
+  app.post('/stop', { preHandler: [verifyJwt, requireRole('root')] }, async (req, reply) => {
+    return PlaybackController.stopMedia(req as any, reply);
+  });
+
   app.get('/hls/:mediaId/master.m3u8', PlaybackController.getMasterPlaylist);
 
   // NOTE: Ensure FFmpeg is running before redirecting variant requests to Caddy.

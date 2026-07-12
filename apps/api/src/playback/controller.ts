@@ -18,6 +18,17 @@ export const PlaybackController = {
     }
   },
 
+  async stopMedia(req: FastifyRequest, reply: FastifyReply) {
+    try {
+      await PlaybackService.stopMedia(req.server);
+      req.log.info('Media playback stopped');
+      return reply.send({ success: true });
+    } catch (error: any) {
+      req.log.error(error, 'Failed to stop media');
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  },
+
   async getActive(req: FastifyRequest, reply: FastifyReply) {
     const active = PlaybackService.getActivePlayback();
     return reply.send(active);
