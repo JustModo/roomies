@@ -56,46 +56,58 @@ export const ChatSidebar: React.FC = () => {
   };
 
   if (!isOpen) {
-    return (
-      <div className="fixed bottom-14 right-6 w-[300px] flex flex-col justify-end gap-0 p-2 pointer-events-none z-45">
-        {toasts.map((toast, index) => {
-          const isGrouped = index > 0 && toasts[index - 1].username === toast.username && !toasts[index - 1].isSystem && !toast.isSystem;
-          const isNextGrouped = index < toasts.length - 1 && toasts[index + 1].username === toast.username && !toasts[index + 1].isSystem && !toast.isSystem;
-          
-          let pyClass = 'py-1.5';
-          if (isGrouped || isNextGrouped) {
-            pyClass = 'py-0.5';
-          }
+    if (toasts.length === 0) return null;
 
-          return (
-            <div
-              key={toast.id}
-              className={` ${pyClass} px-2.5 rounded pointer-events-auto cursor-pointer transition-all duration-300 text-13 text-paper leading-normal break-words shadow-lg ${
-                toast.isExiting ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
-              }`}
-              onClick={() => setIsOpen(true)}
-            >
-              {toast.isSystem ? (
-                <span className="text-paper/60 font-medium text-[10px] tracking-wide uppercase flex items-center">
-                  <SystemIcon type={toast.eventType} />
-                  {toast.body}
-                </span>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {!isGrouped && (
-                    <span 
-                      className="font-extrabold tracking-wider text-[10px] leading-none uppercase"
-                      style={{ color: getUsernameColor(toast.username || 'unknown') }}
-                    >
-                      {toast.username}
-                    </span>
-                  )}
-                  <span className="text-paper/60 text-[14px] leading-snug">{toast.body}</span>
-                </div>
-              )}
-            </div>
-          );
-        })}
+    return (
+      <div className="fixed bottom-18 right-4 w-[300px] flex flex-col justify-end pointer-events-none z-45">
+        <div 
+          className="bg-void/40 border border-ash/10 backdrop-blur-xs rounded-xl p-2.5 flex flex-col gap-1.5 pointer-events-auto cursor-pointer shadow-2xl transition-all duration-300 w-full"
+          onClick={() => setIsOpen(true)}
+        >
+          {toasts.map((toast, index) => {
+            const isGrouped = index > 0 && toasts[index - 1].username === toast.username && !toasts[index - 1].isSystem && !toast.isSystem;
+            const isNextGrouped = index < toasts.length - 1 && toasts[index + 1].username === toast.username && !toasts[index + 1].isSystem && !toast.isSystem;
+            
+            let paddingClass = '';
+            if (!isGrouped && !isNextGrouped) {
+              paddingClass = 'py-0.5';
+            } else if (!isGrouped && isNextGrouped) {
+              paddingClass = 'pt-0.5 pb-0';
+            } else if (isGrouped && isNextGrouped) {
+              paddingClass = 'py-0';
+            } else if (isGrouped && !isNextGrouped) {
+              paddingClass = 'pt-0 pb-0.5';
+            }
+
+            return (
+              <div
+                key={toast.id}
+                className={`transition-all duration-300 text-13 text-paper leading-normal break-words ${paddingClass} ${
+                  toast.isExiting ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
+                }`}
+              >
+                {toast.isSystem ? (
+                  <span className="text-paper/60 font-medium text-[10px] tracking-wide uppercase flex items-center">
+                    <SystemIcon type={toast.eventType} />
+                    {toast.body}
+                  </span>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {!isGrouped && (
+                      <span 
+                        className="font-extrabold tracking-wider text-[10px] leading-none uppercase"
+                        style={{ color: getUsernameColor(toast.username || 'unknown') }}
+                      >
+                        {toast.username}
+                      </span>
+                    )}
+                    <span className="text-paper/60 text-[14px] leading-snug">{toast.body}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   }
