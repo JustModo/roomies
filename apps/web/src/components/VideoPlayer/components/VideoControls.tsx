@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare } from 'lucide-react';
-import { RoomState } from '../../../hooks/useRoomSync';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption } from 'lucide-react';
+import { RoomState, MediaInfo } from '../../../hooks/useRoomSync';
 import { Level } from 'hls.js';
 
 interface VideoControlsProps {
@@ -20,6 +20,10 @@ interface VideoControlsProps {
   showChat?: boolean;
   onToggleChat?: () => void;
   isFullscreen?: boolean;
+  mediaInfo?: MediaInfo | null;
+  activeSubtitleId?: string | null;
+  setActiveSubtitleId?: (id: string | null) => void;
+  displaySubtitleLabel?: (language: string | null) => string;
 }
 
 // Compact icon button — smaller padding on mobile
@@ -68,8 +72,13 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   showChat,
   onToggleChat,
   isFullscreen,
+  mediaInfo,
+  activeSubtitleId,
+  setActiveSubtitleId,
+  displaySubtitleLabel,
 }) => {
   const [showQualityMenu, setShowQualityMenu] = useState(false);
+  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
 
   const isPlaying = roomPlaybackState?.state === 'playing';
 
@@ -157,6 +166,52 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                     </button>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Subtitle Selector */}
+        {setActiveSubtitleId && displaySubtitleLabel && (
+          <div className="relative">
+            <Btn
+              onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
+              active={activeSubtitleId !== null}
+              title="Subtitles"
+            >
+              <ClosedCaption className="w-4 h-4" strokeWidth={1.5} />
+            </Btn>
+
+            {showSubtitleMenu && (
+              <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[140px] overflow-hidden z-50 shadow-2xl">
+                <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Subtitles</div>
+                {!(mediaInfo?.subtitles?.length) ? (
+                  <div className="px-3 py-2 text-[12px] lg:text-sm text-paper/50 italic">
+                    None
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { setActiveSubtitleId(null); setShowSubtitleMenu(false); }}
+                      className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
+                        activeSubtitleId === null ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+                      }`}
+                    >
+                      Off
+                    </button>
+                    {mediaInfo!.subtitles.map((sub) => (
+                      <button
+                        key={sub.id}
+                        onClick={() => { setActiveSubtitleId(sub.id); setShowSubtitleMenu(false); }}
+                        className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
+                          activeSubtitleId === sub.id ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+                        }`}
+                      >
+                        {displaySubtitleLabel(sub.language)}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>

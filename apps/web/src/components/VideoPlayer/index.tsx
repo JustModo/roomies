@@ -7,6 +7,7 @@ import { usePlayerGestures } from './hooks/usePlayerGestures';
 import { VideoOverlay } from './components/VideoOverlay';
 import { SeekBar } from './components/SeekBar';
 import { VideoControls } from './components/VideoControls';
+import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
 
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -117,6 +118,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     reportStatus,
     setIsPlaying,
   });
+
+  const { subtitleUrls, activeSubtitleId, setActiveSubtitleId } = useSubtitles({ mediaInfo, videoRef });
 
   useVideoEvents({
     videoRef,
@@ -262,7 +265,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         className="w-full h-full object-contain bg-ink"
         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='%23000000'/%3E%3C/svg%3E"
         muted={isMuted}
-      />
+      >
+        {(mediaInfo?.subtitles || []).map((sub) => (
+          subtitleUrls[sub.id] ? (
+            <track
+              id={sub.id}
+              key={sub.id}
+              kind="subtitles"
+              src={subtitleUrls[sub.id]}
+              srcLang={sub.language ?? 'und'}
+              label={displaySubtitleLabel(sub.language)}
+            />
+          ) : null
+        ))}
+      </video>
 
       <VideoOverlay
         mediaInfo={mediaInfo}
@@ -305,6 +321,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           showChat={showChat}
           onToggleChat={onToggleChat}
           isFullscreen={isFullscreen}
+          mediaInfo={mediaInfo}
+          activeSubtitleId={activeSubtitleId}
+          setActiveSubtitleId={setActiveSubtitleId}
+          displaySubtitleLabel={displaySubtitleLabel}
         />
       </div>
     </div>

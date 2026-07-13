@@ -65,7 +65,8 @@ const matchSubtitles = (videoPath: string, subtitlePaths: string[]): ScannedSubt
     for (const sep of SUBTITLE_SEPARATORS) {
       const prefix = videoStem + sep;
       if (subStem.startsWith(prefix)) {
-        const token = subStem.slice(prefix.length);
+        const remaining = subStem.slice(prefix.length);
+        const token = remaining.split(/[._ ]/)[0];
         const language = LANGUAGE_ALIASES[token];
         if (language) {
           matches.push({ path: subPath, language });
