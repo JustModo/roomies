@@ -193,6 +193,9 @@ importers:
       '@roomies/contracts':
         specifier: workspace:*
         version: link:../contracts
+      ffprobe-static:
+        specifier: ^3.1.0
+        version: 3.1.0
     devDependencies:
       '@types/node':
         specifier: ^26.1.0

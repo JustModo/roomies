@@ -30,13 +30,13 @@ export const RESOLUTION_PRESETS: Record<Resolution, ResolutionConfig> = {
 };
 
 /** Duration of each HLS segment in seconds. */
-export const SEGMENT_DURATION = 4;
+export const SEGMENT_DURATION = 2;
 
 /** Number of segments in HLS playlist. 0 represents unlimited (VOD mode). */
 export const HLS_LIST_SIZE = 0;
 
 /** Number of segments that must exist on disk before the variant is ready. */
-export const LOOK_AHEAD_SEGMENTS = 3;
+export const LOOK_AHEAD_SEGMENTS = 4;
 
 /** Upper bound on concurrent FFmpeg variant processes per session. */
 export const MAX_CONCURRENT_VARIANTS = 3;

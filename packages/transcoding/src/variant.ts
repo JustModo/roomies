@@ -38,6 +38,8 @@ export class TranscodeVariant extends EventEmitter {
   private hwAccelMode: HwAccelMode = 'auto';
   private inputPath: string = '';
   private hwFallbackAttempted = false;
+  private sourceFps: number = 24;
+  private stopRequested = false;
 
   constructor(resolution: Resolution, outputDir: string) {
     super();
@@ -62,13 +64,15 @@ export class TranscodeVariant extends EventEmitter {
     inputPath: string,
     startPosition: number = 0,
     preset: FfmpegPreset = 'veryfast',
-    hwAccelMode: HwAccelMode = 'auto'
+    hwAccelMode: HwAccelMode = 'auto',
+    sourceFps: number = 24
   ): void {
     if (this._isRunning) return;
     this.inputPath = inputPath;
     this._startPosition = startPosition;
     this.preset = preset;
     this.hwAccelMode = hwAccelMode;
+    this.sourceFps = sourceFps;
 
     this.spawnProcess(this.shouldUseHardware());
   }
@@ -86,8 +90,8 @@ export class TranscodeVariant extends EventEmitter {
     const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`;
 
     // WHY: Use encoder-native -g instead of filtergraph force_key_frames to save CPU.
-    // GOP size matches SEGMENT_DURATION assuming a 24fps baseline.
-    const gopSize = SEGMENT_DURATION * 24;
+    // GOP size is derived from the probed source fps so keyframes land on segment boundaries.
+    const gopSize = Math.round(SEGMENT_DURATION * this.sourceFps);
 
     let videoArgs: string[];
     if (hw === 'vaapi' || hw === 'qsv') {
@@ -145,7 +149,7 @@ export class TranscodeVariant extends EventEmitter {
       '-hls_time', String(SEGMENT_DURATION),
       '-hls_list_size', String(HLS_LIST_SIZE),
       '-hls_segment_type', 'mpegts',
-      '-hls_flags', 'independent_segments',
+      '-hls_flags', 'independent_segments+temp_file',
       '-hls_segment_filename', segmentPattern,
       '-hls_allow_cache', '1',
 
@@ -182,7 +186,10 @@ export class TranscodeVariant extends EventEmitter {
     proc.on('exit', (code, signal) => {
       this._isRunning = false;
       this.stopWatcher();
-      if (code !== 0 && signal !== 'SIGTERM') {
+      // NOTE: FFmpeg traps SIGTERM to shut down gracefully (flushing the final segment/playlist)
+      // and then exits with its own code (observed: 255) rather than being reported as killed by
+      // signal — so `signal === 'SIGTERM'` alone doesn't reliably detect an intentional stop.
+      if (!this.stopRequested && code !== 0 && signal !== 'SIGTERM') {
         this.handleFailure(hw, new Error(`FFmpeg exited with code ${code}, signal ${signal}`));
         return;
       }
@@ -206,6 +213,7 @@ export class TranscodeVariant extends EventEmitter {
 
   stop(): void {
     this.stopWatcher();
+    this.stopRequested = true;
 
     if (this.process && this._isRunning) {
       // NOTE: SIGCONT is required to process SIGTERM if suspended.

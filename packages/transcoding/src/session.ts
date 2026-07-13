@@ -4,6 +4,7 @@ import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
+import { getSourceFrameRate } from './ffprobe';
 
 /** Manages all transcoding variants for a single media file. */
 export class TranscodeSession {
@@ -13,6 +14,7 @@ export class TranscodeSession {
 
   private variants = new Map<Resolution, TranscodeVariant>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
+  private fpsPromise: Promise<number> | null = null;
 
   constructor(mediaFileId: string, inputPath: string, outputBaseDir: string) {
     this.mediaFileId = mediaFileId;
@@ -24,6 +26,14 @@ export class TranscodeSession {
 
   onError(callback: (resolution: Resolution, error: Error) => void): void {
     this.onErrorCallback = callback;
+  }
+
+  /** Probes the source frame rate once and caches it, so parallel variant starts share one ffprobe call. */
+  private getSourceFps(): Promise<number> {
+    if (!this.fpsPromise) {
+      this.fpsPromise = getSourceFrameRate(this.inputPath);
+    }
+    return this.fpsPromise;
   }
 
   async ensureVariantReady(
@@ -70,7 +80,8 @@ export class TranscodeSession {
 
     this.variants.set(resolution, variant);
 
-    variant.start(this.inputPath, startPosition, preset, hwAccelMode);
+    const sourceFps = await this.getSourceFps();
+    variant.start(this.inputPath, startPosition, preset, hwAccelMode, sourceFps);
 
     return new Promise((resolve) => {
       variant.once('ready', resolve);
