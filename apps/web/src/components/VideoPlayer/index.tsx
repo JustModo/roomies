@@ -7,6 +7,7 @@ import { VideoOverlay } from './components/VideoOverlay';
 import { SeekBar } from './components/SeekBar';
 import { VideoControls } from './components/VideoControls';
 
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   mediaInfo,
   seekKey,
@@ -22,6 +23,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onStatusChange,
   showChat,
   onToggleChat,
+  isFullscreen,
   children
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -63,7 +65,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [mediaInfo]);
 
-  // Idle Timer
+  // Idle Timer — also resets on touch so mobile users can interact
   useEffect(() => {
     const resetIdleTimer = () => {
       setIdle(false);
@@ -75,11 +77,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     window.addEventListener('mousemove', resetIdleTimer);
     window.addEventListener('keydown', resetIdleTimer);
+    window.addEventListener('touchstart', resetIdleTimer, { passive: true });
     resetIdleTimer();
 
     return () => {
       window.removeEventListener('mousemove', resetIdleTimer);
       window.removeEventListener('keydown', resetIdleTimer);
+      window.removeEventListener('touchstart', resetIdleTimer);
       clearTimeout(timerRef.current);
     };
   }, []);
@@ -229,7 +233,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* Bottom Controls */}
-      <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-linear-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         <SeekBar
           ref={progressBarRef}
           isLocked={isLocked}
@@ -256,6 +260,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           handleQualityChange={handleQualityChange}
           showChat={showChat}
           onToggleChat={onToggleChat}
+          isFullscreen={isFullscreen}
         />
       </div>
     </div>

@@ -20,7 +20,7 @@ export const SeekBar = React.forwardRef<HTMLDivElement, SeekBarProps>(({
 }, ref) => {
   return (
     <div 
-      className={`w-full py-2 px-2 relative ${isLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer group'}`} 
+      className={`w-full py-2 px-2 sm:px-4 lg:px-6 relative ${isLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer group'}`} 
       onPointerDown={isLocked ? undefined : onPointerDown}
     >
       <div ref={ref} className="w-full h-[4px] group-hover:h-[6px] transition-all duration-100 bg-ash/30 relative flex items-center rounded-full overflow-hidden group-hover:overflow-visible">

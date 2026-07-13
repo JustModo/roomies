@@ -8,6 +8,8 @@
   --color-ash: #3A3A3A;
   --font-sans: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+  /* Custom xs breakpoint for portrait-phone tweaks */
+  --breakpoint-xs: 480px;
 }
 
 @layer base {
@@ -40,6 +42,7 @@
 
 /* Strict typographic scale classes */
 .text-12 { font-size: 12px; }
+.text-13 { font-size: 13px; }
 .text-14 { font-size: 14px; }
 .text-16 { font-size: 16px; }
 .text-20 { font-size: 20px; }

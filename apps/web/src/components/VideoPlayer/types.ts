@@ -21,5 +21,6 @@ export interface VideoPlayerProps {
   onStatusChange: (status: 'ready' | 'buffering') => void;
   showChat?: boolean;
   onToggleChat?: () => void;
+  isFullscreen?: boolean;
   children?: ReactNode;
 }

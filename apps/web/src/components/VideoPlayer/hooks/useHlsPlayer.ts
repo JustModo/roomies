@@ -94,8 +94,11 @@ export function useHlsPlayer({
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
       videoRef.current.src = mediaInfo.hlsUrl;
-      videoRef.current.currentTime = Math.max(0, localTime - (mediaInfo.transcodeOffset || 0));
+      const targetTime = Math.max(0, localTime - (mediaInfo.transcodeOffset || 0));
       videoRef.current.addEventListener('loadedmetadata', () => {
+        if (videoRef.current) {
+          videoRef.current.currentTime = targetTime;
+        }
         reportStatus('ready');
       }, { once: true });
     }

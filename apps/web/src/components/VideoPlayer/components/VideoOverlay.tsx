@@ -34,7 +34,7 @@ export const VideoOverlay: React.FC<VideoOverlayProps> = ({
         showOverlay ? 'opacity-100' : 'opacity-0'
       }`}
     >
-      <h2 className={`text-16 lg:text-28 font-medium tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg text-center px-6 ${mediaInfo ? 'uppercase' : ''}`}>
+      <h2 className={`text-sm lg:text-3xl font-medium tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg text-center px-6 ${mediaInfo ? 'uppercase' : ''}`}>
         {overlayTextRef.current}
       </h2>
     </div>
