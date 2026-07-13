@@ -14,12 +14,18 @@ export interface RoomPlaybackState {
     playbackRate: number;
 }
 
+export interface SubtitleTrack {
+    id: string;
+    language: string | null;
+}
+
 export interface RoomState {
     mediaId: string;
     mediaTitle: string;
     hlsUrl: string;
     duration: number;
     transcodeOffset: number;
+    subtitles: SubtitleTrack[];
     playback: RoomPlaybackState;
     members: MemberState[];
 }
@@ -34,6 +40,7 @@ export class RoomStore {
             hlsUrl: '',
             duration: 0,
             transcodeOffset: 0,
+            subtitles: [],
             playback: {
                 state: 'waiting',
                 intendedState: 'paused',
@@ -49,12 +56,13 @@ export class RoomStore {
         return this.state;
     }
 
-    public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number, transcodeOffset = 0): void {
+    public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number, transcodeOffset = 0, subtitles: SubtitleTrack[] = []): void {
         this.state.mediaId = mediaId;
         this.state.mediaTitle = mediaTitle;
         this.state.hlsUrl = hlsUrl;
         this.state.duration = duration;
         this.state.transcodeOffset = transcodeOffset;
+        this.state.subtitles = subtitles;
     }
 
     public updateTranscodeOffset(offset: number): void {

@@ -45,5 +45,6 @@ export const ServerMediaChangedSchema = z.object({
     hlsUrl: z.string(),
     duration: z.number().optional(),
     transcodeOffset: z.number().optional(),
+    subtitles: z.array(z.object({ id: z.string(), language: z.string().nullable() })).optional(),
   }),
 });

@@ -18,11 +18,14 @@ export class PlaybackService {
   static async changeMedia(mediaFileId: string, server: FastifyInstance) {
     const mediaFile = await prisma.mediaFile.findUnique({
       where: { id: mediaFileId },
+      include: { subtitles: true },
     });
 
     if (!mediaFile) {
       throw new Error('Media file not found');
     }
+
+    const subtitles = mediaFile.subtitles.map((s) => ({ id: s.id, language: s.language }));
 
     const session = TranscodeSessionManager.startSession(mediaFileId, mediaFile.path);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
@@ -38,13 +41,13 @@ export class PlaybackService {
       console.error(`[playback] Failed to pre-warm variants for ${mediaFileId}:`, err);
     });
 
-    roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration);
+    roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles);
     roomStore.updatePlayback({ state: 'buffering', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
 
     SocketEmitter.broadcastToRoom(server, {
       event: 'media.changed',
-      payload: { mediaFileId, title: mediaFile.title, hlsUrl, duration: mediaFile.duration },
+      payload: { mediaFileId, title: mediaFile.title, hlsUrl, duration: mediaFile.duration, subtitles },
     });
 
     SocketEmitter.broadcastToRoom(server, {
@@ -52,18 +55,18 @@ export class PlaybackService {
       payload: { room: roomStore.getState() },
     });
 
-    return { hlsUrl, mediaFileId, title: mediaFile.title };
+    return { hlsUrl, mediaFileId, title: mediaFile.title, subtitles };
   }
 
   static async stopMedia(server: FastifyInstance) {
     TranscodeSessionManager.stopSession();
-    roomStore.updateMedia('', '', '', 0);
+    roomStore.updateMedia('', '', '', 0, 0, []);
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
 
     SocketEmitter.broadcastToRoom(server, {
       event: 'media.changed',
-      payload: { mediaFileId: '', title: '', hlsUrl: '', duration: 0 },
+      payload: { mediaFileId: '', title: '', hlsUrl: '', duration: 0, subtitles: [] },
     });
 
     SocketEmitter.broadcastToRoom(server, {
@@ -82,6 +85,7 @@ export class PlaybackService {
       viewersCount: state.members.length,
       state: state.playback.state,
       hlsUrl: session ? getMasterPlaylistUrl(session.mediaFileId) : undefined,
+      subtitles: state.subtitles,
     };
   }
 
@@ -175,6 +179,7 @@ export class PlaybackService {
           hlsUrl: getMasterPlaylistUrl(state.mediaId),
           duration: state.duration,
           transcodeOffset: actualOffset,
+          subtitles: state.subtitles,
         }
       });
     } else {

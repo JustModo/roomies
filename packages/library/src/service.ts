@@ -92,12 +92,21 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
       });
     }
 
-    const existingSub = await prisma.subtitle.findFirst({ where: { mediaFileId: mediaFile.id } });
-    if (existingSub && existingSub.path !== episode.subtitlePath) {
-      await prisma.subtitle.delete({ where: { id: existingSub.id } });
+    const existingSubs = await prisma.subtitle.findMany({ where: { mediaFileId: mediaFile.id } });
+    const diskSubPaths = new Set(episode.subtitles.map((s) => s.path));
+
+    const staleSubIds = existingSubs.filter((s) => !diskSubPaths.has(s.path)).map((s) => s.id);
+    if (staleSubIds.length > 0) {
+      await prisma.subtitle.deleteMany({ where: { id: { in: staleSubIds } } });
     }
-    if (episode.subtitlePath && (!existingSub || existingSub.path !== episode.subtitlePath)) {
-      await prisma.subtitle.create({ data: { mediaFileId: mediaFile.id, path: episode.subtitlePath, language: null } });
+
+    for (const sub of episode.subtitles) {
+      const match = existingSubs.find((s) => s.path === sub.path);
+      if (!match) {
+        await prisma.subtitle.create({ data: { mediaFileId: mediaFile.id, path: sub.path, language: sub.language } });
+      } else if (match.language !== sub.language) {
+        await prisma.subtitle.update({ where: { id: match.id }, data: { language: sub.language } });
+      }
     }
   });
 };

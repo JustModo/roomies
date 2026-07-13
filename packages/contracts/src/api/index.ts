@@ -85,10 +85,17 @@ export const ChangeMediaRequestSchema = z.object({
 });
 export type ChangeMediaRequest = z.infer<typeof ChangeMediaRequestSchema>;
 
+export const SubtitleTrackSchema = z.object({
+  id: z.string(),
+  language: z.string().nullable(),
+});
+export type SubtitleTrack = z.infer<typeof SubtitleTrackSchema>;
+
 export const ChangeMediaResponseSchema = z.object({
   hlsUrl: z.string(),
   mediaFileId: z.string(),
   title: z.string(),
+  subtitles: z.array(SubtitleTrackSchema).optional(),
 });
 export type ChangeMediaResponse = z.infer<typeof ChangeMediaResponseSchema>;
 
@@ -98,6 +105,7 @@ export const ActivePlaybackResponseSchema = z.object({
   viewersCount: z.number().optional(),
   state: z.string().optional(),
   hlsUrl: z.string().optional(),
+  subtitles: z.array(SubtitleTrackSchema).optional(),
 });
 export type ActivePlaybackResponse = z.infer<typeof ActivePlaybackResponseSchema>;
 

@@ -1,8 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, MessageSquare } from 'lucide-react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, MessageSquare, Captions } from 'lucide-react';
 import Hls, { Level } from 'hls.js';
 import { IconButton } from '../ui/IconButton';
 import { MediaInfo, RoomState } from '../../hooks/useRoomSync';
+
+const displaySubtitleLabel = (language: string | null): string => {
+  if (!language) return 'Unknown';
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(language) ?? language;
+  } catch {
+    return language;
+  }
+};
 
 export interface VideoPlayerProps {
   mediaInfo: MediaInfo | null;
@@ -73,6 +82,10 @@ export function VideoPlayer({
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
 
+  const [subtitleUrls, setSubtitleUrls] = useState<Record<string, string>>({});
+  const [activeSubtitleId, setActiveSubtitleId] = useState<string | null>(null);
+  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
+
   const [bufferedRanges, setBufferedRanges] = useState<{ start: number, end: number }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
@@ -92,6 +105,7 @@ export function VideoPlayer({
       setDragProgress(0);
       setLevels([]);
       setCurrentLevel(-1);
+      setActiveSubtitleId(null);
     }
   }, [mediaInfo]);
 
@@ -180,6 +194,56 @@ export function VideoPlayer({
       }, { once: true });
     }
   }, [mediaInfo?.hlsUrl, seekKey, reportStatus]);
+
+  useEffect(() => {
+    setActiveSubtitleId(null);
+  }, [mediaInfo?.mediaFileId]);
+
+  // NOTE: <track src> can't carry an Authorization header, so subtitles are fetched as authenticated
+  // blobs (same workaround as CoverTile in AdminOverlay.tsx). Re-fetched whenever transcodeOffset
+  // changes since VTT cue timestamps must be re-shifted to match the current HLS timeline start.
+  useEffect(() => {
+    const subtitles = mediaInfo?.subtitles || [];
+    if (subtitles.length === 0) {
+      setSubtitleUrls({});
+      return;
+    }
+
+    let cancelled = false;
+    const objectUrls: string[] = [];
+
+    Promise.all(subtitles.map(async (sub) => {
+      const res = await fetch(`/api/library/subtitles/${sub.id}?offset=${mediaInfo?.transcodeOffset || 0}`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      objectUrls.push(url);
+      return [sub.id, url] as const;
+    })).then((entries) => {
+      if (cancelled) return;
+      const urls: Record<string, string> = {};
+      for (const entry of entries) {
+        if (entry) urls[entry[0]] = entry[1];
+      }
+      setSubtitleUrls(urls);
+    }).catch(() => { });
+
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [mediaInfo?.subtitles, mediaInfo?.transcodeOffset]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const subtitles = mediaInfo?.subtitles || [];
+    for (let i = 0; i < video.textTracks.length; i++) {
+      video.textTracks[i].mode = subtitles[i]?.id === activeSubtitleId ? 'showing' : 'disabled';
+    }
+  }, [activeSubtitleId, subtitleUrls, mediaInfo?.subtitles]);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -480,6 +544,11 @@ export function VideoPlayer({
     }
   };
 
+  const handleSubtitleChange = (id: string | null) => {
+    setActiveSubtitleId(id);
+    setShowSubtitleMenu(false);
+  };
+
   const cyclePlaybackRate = () => {
     if (isLocked) return;
     const rates = [0.5, 1, 1.25, 1.5, 2];
@@ -500,7 +569,19 @@ export function VideoPlayer({
         className="w-full h-full object-contain bg-ink"
         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='%23000000'/%3E%3C/svg%3E"
         muted={isMuted}
-      />
+      >
+        {(mediaInfo?.subtitles || []).map((sub) => (
+          subtitleUrls[sub.id] ? (
+            <track
+              key={sub.id}
+              kind="subtitles"
+              src={subtitleUrls[sub.id]}
+              srcLang={sub.language ?? 'und'}
+              label={displaySubtitleLabel(sub.language)}
+            />
+          ) : null
+        ))}
+      </video>
 
       {/* Smooth Fade Overlay for Paused/Syncing */}
       <div 
@@ -597,6 +678,38 @@ export function VideoPlayer({
                         </button>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Subtitle Selector */}
+            {(mediaInfo?.subtitles?.length ?? 0) > 0 && (
+              <div className="relative">
+                <IconButton
+                  icon={<Captions size={18} strokeWidth={1.5} />}
+                  onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
+                  active={activeSubtitleId !== null}
+                />
+
+                {showSubtitleMenu && (
+                  <div className="absolute bottom-full right-0 mb-4 bg-ink/95 backdrop-blur-md border border-ash/20 rounded-lg shadow-2xl py-2 min-w-[140px] overflow-hidden">
+                    <div className="px-4 py-2 text-[10px] text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Subtitles</div>
+                    <button
+                      onClick={() => handleSubtitleChange(null)}
+                      className={`w-full text-left px-4 py-2 text-13 transition-colors ${activeSubtitleId === null ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'}`}
+                    >
+                      Off
+                    </button>
+                    {mediaInfo!.subtitles.map((sub) => (
+                      <button
+                        key={sub.id}
+                        onClick={() => handleSubtitleChange(sub.id)}
+                        className={`w-full text-left px-4 py-2 text-13 transition-colors ${activeSubtitleId === sub.id ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'}`}
+                      >
+                        {displaySubtitleLabel(sub.language)}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>

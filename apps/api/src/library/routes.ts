@@ -8,6 +8,7 @@ export const libraryRoutes = async (app: FastifyInstance) => {
 
   app.get('/', LibraryController.getLibraries);
   app.get('/cover/:movieId', LibraryController.getCover);
+  app.get('/subtitles/:subtitleId', LibraryController.getSubtitle);
 
   // NOTE: Library scanning is restricted to root accounts.
   app.post('/scan', { preHandler: requireRole('root') }, async (req, reply) => {

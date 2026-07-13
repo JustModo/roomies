@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { LibraryService } from '@roomies/library';
+import { LibraryService, convertSubtitleToVtt } from '@roomies/library';
 import { MEDIA_ROOT } from '@roomies/config';
 import { ScanLibraryRequest } from '@roomies/contracts';
 import { prisma } from '../database/sqlite';
@@ -12,6 +12,8 @@ const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.webp': 'image/webp',
 };
+
+const SUBTITLE_EXTENSIONS = ['.srt', '.vtt'];
 
 export const LibraryController = {
   async getLibraries(req: FastifyRequest, reply: FastifyReply) {
@@ -56,6 +58,33 @@ export const LibraryController = {
       return reply.send(stream);
     } catch (e) {
       return reply.status(404).send({ error: 'Cover not found' });
+    }
+  },
+
+  async getSubtitle(req: FastifyRequest<{ Params: { subtitleId: string }; Querystring: { offset?: string } }>, reply: FastifyReply) {
+    const subtitle = await prisma.subtitle.findUnique({ where: { id: req.params.subtitleId } });
+    if (!subtitle) {
+      return reply.status(404).send({ error: 'Subtitle not found' });
+    }
+
+    const resolved = path.resolve(subtitle.path);
+    if (resolved !== MEDIA_ROOT && !resolved.startsWith(MEDIA_ROOT + path.sep)) {
+      return reply.status(404).send({ error: 'Subtitle not found' });
+    }
+
+    const ext = path.extname(resolved).toLowerCase();
+    if (!SUBTITLE_EXTENSIONS.includes(ext)) {
+      return reply.status(404).send({ error: 'Subtitle not found' });
+    }
+
+    try {
+      const raw = await fs.promises.readFile(resolved, 'utf-8');
+      const offset = parseFloat(req.query.offset ?? '0') || 0;
+      const vtt = convertSubtitleToVtt(raw, offset);
+      reply.type('text/vtt');
+      return reply.send(vtt);
+    } catch (e) {
+      return reply.status(404).send({ error: 'Subtitle not found' });
     }
   },
 };

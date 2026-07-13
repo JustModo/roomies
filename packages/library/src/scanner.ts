@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Dirent } from 'fs';
 import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS, IMAGE_EXTENSIONS } from './constants';
-import { ScannedEpisode, ScannedMovie } from './types';
+import { ScannedEpisode, ScannedMovie, ScannedSubtitle } from './types';
 import { parseEpisodeFilename } from './parser';
 
 const listDir = async (dir: string): Promise<Dirent[]> => {
@@ -30,11 +30,52 @@ const filterByExtension = (paths: string[], extensions: string[]): string[] =>
 
 const stem = (name: string): string => path.basename(name, path.extname(name)).toLowerCase();
 
-/** Exact case-insensitive filename-stem match; returns the matched subtitle's full path, or null. */
-const matchSubtitle = (videoPath: string, subtitlePaths: string[]): string | null => {
+/** Alias table mapping common language tokens (found in sidecar filenames) to a normalized ISO-639-1 code. */
+const LANGUAGE_ALIASES: Record<string, string> = {
+  en: 'en', eng: 'en', english: 'en',
+  fr: 'fr', fre: 'fr', fra: 'fr', french: 'fr',
+  es: 'es', spa: 'es', spanish: 'es',
+  de: 'de', ger: 'de', deu: 'de', german: 'de',
+  it: 'it', ita: 'it', italian: 'it',
+  pt: 'pt', por: 'pt', portuguese: 'pt',
+  ru: 'ru', rus: 'ru', russian: 'ru',
+  ja: 'ja', jpn: 'ja', japanese: 'ja',
+  ko: 'ko', kor: 'ko', korean: 'ko',
+  zh: 'zh', chi: 'zh', zho: 'zh', chinese: 'zh',
+  ar: 'ar', ara: 'ar', arabic: 'ar',
+  hi: 'hi', hin: 'hi', hindi: 'hi',
+  nl: 'nl', dut: 'nl', nld: 'nl', dutch: 'nl',
+};
+
+// NOTE: '-' is deliberately excluded to avoid colliding with episode-numbering conventions in parser.ts.
+const SUBTITLE_SEPARATORS = ['.', '_', ' '];
+
+/** Matches all sidecar subtitle files for a video: exact stem match (language unknown), or stem + separator + a recognized language token. */
+const matchSubtitles = (videoPath: string, subtitlePaths: string[]): ScannedSubtitle[] => {
   const videoStem = stem(videoPath);
-  // Match in same directory first, or anywhere if unique name
-  return subtitlePaths.find((s) => stem(s) === videoStem) ?? null;
+  const matches: ScannedSubtitle[] = [];
+
+  for (const subPath of subtitlePaths) {
+    const subStem = stem(subPath);
+    if (subStem === videoStem) {
+      matches.push({ path: subPath, language: null });
+      continue;
+    }
+
+    for (const sep of SUBTITLE_SEPARATORS) {
+      const prefix = videoStem + sep;
+      if (subStem.startsWith(prefix)) {
+        const token = subStem.slice(prefix.length);
+        const language = LANGUAGE_ALIASES[token];
+        if (language) {
+          matches.push({ path: subPath, language });
+        }
+        break;
+      }
+    }
+  }
+
+  return matches;
 };
 
 const findCover = (folder: string, allFiles: string[]): string | null => {
@@ -50,9 +91,9 @@ const buildEpisodes = (folder: string, allFiles: string[]): ScannedEpisode[] => 
   const subtitlePaths = filterByExtension(allFiles, SUBTITLE_EXTENSIONS);
 
   const initialEpisodes = videoPaths.map((videoPath) => {
-    const subtitlePath = matchSubtitle(videoPath, subtitlePaths);
+    const subtitles = matchSubtitles(videoPath, subtitlePaths);
     const parsed = parseEpisodeFilename(videoPath);
-    return { path: videoPath, parsed, subtitlePath };
+    return { path: videoPath, parsed, subtitles };
   });
 
   const bySeason = new Map<number | null, typeof initialEpisodes>();
@@ -101,14 +142,14 @@ const buildEpisodes = (folder: string, allFiles: string[]): ScannedEpisode[] => 
           path: ep.path,
           number: ep.parsed.sortNumber,
           title: ep.parsed.title,
-          subtitlePath: ep.subtitlePath,
+          subtitles: ep.subtitles,
         });
       } else {
         finalEpisodes.push({
           path: ep.path,
           number: null,
           title: path.basename(ep.path, path.extname(ep.path)),
-          subtitlePath: ep.subtitlePath,
+          subtitles: ep.subtitles,
         });
       }
     }

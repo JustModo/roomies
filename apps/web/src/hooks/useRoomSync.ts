@@ -4,6 +4,11 @@ import { OutgoingSocketMessage } from '@roomies/contracts';
 
 export type RoomState = Extract<OutgoingSocketMessage, { event: 'room.state' }>['payload']['room'];
 
+export interface SubtitleTrack {
+  id: string;
+  language: string | null;
+}
+
 export interface MediaInfo {
   mediaFileId: string;
   title: string;
@@ -11,6 +16,7 @@ export interface MediaInfo {
   duration?: number;
   seekKey?: number;
   transcodeOffset: number;
+  subtitles: SubtitleTrack[];
 }
 
 export function useRoomSync() {
@@ -59,6 +65,7 @@ export function useRoomSync() {
               duration: msg.payload.room.duration,
               seekKey: nextKey,
               transcodeOffset: msg.payload.room.transcodeOffset || 0,
+              subtitles: msg.payload.room.subtitles || [],
             };
           });
         } else {
@@ -90,6 +97,7 @@ export function useRoomSync() {
                 duration: msg.payload.duration,
                 seekKey: nextKey,
                 transcodeOffset: msg.payload.transcodeOffset || 0,
+                subtitles: msg.payload.subtitles || [],
               };
           });
         } else {
