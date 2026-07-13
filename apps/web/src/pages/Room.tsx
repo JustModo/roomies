@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2 } from 'lucide-react';
-import { AdminOverlay } from '../components/room/AdminOverlay';
-import { useRoomSync } from '../hooks/useRoomSync';
+import { AdminOverlay } from '../components/AdminOverlay';
+import { useRoomSync, RoomState, MediaInfo } from '../hooks/useRoomSync';
 import { useAuth } from '../contexts/AuthContext';
-import { VideoPlayer } from '../components/room/VideoPlayer';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
-import { ChatSidebar } from '../components/room/ChatSidebar';
+import { ChatSidebar } from '../components/ChatSidebar';
+import { VideoPlayer } from '../components/VideoPlayer';
 
 export let hasUserInteracted = false;
 export const setHasUserInteracted = (val: boolean) => {
@@ -41,7 +41,7 @@ export default function Room() {
     addMessageHandler,
   } = useRoomSync();
 
-  useEffect(() => { 
+  useEffect(() => {
     if (roomState?.members) {
       setViewersCount(roomState.members.length);
     }
@@ -77,8 +77,8 @@ export default function Room() {
 }
 
 interface RoomInnerProps {
-  roomState: any;
-  mediaInfo: any;
+  roomState: RoomState | null;
+  mediaInfo: MediaInfo | null;
   seekKey: number;
   localTime: number;
   localCorrectionRate: number | null | undefined;
@@ -116,9 +116,48 @@ function RoomInner({
   const { user } = useAuth();
   const { isOpen, setIsOpen } = useChat();
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const scr = screen as any;
+      if (document.fullscreenElement) {
+        if (scr.orientation && scr.orientation.lock) {
+          scr.orientation.lock('landscape').catch(() => { });
+        }
+      } else {
+        if (isOpen) {
+          if (scr.orientation && scr.orientation.lock) {
+            scr.orientation.lock('portrait').catch(() => { });
+          }
+        } else {
+          if (scr.orientation && scr.orientation.unlock) {
+            scr.orientation.unlock();
+          }
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [isOpen]);
+
+  useEffect(() => {
+    const scr = screen as any;
+    if (!document.fullscreenElement) {
+      if (isOpen) {
+        if (scr.orientation && scr.orientation.lock) {
+          scr.orientation.lock('portrait').catch(() => { });
+        }
+      } else {
+        if (scr.orientation && scr.orientation.unlock) {
+          scr.orientation.unlock();
+        }
+      }
+    }
+  }, [isOpen]);
+
   return (
-    <div className="relative w-full h-screen bg-ink overflow-hidden text-paper flex">
-      <div className={`flex-1 h-full transition-all duration-300 relative ${isOpen ? 'mr-[360px]' : ''}`}>
+    <div className="relative w-full h-[100dvh] bg-ink overflow-hidden text-paper flex flex-col lg:flex-row">
+      <div className={`transition-all duration-300 relative flex-none w-full aspect-video lg:aspect-auto lg:h-full ${isOpen ? 'lg:flex-1 lg:mr-[360px]' : 'lg:flex-1'}`}>
         <VideoPlayer
           mediaInfo={mediaInfo}
           seekKey={seekKey}
@@ -141,11 +180,11 @@ function RoomInner({
                 <ChevronLeft size={16} className="mr-1" /> Exit
               </button>
             </div>
-            
+
             <div className="flex-1 flex justify-center text-14 uppercase tracking-[0.08em] items-center gap-2 drop-shadow-md whitespace-nowrap">
               {mediaInfo?.title || 'ROOM'} · <span className="font-mono text-14 text-blue-400">{viewersCount}</span> WATCHING
             </div>
-            
+
             <div className="flex-1 flex justify-end">
               {user?.role === 'root' && (
                 <button onClick={() => setShowAdmin(true)} className="flex items-center text-14 uppercase tracking-[0.08em] hover:text-fog transition-colors">

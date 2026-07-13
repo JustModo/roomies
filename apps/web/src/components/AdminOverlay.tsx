@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 
 import { X, Film, ChevronLeft, Play } from 'lucide-react';
-import { IconButton } from '../ui/IconButton';
-import { Input } from '../ui/Input';
-import { Button } from '../ui/Button';
+import { Input } from './ui/Input';
+import { IconButton } from './ui/IconButton';
+import { Button } from './ui/Button';
 import { Movie, MediaFile } from '@roomies/contracts';
 
 interface AdminOverlayProps {
