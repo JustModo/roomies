@@ -1,3 +1,40 @@
+# Source control
+.git
+.gitignore
+
+# Dependencies
+node_modules/
+apps/*/node_modules/
+packages/*/node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+apps/*/dist/
+packages/*/dist/
+out/
+.turbo/
+.next/
+
+# Environment and secrets
+.env
+.env.*.local
+.env.local
+
+# Data and assets (handled by volumes)
 /config/
 /cache/
 /media/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# macOS
+.DS_Store

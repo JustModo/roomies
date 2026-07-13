@@ -1,5 +1,6 @@
 services:
   roomies:
+    container_name: roomies
     build:
       context: .
       dockerfile: Dockerfile
@@ -10,6 +11,11 @@ services:
       - ./media:/media:ro
       - ./cache:/cache
       - ./config:/config
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
     # --------------------------------------------------------
     # Hardware Acceleration (GPU) Configurations
