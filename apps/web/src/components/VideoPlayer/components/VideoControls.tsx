@@ -31,10 +31,11 @@ const Btn: React.FC<{
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
+  important?: boolean;
   className?: string;
   children: React.ReactNode;
   title?: string;
-}> = ({ onClick, disabled, active, className = '', children, title }) => (
+}> = ({ onClick, disabled, active, important, className = '', children, title }) => (
   <button
     onClick={onClick}
     disabled={disabled}
@@ -44,7 +45,7 @@ const Btn: React.FC<{
       p-1.5 sm:p-2
       bg-transparent border-none
       transition-colors duration-150
-      ${active ? 'text-paper' : 'text-fog'}
+      ${active ? 'text-paper' : important ? 'text-paper/90' : 'text-fog'}
       hover:text-paper
       disabled:opacity-30 disabled:cursor-not-allowed
       focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-paper
@@ -90,6 +91,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
           disabled={isLocked}
           onClick={handlePlayPause}
           title={isPlaying ? 'Pause' : 'Play'}
+          important
         >
           {isPlaying
             ? <Pause className="w-[18px] h-[18px] lg:w-5 lg:h-5" fill="currentColor" />
@@ -97,17 +99,17 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
         </Btn>
 
         <Btn disabled={isLocked} onClick={() => handleSeekOffset(-10)} title="Back 10s">
-          <RotateCcw className="w-4 h-4" strokeWidth={1.5} />
+          <RotateCcw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
         </Btn>
 
         <Btn disabled={isLocked} onClick={() => handleSeekOffset(10)} title="Forward 10s">
-          <RotateCw className="w-4 h-4" strokeWidth={1.5} />
+          <RotateCw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
         </Btn>
 
         <Btn onClick={() => setIsMuted(!isMuted)} title={isMuted ? 'Unmute' : 'Mute'}>
           {isMuted
-            ? <VolumeX className="w-4 h-4" strokeWidth={1.5} />
-            : <Volume2 className="w-4 h-4" strokeWidth={1.5} />}
+            ? <VolumeX className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+            : <Volume2 className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
         </Btn>
 
         {/* Time — hidden on very small portrait so it doesn't wrap */}
@@ -122,7 +124,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
         <button
           disabled={isLocked}
           onClick={cyclePlaybackRate}
-          className="text-[11px] lg:text-base font-mono text-paper/70 hover:text-paper transition-colors w-7 lg:w-12 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+          className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
           title="Playback speed"
         >
           {roomPlaybackState?.playbackRate || 1}x
@@ -133,8 +135,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowQualityMenu(!showQualityMenu)}
-              className={`text-[11px] lg:text-base font-mono transition-colors w-10 lg:w-16 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
-                currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-paper/70 hover:text-paper'
+              className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
+                currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
               }`}
               title="Quality"
             >
@@ -179,7 +181,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               active={activeSubtitleId !== null}
               title="Subtitles"
             >
-              <ClosedCaption className="w-4 h-4" strokeWidth={1.5} />
+              <ClosedCaption className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
             </Btn>
 
             {showSubtitleMenu && (
@@ -225,7 +227,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             className="hidden lg:flex"
             title="Toggle chat"
           >
-            <MessageSquare className="w-4 h-4" strokeWidth={1.5} />
+            <MessageSquare className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
           </Btn>
         )}
 
@@ -241,8 +243,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
           {isFullscreen
-            ? <Minimize className="w-4 h-4" strokeWidth={1.5} />
-            : <Maximize className="w-4 h-4" strokeWidth={1.5} />}
+            ? <Minimize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+            : <Maximize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
         </Btn>
       </div>
     </div>
