@@ -102,11 +102,13 @@ export class TranscodeSession {
     }
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
+    const promises: Promise<void>[] = [];
     for (const [resolution, variant] of this.variants) {
       console.log(`[transcode] Stopping variant ${resolution}`);
-      variant.stop();
+      promises.push(variant.stop());
     }
+    await Promise.all(promises);
     this.variants.clear();
 
     try {
@@ -150,18 +152,22 @@ export class TranscodeSession {
       `[transcode] Seek to ${newPosition.toFixed(1)}s not covered, restarting all variants from new position`
     );
 
+    const stopPromises: Promise<void>[] = [];
     for (const res of resolutions) {
       const existing = this.variants.get(res);
       if (existing) {
-        existing.stop();
-        try {
-          fs.rmSync(existing.outputDir, { recursive: true, force: true });
-        } catch (err) {
-          console.error(`[transcode] Failed to clear variant dir for ${res}:`, err);
-        }
+        stopPromises.push((async () => {
+          await existing.stop();
+          try {
+            fs.rmSync(existing.outputDir, { recursive: true, force: true });
+          } catch (err) {
+            console.error(`[transcode] Failed to clear variant dir for ${res}:`, err);
+          }
+        })());
         this.variants.delete(res);
       }
     }
+    await Promise.all(stopPromises);
 
     // NOTE: Align startPosition to segment boundary, starting at least 1 segment before.
     const alignedPosition = Math.max(

@@ -5,7 +5,7 @@ import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
-import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings } from '@roomies/transcoding';
+import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings, SEGMENT_DURATION } from '@roomies/transcoding';
 
 const getMasterPlaylistUrl = (mediaFileId: string) => `/api/playback/hls/${mediaFileId}/master.m3u8`;
 
@@ -111,7 +111,7 @@ export class PlaybackService {
     }
     
     // NOTE: Align variant startup position with session active transcode offset.
-    const position = session.getTranscodeOffset();
+    const position = roomStore.getState().transcodeOffset || 0;
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
     await session.ensureVariantReady(resolution, position, ffmpegPreset, hwAccelMode);
     
@@ -159,9 +159,14 @@ export class PlaybackService {
     if (session && state.mediaId === session.mediaFileId) {
       const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
       
+      const isCovered = session.isSeekCovered(payload.position);
       const seekPromise = session.seek(payload.position, ffmpegPreset, hwAccelMode);
       
-      actualOffset = session.getTranscodeOffset();
+      if (isCovered) {
+        actualOffset = session.getTranscodeOffset();
+      } else {
+        actualOffset = Math.max(0, Math.floor(payload.position / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION);
+      }
       
       roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
       roomStore.updateTranscodeOffset(actualOffset);

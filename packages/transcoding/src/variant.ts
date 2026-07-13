@@ -211,16 +211,33 @@ export class TranscodeVariant extends EventEmitter {
     this.emit('error', err);
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopWatcher();
     this.stopRequested = true;
 
     if (this.process && this._isRunning) {
+      const exitPromise = new Promise<void>((resolve) => {
+        const onExit = () => {
+          this.removeListener('exit', onExit);
+          resolve();
+        };
+        this.on('exit', onExit);
+      });
+
       // NOTE: SIGCONT is required to process SIGTERM if suspended.
       if (this._isSuspended) {
         this.process.kill('SIGCONT');
       }
       this.process.kill('SIGTERM');
+
+      // NOTE: Force kill if FFmpeg hangs for more than 3 seconds
+      const timeout = setTimeout(() => {
+        if (this.process) this.process.kill('SIGKILL');
+      }, 3000);
+
+      await exitPromise;
+      clearTimeout(timeout);
+
       this.process = null;
       this._isRunning = false;
       this._isSuspended = false;
