@@ -9,6 +9,8 @@ export interface Message {
   isSystem: boolean;
   eventType?: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate';
   isExiting?: boolean;
+  /** True when this message was sent by the currently logged-in user. */
+  isMine?: boolean;
 }
 
 interface ChatContextType {
@@ -36,10 +38,12 @@ export function ChatProvider({
   children,
   sendMessage: sendSocketMessage,
   addMessageHandler,
+  currentUserId,
 }: {
   children: ReactNode;
   sendMessage: (msg: IncomingSocketMessage) => void;
   addMessageHandler: (handler: (msg: OutgoingSocketMessage) => void) => () => void;
+  currentUserId?: string | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -123,6 +127,7 @@ export function ChatProvider({
             body: msg.payload.message,
             isSystem: false,
             eventType: 'chat',
+            isMine: currentUserId != null && msg.payload.userId === currentUserId,
           };
           appendMessage(newMsg);
           break;
