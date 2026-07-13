@@ -149,8 +149,8 @@ export const ChatSidebar: React.FC = () => {
       `}
     >
       {/* Header */}
-      <div className="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-ash/10">
-        <p className="text-12 font-semibold uppercase tracking-[0.1em] text-paper/80">CHAT BAR</p>
+      <div className="shrink-0 flex justify-between items-center px-4 py-3 border-b border-ash/10">
+        <p className="text-12 font-semibold uppercase tracking-widest text-paper/80">CHAT BAR</p>
         {/* Close button — desktop only (mobile has no explicit close, use the player toggle) */}
         <div className="hidden lg:block">
           <IconButton icon={<X size={16} strokeWidth={1.5} />} onClick={() => setIsOpen(false)} />
@@ -180,7 +180,7 @@ export const ChatSidebar: React.FC = () => {
       </div>
 
       {/* Input — always pinned to bottom */}
-      <div className="flex-shrink-0 p-4 border-t border-ash/20 bg-void">
+      <div className="shrink-0 p-4 border-t border-ash/20 bg-void">
         <form 
           onSubmit={handleSend} 
           className="flex items-center gap-2 bg-ink border border-ash/45 px-3 py-2 focus-within:border-paper/70 transition-all duration-150"

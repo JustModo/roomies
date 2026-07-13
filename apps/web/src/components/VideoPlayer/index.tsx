@@ -3,6 +3,7 @@ import { VideoPlayerProps, BufferedRange } from './types';
 import { useHlsPlayer } from './hooks/useHlsPlayer';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { usePlayerGestures } from './hooks/usePlayerGestures';
 import { VideoOverlay } from './components/VideoOverlay';
 import { SeekBar } from './components/SeekBar';
 import { VideoControls } from './components/VideoControls';
@@ -38,6 +39,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting';
 
@@ -65,28 +67,46 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [mediaInfo]);
 
+  const lastShowTimeRef = useRef<number>(0);
+  const manuallyHiddenTimeRef = useRef<number>(0);
+
+  const showControls = useCallback(() => {
+    // Prevent synthetic events from waking it up right after hiding
+    if (Date.now() - manuallyHiddenTimeRef.current < 500) return;
+    
+    setIdle((prevIdle) => {
+      if (prevIdle) {
+        lastShowTimeRef.current = Date.now();
+      }
+      return false;
+    });
+
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setIdle(true);
+    }, 3000);
+  }, []);
+
+  const hideControls = useCallback(() => {
+    manuallyHiddenTimeRef.current = Date.now();
+    setIdle(true);
+    clearTimeout(timerRef.current);
+  }, []);
+
   // Idle Timer — also resets on touch so mobile users can interact
   useEffect(() => {
-    const resetIdleTimer = () => {
-      setIdle(false);
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        setIdle(true);
-      }, 3000);
-    };
-
-    window.addEventListener('mousemove', resetIdleTimer);
-    window.addEventListener('keydown', resetIdleTimer);
-    window.addEventListener('touchstart', resetIdleTimer, { passive: true });
-    resetIdleTimer();
+    window.addEventListener('mousemove', showControls);
+    window.addEventListener('keydown', showControls);
+    window.addEventListener('touchstart', showControls, { passive: true });
+    showControls();
 
     return () => {
-      window.removeEventListener('mousemove', resetIdleTimer);
-      window.removeEventListener('keydown', resetIdleTimer);
-      window.removeEventListener('touchstart', resetIdleTimer);
+      window.removeEventListener('mousemove', showControls);
+      window.removeEventListener('keydown', showControls);
+      window.removeEventListener('touchstart', showControls);
       clearTimeout(timerRef.current);
     };
-  }, []);
+  }, [showControls]);
 
   const { levels, currentLevel, handleQualityChange } = useHlsPlayer({
     videoRef,
@@ -134,6 +154,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [mediaInfo?.transcodeOffset, onSeek, isLocked]);
 
   useKeyboardShortcuts({ handlePlayPause, handleSeekOffset });
+
+  usePlayerGestures({
+    videoRef,
+    containerRef,
+    isLocked,
+    isPlaying,
+    playbackRate: roomPlaybackState?.playbackRate || 1,
+    isMuted,
+    setIsMuted,
+    onPlay,
+    onPause,
+    onSeek,
+    onSetRate,
+    idle,
+    showControls,
+    hideControls,
+    lastShowTimeRef,
+    mediaDuration: mediaInfo?.duration || duration,
+    transcodeOffset: mediaInfo?.transcodeOffset || 0,
+  });
 
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return '0:00';
@@ -211,8 +251,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
   const uiVisible = !idle || !isPlaying || isDragging;
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('player-controls-toggle', { detail: { visible: uiVisible } }));
+  }, [uiVisible]);
+
   return (
-    <div className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center">
+    <div ref={containerRef} className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center">
       <video
         ref={videoRef}
         className="w-full h-full object-contain bg-ink"
@@ -228,12 +272,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       />
 
       {/* Top Bar Container passed as children */}
-      <div className={`absolute top-0 left-0 w-full z-50 transition-opacity duration-200 ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className={`absolute top-0 left-0 w-full z-50 transition-opacity duration-200 no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         {children}
       </div>
 
       {/* Bottom Controls */}
-      <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         <SeekBar
           ref={progressBarRef}
           isLocked={isLocked}

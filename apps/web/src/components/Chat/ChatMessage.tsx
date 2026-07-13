@@ -28,7 +28,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ msg, isGrouped, isNext
 
   return (
     <div
-      className={`flex flex-col gap-1 ${paddingClass} ${!isNextGrouped ? 'border-b border-ash/5 last:border-b-0' : ''} break-words`}
+      className={`flex flex-col gap-1 ${paddingClass} ${!isNextGrouped ? 'border-b border-ash/5 last:border-b-0' : ''} wrap-break-word`}
     >
       {!isGrouped && (
         <span

@@ -8,7 +8,7 @@ interface SystemIconProps {
 
 /** Icon that represents a system event type in chat */
 export const SystemIcon: React.FC<SystemIconProps> = ({ type }) => {
-  const props = { size: 12, className: 'mr-1.5 opacity-70 inline-block align-middle' };
+  const props = { className: 'w-[12px] h-[12px] lg:w-[15px] lg:h-[15px] mr-1.5 opacity-70 inline-block align-middle' };
   switch (type) {
     case 'join':  return <UserPlus {...props} />;
     case 'leave': return <UserMinus {...props} />;

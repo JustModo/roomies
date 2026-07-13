@@ -74,7 +74,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   const isPlaying = roomPlaybackState?.state === 'playing';
 
   return (
-    <div className="flex items-center justify-between px-2 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 gap-1">
+    <div className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1">
       {/* ── Left cluster: play, seek offsets, mute, time ── */}
       <div className="flex items-center gap-0.5 sm:gap-2 lg:gap-3 min-w-0">
         <Btn
