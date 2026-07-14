@@ -24,7 +24,7 @@ interface UseSubtitlesProps {
 /** Convert VTT inline tags to safe HTML, preserving <i>, <b>, <u> */
 const vttTagToHtml = (text: string): string => {
   return text
-    .replace(/<(\/?)(i|b|u)(?:\.[^>]*)?>|<[^>]*>/g, (m, slash, tag) => {
+    .replace(/<(\/?)(i|b|u)(?:\.[^>]*)?>|<[^>]*>/g, (_m, slash, tag) => {
       if (tag) return `<${slash}${tag}>`;
       return '';
     })
