@@ -47,7 +47,7 @@ export function useHlsPlayer({
 
     if (Hls.isSupported()) {
       const hls = new Hls({
-        startPosition: localTime > 0 ? Math.max(0, localTime - (mediaInfo.transcodeOffset || 0)) : undefined,
+        startPosition: Math.max(0, localTime - (mediaInfo.transcodeOffset || 0)),
         enableWorker: true,
         lowLatencyMode: false,
         manifestLoadingMaxRetry: 10,
