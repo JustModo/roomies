@@ -89,33 +89,34 @@ export class PlaybackService {
     };
   }
 
-  static generateMasterPlaylist(): string {
+  static generateMasterPlaylist(offset?: number): string {
     const lines = ['#EXTM3U'];
     const resolutions: Resolution[] = ['1080p', '720p', '360p'];
 
     for (const res of resolutions) {
       const preset = RESOLUTION_PRESETS[res];
       const bandwidth = parseInt(preset.videoBitrate) * 1000 + parseInt(preset.audioBitrate) * 1000;
+      const url = offset !== undefined ? `${res}/stream.m3u8?offset=${offset}` : `${res}/stream.m3u8`;
       lines.push(
         `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${res}"`,
-        `${res}/stream.m3u8`
+        url
       );
     }
     return lines.join('\n') + '\n';
   }
 
-  static async ensureVariant(mediaId: string, resolution: Resolution): Promise<string> {
+  static async ensureVariant(mediaId: string, resolution: Resolution, reqOffset?: number): Promise<string> {
     const session = TranscodeSessionManager.getSession();
     if (!session || session.mediaFileId !== mediaId) {
       throw new Error('Session not found');
     }
     
-    // NOTE: Align variant startup position with session active transcode offset.
-    const position = roomStore.getState().transcodeOffset || 0;
+    // NOTE: Align variant startup position with requested offset or room transcode offset.
+    const position = reqOffset !== undefined ? reqOffset : (roomStore.getState().transcodeOffset || 0);
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
     await session.ensureVariantReady(resolution, position, ffmpegPreset, hwAccelMode);
     
-    const variantDir = session.getVariantOutputDir(resolution);
+    const variantDir = session.getVariantOutputDir(resolution, position);
     const relativePath = path.relative(CACHE_DIR, variantDir);
     return `${HLS_BASE_URL}/${relativePath}/stream.m3u8`;
   }
@@ -158,12 +159,13 @@ export class PlaybackService {
     
     if (session && state.mediaId === session.mediaFileId) {
       const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+      const currentOffset = state.transcodeOffset;
       
-      const isCovered = session.isSeekCovered(payload.position);
-      const seekPromise = session.seek(payload.position, ffmpegPreset, hwAccelMode);
+      const isCovered = session.isSeekCovered(payload.position, currentOffset);
+      const seekPromise = session.seek(payload.position, currentOffset, ffmpegPreset, hwAccelMode);
       
       if (isCovered) {
-        actualOffset = session.getTranscodeOffset();
+        actualOffset = currentOffset;
       } else {
         actualOffset = Math.max(0, Math.floor(payload.position / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION);
       }

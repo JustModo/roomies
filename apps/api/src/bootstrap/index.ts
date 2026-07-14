@@ -84,7 +84,15 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   // NOTE: Periodically trigger transcoding cache management based on playhead position.
   const cacheInterval = setInterval(() => {
-    TranscodeSessionManager.manageActiveCaches(roomStore.getCurrentPosition());
+    const state = roomStore.getState();
+    const primaryOffset = state.transcodeOffset;
+    const playheads = [roomStore.getCurrentPosition()];
+    for (const member of state.members) {
+      if (member.status === 'async') {
+        playheads.push(member.position);
+      }
+    }
+    TranscodeSessionManager.manageActiveCaches(primaryOffset, playheads);
   }, 1000);
   registerChatSocketEvents();
   registerPlaybackSocketEvents();

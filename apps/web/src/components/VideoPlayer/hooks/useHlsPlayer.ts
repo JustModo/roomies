@@ -10,6 +10,7 @@ interface UseHlsPlayerParams {
   roomPlaybackState?: RoomState['playback'];
   reportStatus: (status: 'ready' | 'buffering') => void;
   setIsPlaying: (playing: boolean) => void;
+  isAsyncMode: boolean;
 }
 
 export function useHlsPlayer({
@@ -20,6 +21,7 @@ export function useHlsPlayer({
   roomPlaybackState,
   reportStatus,
   setIsPlaying,
+  isAsyncMode,
 }: UseHlsPlayerParams) {
   const hlsRef = useRef<Hls | null>(null);
   const [levels, setLevels] = useState<Level[]>([]);
@@ -46,8 +48,14 @@ export function useHlsPlayer({
     setCurrentLevel(-1);
 
     if (Hls.isSupported()) {
+      const transcodeOffset = mediaInfo.transcodeOffset || 0;
+      let targetOffset = transcodeOffset;
+      if (isAsyncMode) {
+        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10 - 10);
+      }
+      
       const hls = new Hls({
-        startPosition: Math.max(0, localTime - (mediaInfo.transcodeOffset || 0)),
+        startPosition: Math.max(0, localTime - targetOffset),
         enableWorker: true,
         lowLatencyMode: false,
         manifestLoadingMaxRetry: 10,
@@ -60,7 +68,13 @@ export function useHlsPlayer({
         maxMaxBufferLength: 120,
       });
 
-      hls.loadSource(`${mediaInfo.hlsUrl}?t=${Date.now()}`);
+      const hlsUrl = new URL(mediaInfo.hlsUrl, window.location.origin);
+      hlsUrl.searchParams.set('t', Date.now().toString());
+      if (isAsyncMode && targetOffset !== transcodeOffset) {
+        hlsUrl.searchParams.set('offset', targetOffset.toString());
+      }
+
+      hls.loadSource(hlsUrl.toString());
       hls.attachMedia(videoRef.current);
 
       hls.on(Events.MANIFEST_PARSED, (_event: Events.MANIFEST_PARSED, data: ManifestParsedData) => {
@@ -93,8 +107,19 @@ export function useHlsPlayer({
         hlsRef.current = null;
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = mediaInfo.hlsUrl;
-      const targetTime = Math.max(0, localTime - (mediaInfo.transcodeOffset || 0));
+      const transcodeOffset = mediaInfo.transcodeOffset || 0;
+      let targetOffset = transcodeOffset;
+      if (isAsyncMode) {
+        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10 - 10);
+      }
+
+      const hlsUrl = new URL(mediaInfo.hlsUrl, window.location.origin);
+      if (isAsyncMode && targetOffset !== transcodeOffset) {
+        hlsUrl.searchParams.set('offset', targetOffset.toString());
+      }
+
+      videoRef.current.src = hlsUrl.toString();
+      const targetTime = Math.max(0, localTime - targetOffset);
       videoRef.current.addEventListener('loadedmetadata', () => {
         if (videoRef.current) {
           videoRef.current.currentTime = targetTime;

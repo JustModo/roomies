@@ -6,13 +6,14 @@ import { TranscodeVariant } from './variant';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
 import { getSourceFrameRate } from './ffprobe';
 
-/** Manages all transcoding variants for a single media file. */
+/** Manages all transcoding variants for a single media file, grouped by transcode offset. */
 export class TranscodeSession {
   public readonly mediaFileId: string;
   public readonly inputPath: string;
   public readonly outputBaseDir: string;
 
-  private variants = new Map<Resolution, TranscodeVariant>();
+  // Map of offset -> Map of Resolution -> TranscodeVariant
+  private variantGroups = new Map<number, Map<Resolution, TranscodeVariant>>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
 
@@ -28,7 +29,6 @@ export class TranscodeSession {
     this.onErrorCallback = callback;
   }
 
-  /** Probes the source frame rate once and caches it, so parallel variant starts share one ffprobe call. */
   private getSourceFps(): Promise<number> {
     if (!this.fpsPromise) {
       this.fpsPromise = getSourceFrameRate(this.inputPath);
@@ -36,92 +36,132 @@ export class TranscodeSession {
     return this.fpsPromise;
   }
 
+  private getTotalActiveVariants(): number {
+    let total = 0;
+    for (const group of this.variantGroups.values()) {
+      total += group.size;
+    }
+    return total;
+  }
+
   async ensureVariantReady(
     resolution: Resolution,
-    startPosition: number = 0,
+    offset: number = 0,
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
-    const existing = this.variants.get(resolution);
-    if (existing) {
-      if (existing.isReady) {
-        return;
-      }
-      return new Promise((resolve) => {
-        existing.once('ready', resolve);
-      });
+    let group = this.variantGroups.get(offset);
+    if (!group) {
+      group = new Map<Resolution, TranscodeVariant>();
+      this.variantGroups.set(offset, group);
     }
 
-    if (this.variants.size >= MAX_CONCURRENT_VARIANTS) {
-      console.error(`[transcode] Refusing to spawn variant ${resolution}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
+    const existing = group.get(resolution);
+    if (existing) {
+      if (existing.isReady) return;
+      return new Promise((resolve) => existing.once('ready', resolve));
+    }
+
+    if (this.getTotalActiveVariants() >= MAX_CONCURRENT_VARIANTS) {
+      console.error(`[transcode] Refusing to spawn variant ${resolution} at offset ${offset}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
       throw new Error('Maximum concurrent transcode variants reached');
     }
 
     const randomSuffix = Math.random().toString(36).substring(2, 8);
-    const variantDir = path.join(this.outputBaseDir, resolution, `ss-${startPosition}-${randomSuffix}`);
+    // Include offset in the directory path so groups are isolated
+    const variantDir = path.join(this.outputBaseDir, offset.toString(), resolution, `ss-${offset}-${randomSuffix}`);
     const variant = new TranscodeVariant(resolution, variantDir);
 
-    variant.on('ready', () => {
-      console.log(`[transcode] Variant ${resolution} ready (first segment available)`);
-    });
-
+    variant.on('ready', () => console.log(`[transcode] Variant ${resolution}@${offset} ready`));
     variant.on('error', (err: Error) => {
-      console.error(`[transcode] Variant ${resolution} error:`, err.message);
-      if (this.onErrorCallback) {
-        this.onErrorCallback(resolution, err);
-      }
+      console.error(`[transcode] Variant ${resolution}@${offset} error:`, err.message);
+      if (this.onErrorCallback) this.onErrorCallback(resolution, err);
     });
-
     variant.on('exit', (code: number | null) => {
-      if (code === 0) {
-        console.log(`[transcode] Variant ${resolution} completed successfully`);
-      }
+      if (code === 0) console.log(`[transcode] Variant ${resolution}@${offset} completed`);
     });
 
-    this.variants.set(resolution, variant);
+    group.set(resolution, variant);
 
     const sourceFps = await this.getSourceFps();
-    variant.start(this.inputPath, startPosition, preset, hwAccelMode, sourceFps);
+    variant.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
 
-    return new Promise((resolve) => {
-      variant.once('ready', resolve);
-    });
+    return new Promise((resolve) => variant.once('ready', resolve));
   }
 
-  getActiveResolutions(): Resolution[] {
-    return Array.from(this.variants.keys());
+  isVariantReady(resolution: Resolution, offset: number): boolean {
+    return this.variantGroups.get(offset)?.get(resolution)?.isReady ?? false;
   }
 
-  isVariantReady(resolution: Resolution): boolean {
-    return this.variants.get(resolution)?.isReady ?? false;
+  manageActiveCaches(primaryOffset: number, playheads: number[]): void {
+    for (const offset of Array.from(this.variantGroups.keys())) {
+      let isActive = (offset === primaryOffset);
+      let minPlayheadInGroup = Infinity;
+
+      for (const pos of playheads) {
+        if (this.isSeekCovered(pos, offset)) {
+          isActive = true;
+          if (pos < minPlayheadInGroup) minPlayheadInGroup = pos;
+        }
+      }
+
+      if (!isActive) {
+        console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
+        this.stopGroup(offset);
+      } else {
+        const group = this.variantGroups.get(offset);
+        if (group && minPlayheadInGroup !== Infinity) {
+          for (const variant of group.values()) {
+            variant.manageCache(minPlayheadInGroup);
+          }
+        }
+      }
+    }
   }
 
-  manageActiveCaches(currentPlayhead: number): void {
-    for (const variant of this.variants.values()) {
-      variant.manageCache(currentPlayhead);
+  async stopGroup(offset: number): Promise<void> {
+    const group = this.variantGroups.get(offset);
+    if (!group) return;
+
+    console.log(`[transcode] Stopping all variants for offset ${offset}`);
+    const promises: Promise<void>[] = [];
+    for (const variant of group.values()) {
+      promises.push(variant.stop());
+    }
+    await Promise.all(promises);
+    this.variantGroups.delete(offset);
+
+    try {
+      const groupDir = path.join(this.outputBaseDir, offset.toString());
+      if (fs.existsSync(groupDir)) {
+        fs.rmSync(groupDir, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.error(`[transcode] Failed to delete cache directory for offset ${offset}:`, err);
     }
   }
 
   async stop(): Promise<void> {
     const promises: Promise<void>[] = [];
-    for (const [resolution, variant] of this.variants) {
-      console.log(`[transcode] Stopping variant ${resolution}`);
-      promises.push(variant.stop());
+    for (const offset of this.variantGroups.keys()) {
+      promises.push(this.stopGroup(offset));
     }
     await Promise.all(promises);
-    this.variants.clear();
 
     try {
       if (fs.existsSync(this.outputBaseDir)) {
         fs.rmSync(this.outputBaseDir, { recursive: true, force: true });
       }
     } catch (err) {
-      console.error(`[transcode] Failed to delete cache directory on stop:`, err);
+      console.error(`[transcode] Failed to delete base cache directory on stop:`, err);
     }
   }
 
-  isSeekCovered(newPosition: number): boolean {
-    const activeVariants = Array.from(this.variants.values());
+  isSeekCovered(newPosition: number, offset: number): boolean {
+    const group = this.variantGroups.get(offset);
+    if (!group) return false;
+    
+    const activeVariants = Array.from(group.values());
     if (activeVariants.length === 0) return false;
 
     for (const variant of activeVariants) {
@@ -135,41 +175,22 @@ export class TranscodeSession {
 
   async seek(
     newPosition: number,
+    currentOffset: number,
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
-  ): Promise<void> {
+  ): Promise<number> {
     const resolutions: Resolution[] = ['360p', '720p', '1080p'];
-    const isCovered = this.isSeekCovered(newPosition);
+    const isCovered = this.isSeekCovered(newPosition, currentOffset);
 
     if (isCovered) {
-      console.log(
-        `[transcode] Seek to ${newPosition.toFixed(1)}s is covered by all active variants, reusing cache`
-      );
-      return;
+      console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s is covered by offset ${currentOffset}, reusing cache`);
+      return currentOffset;
     }
 
-    console.log(
-      `[transcode] Seek to ${newPosition.toFixed(1)}s not covered, restarting all variants from new position`
-    );
+    console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s not covered by offset ${currentOffset}, starting new variants`);
 
-    const stopPromises: Promise<void>[] = [];
-    for (const res of resolutions) {
-      const existing = this.variants.get(res);
-      if (existing) {
-        stopPromises.push((async () => {
-          await existing.stop();
-          try {
-            fs.rmSync(existing.outputDir, { recursive: true, force: true });
-          } catch (err) {
-            console.error(`[transcode] Failed to clear variant dir for ${res}:`, err);
-          }
-        })());
-        this.variants.delete(res);
-      }
-    }
-    await Promise.all(stopPromises);
+    await this.stopGroup(currentOffset);
 
-    // NOTE: Align startPosition to segment boundary, starting at least 1 segment before.
     const alignedPosition = Math.max(
       0,
       Math.floor(newPosition / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION
@@ -178,12 +199,15 @@ export class TranscodeSession {
     await Promise.all(
       resolutions.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
     );
+
+    return alignedPosition;
   }
 
-  getVariantOutputDir(resolution: Resolution): string {
-    const variant = this.variants.get(resolution);
+  getVariantOutputDir(resolution: Resolution, offset: number): string {
+    const group = this.variantGroups.get(offset);
+    const variant = group?.get(resolution);
     if (!variant) {
-      throw new Error(`Variant not found for resolution ${resolution}`);
+      throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
     }
     return variant.outputDir;
   }
@@ -205,10 +229,4 @@ export class TranscodeSession {
       return 0;
     }
   }
-
-  getTranscodeOffset(): number {
-    const active = this.variants.values().next().value;
-    return active ? active.startPosition : 0;
-  }
 }
-

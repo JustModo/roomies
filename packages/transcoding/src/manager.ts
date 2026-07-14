@@ -33,9 +33,9 @@ class TranscodeSessionManagerImpl {
     return this.currentSession;
   }
 
-  manageActiveCaches(currentPlayhead: number): void {
+  manageActiveCaches(primaryOffset: number, playheads: number[]): void {
     if (this.currentSession) {
-      this.currentSession.manageActiveCaches(currentPlayhead);
+      this.currentSession.manageActiveCaches(primaryOffset, playheads);
     }
   }
 

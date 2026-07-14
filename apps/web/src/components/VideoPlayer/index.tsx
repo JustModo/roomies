@@ -122,6 +122,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     roomPlaybackState,
     reportStatus,
     setIsPlaying,
+    isAsyncMode,
   });
 
   const { activeSubtitleId, setActiveSubtitleId, activeCueHtml } = useSubtitles({ mediaInfo, currentTime });
