@@ -22,9 +22,8 @@ export default function Lobby() {
       .finally(() => setLoading(false));
   }, []);
 
-  const status = activePlayback?.state === 'playing' ? 'WATCHING' : (activePlayback?.state === 'paused' ? 'PAUSED' : 'WAITING');
+  const status = !activePlayback?.mediaTitle ? 'WAITING' : (activePlayback?.state === 'playing' ? 'PLAYING' : 'PAUSED');
   const viewersCount = activePlayback?.viewersCount || 0;
-  const currentMedia = activePlayback?.mediaTitle || 'Unknown';
 
   if (loading) return <div className="min-h-screen bg-void" />;
 
@@ -44,9 +43,9 @@ export default function Lobby() {
             <p className="text-14 text-fog uppercase tracking-[0.08em] flex items-center gap-2">
               <span className="font-mono text-16 text-paper">{viewersCount}</span> PEOPLE · {status}
             </p>
-            {status !== 'WAITING' && (
+            {activePlayback?.mediaTitle && (
               <p className="text-14 text-fog">
-                Now: {currentMedia}
+                Now: {activePlayback.mediaTitle}
               </p>
             )}
           </div>
@@ -62,9 +61,9 @@ export default function Lobby() {
 
       <button
         onClick={logout}
-        className="absolute bottom-6 right-6 flex items-center gap-2 text-12 text-fog lowercase hover:text-paper transition-colors duration-150"
+        className="absolute top-6 right-6 md:top-8 md:right-8 flex items-center gap-2 text-12 text-fog uppercase tracking-[0.08em] hover:text-paper transition-colors duration-150 p-2"
       >
-        sign out <LogOut size={14} className="ml-1" />
+        sign out <LogOut size={14} />
       </button>
     </div>
   );
