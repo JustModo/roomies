@@ -72,6 +72,7 @@ export default function Room() {
     setStatus,
     sendMessage,
     addMessageHandler,
+    reportLocalTime,
   } = useRoomSync();
 
   useEffect(() => {
@@ -100,6 +101,7 @@ export default function Room() {
         seek={seek}
         setRate={setRate}
         setStatus={setStatus}
+        reportLocalTime={reportLocalTime}
         viewersCount={viewersCount}
         handleExit={handleExit}
         showAdmin={showAdmin}
@@ -122,6 +124,7 @@ interface RoomInnerProps {
   seek: (pos: number) => void;
   setRate: (rate: number) => void;
   setStatus: (status: 'ready' | 'buffering') => void;
+  reportLocalTime: (time: number) => void;
   viewersCount: number;
   handleExit: () => void;
   showAdmin: boolean;
@@ -141,6 +144,7 @@ function RoomInner({
   seek,
   setRate,
   setStatus,
+  reportLocalTime,
   viewersCount,
   handleExit,
   showAdmin,
@@ -232,6 +236,7 @@ function RoomInner({
           onSeek={seek}
           onSetRate={setRate}
           onStatusChange={setStatus}
+          onReportTime={reportLocalTime}
           showChat={isOpen}
           onToggleChat={() => setIsOpen(!isOpen)}
           isFullscreen={isFullscreen}

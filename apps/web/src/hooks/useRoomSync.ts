@@ -153,24 +153,10 @@ export function useRoomSync() {
     return () => remove();
   }, [addMessageHandler, getInitialPosition]);
 
-  useEffect(() => {
-    let lastTick = Date.now();
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const delta = (now - lastTick) / 1000;
-      lastTick = now;
-
-      if (roomState?.playback.state === 'playing') {
-        setLocalTime(prev => {
-          const rate = localCorrectionRate ?? roomState.playback.playbackRate;
-          const next = prev + delta * rate;
-          localTimeRef.current = next;
-          return next;
-        });
-      }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [roomState?.playback.state, roomState?.playback.playbackRate, localCorrectionRate]);
+  const reportLocalTime = useCallback((time: number) => {
+    localTimeRef.current = time;
+    setLocalTime(time);
+  }, []);
 
   const playbackStateRef = useRef(roomState?.playback.state);
   const playbackRateRef = useRef(roomState?.playback.playbackRate);
@@ -234,6 +220,7 @@ export function useRoomSync() {
     setRate,
     setStatus,
     sendMessage,
-    addMessageHandler
+    addMessageHandler,
+    reportLocalTime
   };
 }

@@ -122,8 +122,8 @@ export class TranscodeVariant extends EventEmitter {
     }
 
     return [
-      // NOTE: Fast seek to keyframe. HLS only needs keyframe alignment.
-      ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString(), '-noaccurate_seek'] : []),
+      // NOTE: Fast seek to keyframe, then decode up to startPosition to ensure exact frame alignment for synchronized playback.
+      ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString()] : []),
 
       '-i', this.inputPath,
 

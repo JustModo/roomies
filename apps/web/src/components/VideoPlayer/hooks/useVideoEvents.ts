@@ -16,6 +16,7 @@ interface UseVideoEventsParams {
   setCurrentTime: (time: number) => void;
   setDuration: (duration: number) => void;
   setBufferedRanges: (ranges: BufferedRange[]) => void;
+  onReportTime: (time: number) => void;
 }
 
 const getBufferedAhead = (vid: HTMLVideoElement) => {
@@ -45,6 +46,7 @@ export function useVideoEvents({
   setCurrentTime,
   setDuration,
   setBufferedRanges,
+  onReportTime,
 }: UseVideoEventsParams) {
   const lastProcessedTriggerRef = useRef(0);
 
@@ -181,9 +183,11 @@ export function useVideoEvents({
 
     const onTimeUpdate = () => {
       const transOffset = mediaInfo?.transcodeOffset || 0;
+      const absTime = video.currentTime + transOffset;
       if (!isDragging) {
-        setCurrentTime(video.currentTime + transOffset);
+        setCurrentTime(absTime);
       }
+      onReportTime(absTime);
       setDuration(video.duration || 0);
       updateBufferedRanges();
     };
@@ -206,5 +210,5 @@ export function useVideoEvents({
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
     };
-  }, [isDragging, mediaInfo?.transcodeOffset, setCurrentTime, setDuration, setBufferedRanges, setIsPlaying]);
+  }, [isDragging, mediaInfo?.transcodeOffset, setCurrentTime, setDuration, setBufferedRanges, setIsPlaying, onReportTime]);
 }

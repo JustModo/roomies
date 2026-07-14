@@ -23,6 +23,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSeek,
   onSetRate,
   onStatusChange,
+  onReportTime,
   showChat,
   onToggleChat,
   isFullscreen,
@@ -135,6 +136,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setCurrentTime,
     setDuration,
     setBufferedRanges,
+    onReportTime,
   });
 
   const handlePlayPause = useCallback(() => {
