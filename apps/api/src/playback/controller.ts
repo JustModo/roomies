@@ -45,11 +45,11 @@ export const PlaybackController = {
   },
 
   async getVariantStream(req: FastifyRequest, reply: FastifyReply) {
-    const { mediaId, resolution } = req.params as { mediaId: string; resolution: Resolution };
+    const { mediaId, sessionId, resolution } = req.params as { mediaId: string; sessionId: string; resolution: Resolution };
     const { offset } = req.query as { offset?: string };
     const offsetNum = offset ? parseInt(offset, 10) : undefined;
     try {
-      const redirectUrl = await PlaybackService.ensureVariant(mediaId, resolution, offsetNum);
+      const redirectUrl = await PlaybackService.ensureVariant(mediaId, sessionId, resolution, offsetNum);
       return reply
         .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
         .status(302)

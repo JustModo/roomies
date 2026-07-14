@@ -8,16 +8,19 @@ import { getSourceFrameRate } from './ffprobe';
 
 /** Manages all transcoding variants for a single media file, grouped by transcode offset. */
 export class TranscodeSession {
+  public readonly sessionId: string;
   public readonly mediaFileId: string;
   public readonly inputPath: string;
   public readonly outputBaseDir: string;
 
   // Map of offset -> Map of Resolution -> TranscodeVariant
   private variantGroups = new Map<number, Map<Resolution, TranscodeVariant>>();
+  private groupCreatedAt = new Map<number, number>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
 
-  constructor(mediaFileId: string, inputPath: string, outputBaseDir: string) {
+  constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string) {
+    this.sessionId = sessionId;
     this.mediaFileId = mediaFileId;
     this.inputPath = inputPath;
     this.outputBaseDir = outputBaseDir;
@@ -54,6 +57,7 @@ export class TranscodeSession {
     if (!group) {
       group = new Map<Resolution, TranscodeVariant>();
       this.variantGroups.set(offset, group);
+      this.groupCreatedAt.set(offset, Date.now());
     }
 
     const existing = group.get(resolution);
@@ -70,15 +74,15 @@ export class TranscodeSession {
     const randomSuffix = Math.random().toString(36).substring(2, 8);
     // Include offset in the directory path so groups are isolated
     const variantDir = path.join(this.outputBaseDir, offset.toString(), resolution, `ss-${offset}-${randomSuffix}`);
-    const variant = new TranscodeVariant(resolution, variantDir);
+    const variant = new TranscodeVariant(resolution, variantDir, this.sessionId);
 
-    variant.on('ready', () => console.log(`[transcode] Variant ${resolution}@${offset} ready`));
+    variant.on('ready', () => console.log(`[transcode] [session ${this.sessionId}] Variant ${resolution}@${offset} ready`));
     variant.on('error', (err: Error) => {
-      console.error(`[transcode] Variant ${resolution}@${offset} error:`, err.message);
+      console.error(`[transcode] [session ${this.sessionId}] Variant ${resolution}@${offset} error:`, err.message);
       if (this.onErrorCallback) this.onErrorCallback(resolution, err);
     });
     variant.on('exit', (code: number | null) => {
-      if (code === 0) console.log(`[transcode] Variant ${resolution}@${offset} completed`);
+      if (code === 0) console.log(`[transcode] [session ${this.sessionId}] Variant ${resolution}@${offset} completed`);
     });
 
     group.set(resolution, variant);
@@ -93,19 +97,25 @@ export class TranscodeSession {
     return this.variantGroups.get(offset)?.get(resolution)?.isReady ?? false;
   }
 
-  manageActiveCaches(primaryOffset: number, playheads: number[]): void {
+  manageActiveCaches(activeOffset: number, playheads: number[]): void {
     for (const offset of Array.from(this.variantGroups.keys())) {
-      let isActive = (offset === primaryOffset);
+      let isActive = (offset === activeOffset);
       let minPlayheadInGroup = Infinity;
 
       for (const pos of playheads) {
-        if (this.isSeekCovered(pos, offset)) {
+        if (this.isPositionCovered(pos, offset)) {
           isActive = true;
           if (pos < minPlayheadInGroup) minPlayheadInGroup = pos;
         }
       }
 
       if (!isActive) {
+        const createdAt = this.groupCreatedAt.get(offset) || 0;
+        if (Date.now() - createdAt < 15000) {
+          // Keep it alive during the 15-second grace period
+          continue;
+        }
+
         console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
         this.stopGroup(offset);
       } else {
@@ -130,6 +140,7 @@ export class TranscodeSession {
     }
     await Promise.all(promises);
     this.variantGroups.delete(offset);
+    this.groupCreatedAt.delete(offset);
 
     try {
       const groupDir = path.join(this.outputBaseDir, offset.toString());
@@ -157,7 +168,7 @@ export class TranscodeSession {
     }
   }
 
-  isSeekCovered(newPosition: number, offset: number): boolean {
+  isPositionCovered(newPosition: number, offset: number): boolean {
     const group = this.variantGroups.get(offset);
     if (!group) return false;
     
@@ -180,7 +191,7 @@ export class TranscodeSession {
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<number> {
     const resolutions: Resolution[] = ['360p', '720p', '1080p'];
-    const isCovered = this.isSeekCovered(newPosition, currentOffset);
+    const isCovered = this.isPositionCovered(newPosition, currentOffset);
 
     if (isCovered) {
       console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s is covered by offset ${currentOffset}, reusing cache`);

@@ -4,18 +4,19 @@ import { TranscodeErrorCallback } from './types';
 import { TranscodeSession } from './session';
 import { CACHE_DIR } from './config';
 
-/** Singleton manager for the active transcoding session. Only one media file can transcode at a time. */
+/** Singleton manager for active transcoding sessions. Manages one sync session and isolated async sessions. */
 class TranscodeSessionManagerImpl {
-  private currentSession: TranscodeSession | null = null;
+  private sessions = new Map<string, TranscodeSession>();
   private errorCallbacks: TranscodeErrorCallback[] = [];
 
-  startSession(mediaFileId: string, inputPath: string): TranscodeSession {
-    this.stopSession();
+  startSession(sessionId: string, mediaFileId: string, inputPath: string): TranscodeSession {
+    this.stopSession(sessionId);
 
-    const outputDir = path.join(CACHE_DIR, mediaFileId);
+    // Isolate cache directory per session and media
+    const outputDir = path.join(CACHE_DIR, sessionId, mediaFileId);
     this.cleanDirectory(outputDir);
 
-    const session = new TranscodeSession(mediaFileId, inputPath, outputDir);
+    const session = new TranscodeSession(sessionId, mediaFileId, inputPath, outputDir);
 
     session.onError((resolution, error) => {
       for (const cb of this.errorCallbacks) {
@@ -23,27 +24,40 @@ class TranscodeSessionManagerImpl {
       }
     });
 
-    this.currentSession = session;
-    console.log(`[transcode] Started new session for media ${mediaFileId}`);
+    this.sessions.set(sessionId, session);
+    console.log(`[transcode] Started new session ${sessionId} for media ${mediaFileId}`);
 
     return session;
   }
 
-  getSession(): TranscodeSession | null {
-    return this.currentSession;
+  getSession(sessionId: string): TranscodeSession | null {
+    return this.sessions.get(sessionId) || null;
   }
 
-  manageActiveCaches(primaryOffset: number, playheads: number[]): void {
-    if (this.currentSession) {
-      this.currentSession.manageActiveCaches(primaryOffset, playheads);
+  manageActiveCaches(sessionPlayheads: Record<string, { activeOffset: number, playheads: number[] }>): void {
+    for (const [sessionId, session] of this.sessions.entries()) {
+      const data = sessionPlayheads[sessionId];
+      if (data) {
+        session.manageActiveCaches(data.activeOffset, data.playheads);
+      } else {
+        // If session is no longer active (user left or switched), stop it.
+        this.stopSession(sessionId);
+      }
     }
   }
 
-  stopSession(): void {
-    if (this.currentSession) {
-      console.log(`[transcode] Stopping session for media ${this.currentSession.mediaFileId}`);
-      this.currentSession.stop();
-      this.currentSession = null;
+  stopSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      console.log(`[transcode] Stopping session ${sessionId} for media ${session.mediaFileId}`);
+      session.stop();
+      this.sessions.delete(sessionId);
+    }
+  }
+
+  stopAll(): void {
+    for (const sessionId of this.sessions.keys()) {
+      this.stopSession(sessionId);
     }
   }
 

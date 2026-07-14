@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebSocket } from './useWebSocket';
 import { OutgoingSocketMessage } from '@roomies/contracts';
+import { useAsyncPlayback } from './useAsyncPlayback';
 
 export type RoomState = Extract<OutgoingSocketMessage, { event: 'room.state' }>['payload']['room'];
 
@@ -24,11 +25,6 @@ export function useRoomSync() {
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
   
-  // Async Mode State
-  const [isAsyncMode, setIsAsyncMode] = useState(false);
-  const isAsyncModeRef = useRef(false);
-  const [asyncPlaybackState, setAsyncPlaybackState] = useState<RoomState['playback'] | null>(null);
-
   const [localTime, setLocalTime] = useState(0);
   const [localCorrectionRate, setLocalCorrectionRate] = useState<number | null>(null);
   const localTimeRef = useRef(0);
@@ -37,6 +33,13 @@ export function useRoomSync() {
   // NOTE: Explicit seek triggers to prevent seek feedback loops.
   const [syncSeekTrigger, setSyncSeekTrigger] = useState(0);
   const [syncSeekPosition, setSyncSeekPosition] = useState(0);
+
+  const asyncPlayback = useAsyncPlayback({
+    isConnected,
+    sendMessage,
+    localTimeRef,
+    roomPlaybackState: roomState?.playback
+  });
 
   const getInitialPosition = useCallback((playback: RoomState['playback']) => {
     let pos = playback.anchorPosition;
@@ -47,11 +50,24 @@ export function useRoomSync() {
     return pos;
   }, []);
 
+  const prevIsAsyncMode = useRef(asyncPlayback.isAsyncMode);
+  useEffect(() => {
+    if (prevIsAsyncMode.current && !asyncPlayback.isAsyncMode && roomState) {
+      // Async turned off!
+      const initialPos = getInitialPosition(roomState.playback);
+      setLocalTime(initialPos);
+      localTimeRef.current = initialPos;
+      setSyncSeekPosition(initialPos);
+      setSyncSeekTrigger(t => t + 1);
+    }
+    prevIsAsyncMode.current = asyncPlayback.isAsyncMode;
+  }, [asyncPlayback.isAsyncMode, roomState, getInitialPosition]);
+
   useEffect(() => {
     const remove = addMessageHandler((msg) => {
       if (msg.event === 'room.state') {
         setRoomState(msg.payload.room);
-        if (!isAsyncModeRef.current) {
+        if (!asyncPlayback.isAsyncModeRef.current) {
           const initialPos = getInitialPosition(msg.payload.room.playback);
           setLocalTime(initialPos);
           localTimeRef.current = initialPos;
@@ -83,7 +99,7 @@ export function useRoomSync() {
           if (!prev) return prev;
           return { ...prev, playback: msg.payload };
         });
-        if (!isAsyncModeRef.current) {
+        if (!asyncPlayback.isAsyncModeRef.current) {
           const initialPos = getInitialPosition(msg.payload);
           setLocalTime(initialPos);
           localTimeRef.current = initialPos;
@@ -131,7 +147,7 @@ export function useRoomSync() {
           };
         });
       } else if (msg.event === 'sync.correct') {
-        if (isAsyncModeRef.current) return; // Ignore server corrections in async mode
+        if (asyncPlayback.isAsyncModeRef.current) return;
         if (msg.payload.seek) {
           console.warn(`[sync] Hard seek correction from ${localTimeRef.current.toFixed(2)} to ${msg.payload.position.toFixed(2)}`);
           setLocalTime(msg.payload.position);
@@ -161,7 +177,7 @@ export function useRoomSync() {
     });
 
     return () => remove();
-  }, [addMessageHandler, getInitialPosition]);
+  }, [addMessageHandler, getInitialPosition, asyncPlayback.isAsyncModeRef]);
 
   const reportLocalTime = useCallback((time: number) => {
     localTimeRef.current = time;
@@ -181,7 +197,7 @@ export function useRoomSync() {
   useEffect(() => {
     if (!isConnected) return;
     const interval = setInterval(() => {
-      if (isAsyncModeRef.current) return; // Do not send heartbeat in async mode
+      if (asyncPlayback.isAsyncModeRef.current) return;
       sendMessage({
         event: 'sync.heartbeat',
         payload: { 
@@ -192,89 +208,44 @@ export function useRoomSync() {
       });
     }, 5000);
     return () => clearInterval(interval);
-  }, [isConnected, sendMessage]);
-
-  const toggleAsyncMode = useCallback(() => {
-    setIsAsyncMode(prev => {
-      const next = !prev;
-      isAsyncModeRef.current = next;
-      
-      if (next) {
-        // Turning ON async mode
-        sendMessage({ event: 'sync.status', payload: { status: 'async' as any } });
-        if (roomState) {
-          setAsyncPlaybackState({
-            ...roomState.playback,
-            anchorPosition: localTimeRef.current,
-            anchorTime: Date.now(),
-          });
-        }
-      } else {
-        // Turning OFF async mode -> Resync with room
-        setAsyncPlaybackState(null);
-        if (roomState) {
-          const initialPos = getInitialPosition(roomState.playback);
-          setLocalTime(initialPos);
-          localTimeRef.current = initialPos;
-          setSyncSeekPosition(initialPos);
-          setSyncSeekTrigger(t => t + 1);
-        }
-      }
-      return next;
-    });
-  }, [roomState, getInitialPosition]);
+  }, [isConnected, sendMessage, asyncPlayback.isAsyncModeRef]);
 
   const play = useCallback(() => {
-    if (isAsyncModeRef.current) {
-      setAsyncPlaybackState(prev => prev ? { ...prev, state: 'playing', anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
-      return;
-    }
+    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.play();
     sendMessage({ event: 'playback.play', payload: {} });
-  }, [sendMessage]);
+  }, [sendMessage, asyncPlayback]);
 
   const pause = useCallback(() => {
-    if (isAsyncModeRef.current) {
-      setAsyncPlaybackState(prev => prev ? { ...prev, state: 'paused', anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
-      return;
-    }
+    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.pause();
     sendMessage({ event: 'playback.pause', payload: {} });
-  }, [sendMessage]);
+  }, [sendMessage, asyncPlayback]);
 
-  const seek = useCallback((position: number) => {
+  const seek = useCallback((position: number, isBuffered: boolean = false) => {
     setLocalTime(position);
     localTimeRef.current = position;
-    if (isAsyncModeRef.current) {
-      setAsyncPlaybackState(prev => prev ? { ...prev, anchorPosition: position, anchorTime: Date.now() } : prev);
-      return;
-    }
+    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.seek(position, isBuffered);
     sendMessage({ event: 'playback.seek', payload: { position } });
-  }, [sendMessage]);
+  }, [sendMessage, asyncPlayback]);
 
   const setStatus = useCallback((status: 'ready' | 'buffering') => {
-    if (isAsyncModeRef.current) {
-      setAsyncPlaybackState(prev => prev ? { ...prev, state: status === 'buffering' ? 'buffering' : 'playing', anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
-      return;
-    }
+    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.setStatus(status);
     sendMessage({ event: 'sync.status', payload: { status } });
-  }, [sendMessage]);
+  }, [sendMessage, asyncPlayback]);
 
   const setRate = useCallback((rate: number) => {
-    if (isAsyncModeRef.current) {
-      setAsyncPlaybackState(prev => prev ? { ...prev, playbackRate: rate, anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
-      return;
-    }
+    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.setRate(rate);
     sendMessage({ event: 'playback.set_rate', payload: { rate } });
-  }, [sendMessage]);
+  }, [sendMessage, asyncPlayback]);
 
-  const effectiveRoomState = isAsyncMode && asyncPlaybackState && roomState 
-    ? { ...roomState, playback: asyncPlaybackState } 
+  const effectiveRoomState = asyncPlayback.isAsyncMode && asyncPlayback.asyncPlaybackState && roomState 
+    ? { ...roomState, playback: asyncPlayback.asyncPlaybackState } 
     : roomState;
 
   return {
     isConnected,
     roomState: effectiveRoomState,
     mediaInfo,
-    seekKey: mediaInfo?.seekKey ?? 0,
+    seekKey: (mediaInfo?.seekKey ?? 0) + asyncPlayback.asyncSeekKey,
     localTime,
     localCorrectionRate,
     syncSeekTrigger,
@@ -287,7 +258,7 @@ export function useRoomSync() {
     sendMessage,
     addMessageHandler,
     reportLocalTime,
-    isAsyncMode,
-    toggleAsyncMode
+    isAsyncMode: asyncPlayback.isAsyncMode,
+    toggleAsyncMode: asyncPlayback.toggleAsyncMode
   };
 }

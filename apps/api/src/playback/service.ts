@@ -7,7 +7,7 @@ import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
 import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings, SEGMENT_DURATION } from '@roomies/transcoding';
 
-const getMasterPlaylistUrl = (mediaFileId: string) => `/api/playback/hls/${mediaFileId}/master.m3u8`;
+const getMasterPlaylistUrl = (mediaFileId: string, sessionId: string = 'sync') => `/api/playback/hls/${mediaFileId}/${sessionId}/master.m3u8`;
 
 type PlayPayload = Extract<IncomingSocketMessage, { event: 'playback.play' }>['payload'];
 type PausePayload = Extract<IncomingSocketMessage, { event: 'playback.pause' }>['payload'];
@@ -27,7 +27,7 @@ export class PlaybackService {
 
     const subtitles = mediaFile.subtitles.map((s) => ({ id: s.id, language: s.language }));
 
-    const session = TranscodeSessionManager.startSession(mediaFileId, mediaFile.path);
+    const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
 
     // NOTE: Pre-warm all variants in parallel to ensure immediate availability when requested.
@@ -59,7 +59,7 @@ export class PlaybackService {
   }
 
   static async stopMedia(server: FastifyInstance) {
-    TranscodeSessionManager.stopSession();
+    TranscodeSessionManager.stopAll();
     roomStore.updateMedia('', '', '', 0, 0, []);
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
@@ -77,7 +77,7 @@ export class PlaybackService {
 
   static getActivePlayback() {
     const state = roomStore.getState();
-    const session = TranscodeSessionManager.getSession();
+    const session = TranscodeSessionManager.getSession('sync');
 
     return {
       mediaFileId: state.mediaId || undefined,
@@ -105,10 +105,15 @@ export class PlaybackService {
     return lines.join('\n') + '\n';
   }
 
-  static async ensureVariant(mediaId: string, resolution: Resolution, reqOffset?: number): Promise<string> {
-    const session = TranscodeSessionManager.getSession();
-    if (!session || session.mediaFileId !== mediaId) {
-      throw new Error('Session not found');
+  static async ensureVariant(mediaId: string, sessionId: string, resolution: Resolution, reqOffset?: number): Promise<string> {
+    let session = TranscodeSessionManager.getSession(sessionId);
+    if (!session) {
+      const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId } });
+      if (!mediaFile) throw new Error('Media not found for session creation');
+      session = TranscodeSessionManager.startSession(sessionId, mediaId, mediaFile.path);
+    }
+    if (session.mediaFileId !== mediaId) {
+      throw new Error('Session media mismatch');
     }
     
     // NOTE: Align variant startup position with requested offset or room transcode offset.
@@ -153,7 +158,7 @@ export class PlaybackService {
     const currentState = state.playback;
     const nextIntendedState = currentState.state === 'playing' || currentState.intendedState === 'playing' ? 'playing' : 'paused';
     
-    const session = TranscodeSessionManager.getSession();
+    const session = TranscodeSessionManager.getSession('sync');
     
     let actualOffset = payload.position;
     
@@ -161,7 +166,7 @@ export class PlaybackService {
       const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
       const currentOffset = state.transcodeOffset;
       
-      const isCovered = session.isSeekCovered(payload.position, currentOffset);
+      const isCovered = session.isPositionCovered(payload.position, currentOffset);
       const seekPromise = session.seek(payload.position, currentOffset, ffmpegPreset, hwAccelMode);
       
       if (isCovered) {

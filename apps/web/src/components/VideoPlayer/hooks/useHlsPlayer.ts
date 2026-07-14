@@ -11,6 +11,8 @@ interface UseHlsPlayerParams {
   reportStatus: (status: 'ready' | 'buffering') => void;
   setIsPlaying: (playing: boolean) => void;
   isAsyncMode: boolean;
+  userId?: string;
+  activeOffsetRef: MutableRefObject<number>;
 }
 
 export function useHlsPlayer({
@@ -22,6 +24,8 @@ export function useHlsPlayer({
   reportStatus,
   setIsPlaying,
   isAsyncMode,
+  userId,
+  activeOffsetRef,
 }: UseHlsPlayerParams) {
   const hlsRef = useRef<Hls | null>(null);
   const [levels, setLevels] = useState<Level[]>([]);
@@ -51,8 +55,9 @@ export function useHlsPlayer({
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
       let targetOffset = transcodeOffset;
       if (isAsyncMode) {
-        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10 - 10);
+        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10);
       }
+      activeOffsetRef.current = targetOffset;
       
       const hls = new Hls({
         startPosition: Math.max(0, localTime - targetOffset),
@@ -68,7 +73,9 @@ export function useHlsPlayer({
         maxMaxBufferLength: 120,
       });
 
-      const hlsUrl = new URL(mediaInfo.hlsUrl, window.location.origin);
+      const sessionId = (isAsyncMode && userId) ? userId : 'sync';
+      const baseUrl = `/api/playback/hls/${mediaInfo.mediaFileId}/${sessionId}/master.m3u8`;
+      const hlsUrl = new URL(baseUrl, window.location.origin);
       hlsUrl.searchParams.set('t', Date.now().toString());
       if (isAsyncMode && targetOffset !== transcodeOffset) {
         hlsUrl.searchParams.set('offset', targetOffset.toString());
@@ -110,10 +117,13 @@ export function useHlsPlayer({
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
       let targetOffset = transcodeOffset;
       if (isAsyncMode) {
-        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10 - 10);
+        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10);
       }
+      activeOffsetRef.current = targetOffset;
 
-      const hlsUrl = new URL(mediaInfo.hlsUrl, window.location.origin);
+      const sessionId = (isAsyncMode && userId) ? userId : 'sync';
+      const baseUrl = `/api/playback/hls/${mediaInfo.mediaFileId}/${sessionId}/master.m3u8`;
+      const hlsUrl = new URL(baseUrl, window.location.origin);
       if (isAsyncMode && targetOffset !== transcodeOffset) {
         hlsUrl.searchParams.set('offset', targetOffset.toString());
       }
@@ -127,7 +137,7 @@ export function useHlsPlayer({
         reportStatus('ready');
       }, { once: true });
     }
-  }, [mediaInfo?.hlsUrl, seekKey, reportStatus]);
+  }, [mediaInfo?.mediaFileId, seekKey, reportStatus, isAsyncMode, userId]);
 
   const handleQualityChange = (index: number) => {
     if (hlsRef.current) {

@@ -25,8 +25,8 @@ export const playbackRoutes = async (app: FastifyInstance) => {
     return PlaybackController.stopMedia(req as any, reply);
   });
 
-  app.get('/hls/:mediaId/master.m3u8', PlaybackController.getMasterPlaylist);
+  app.get('/hls/:mediaId/:sessionId/master.m3u8', PlaybackController.getMasterPlaylist);
 
   // NOTE: Ensure FFmpeg is running before redirecting variant requests to Caddy.
-  app.get('/hls/:mediaId/:resolution/stream.m3u8', PlaybackController.getVariantStream);
+  app.get('/hls/:mediaId/:sessionId/:resolution/stream.m3u8', PlaybackController.getVariantStream);
 };

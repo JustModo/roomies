@@ -85,14 +85,28 @@ export const bootstrap = async (app: FastifyInstance) => {
   // NOTE: Periodically trigger transcoding cache management based on playhead position.
   const cacheInterval = setInterval(() => {
     const state = roomStore.getState();
-    const primaryOffset = state.transcodeOffset;
-    const playheads = [roomStore.getCurrentPosition()];
+    const sessionPlayheads: Record<string, { activeOffset: number, playheads: number[] }> = {};
+    
+    // Sync session
+    const syncPlayheads = [roomStore.getCurrentPosition()];
     for (const member of state.members) {
-      if (member.status === 'async') {
-        playheads.push(member.position);
+      if (member.status !== 'async') {
+        syncPlayheads.push(member.position);
       }
     }
-    TranscodeSessionManager.manageActiveCaches(primaryOffset, playheads);
+    sessionPlayheads['sync'] = { activeOffset: state.transcodeOffset, playheads: syncPlayheads };
+    
+    // Async sessions
+    for (const member of state.members) {
+      if (member.status === 'async') {
+        const asyncPlayhead = member.position;
+        // The async user's primary offset aligns to the 10-second mark (as per frontend hook)
+        const asyncOffset = Math.max(0, Math.floor(asyncPlayhead / 10) * 10);
+        sessionPlayheads[member.userId] = { activeOffset: asyncOffset, playheads: [asyncPlayhead] };
+      }
+    }
+    
+    TranscodeSessionManager.manageActiveCaches(sessionPlayheads);
   }, 1000);
   registerChatSocketEvents();
   registerPlaybackSocketEvents();
@@ -112,7 +126,7 @@ export const bootstrap = async (app: FastifyInstance) => {
   // 7. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {
     clearInterval(cacheInterval);
-    TranscodeSessionManager.stopSession();
+    TranscodeSessionManager.stopAll();
     await prisma.$disconnect();
     console.log('[system] Graceful shutdown complete.');
   });

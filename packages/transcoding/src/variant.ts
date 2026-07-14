@@ -27,6 +27,7 @@ const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
 export class TranscodeVariant extends EventEmitter {
   public readonly resolution: Resolution;
   public readonly outputDir: string;
+  public readonly sessionId: string;
 
   private process: ChildProcess | null = null;
   private watcher: fs.FSWatcher | null = null;
@@ -41,10 +42,11 @@ export class TranscodeVariant extends EventEmitter {
   private sourceFps: number = 24;
   private stopRequested = false;
 
-  constructor(resolution: Resolution, outputDir: string) {
+  constructor(resolution: Resolution, outputDir: string, sessionId: string) {
     super();
     this.resolution = resolution;
     this.outputDir = outputDir;
+    this.sessionId = sessionId;
   }
 
   get isReady(): boolean {
@@ -270,17 +272,17 @@ export class TranscodeVariant extends EventEmitter {
         const aheadBy = newestSegmentTime - currentPlayhead;
 
         if (aheadBy > 300 && !this._isSuspended) {
-          console.log(`[transcode] variant ${this.resolution} suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          console.log(`[transcode] [session ${this.sessionId}] variant ${this.resolution} suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGSTOP');
           this._isSuspended = true;
         } else if (aheadBy < 60 && this._isSuspended) {
-          console.log(`[transcode] variant ${this.resolution} resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          console.log(`[transcode] [session ${this.sessionId}] variant ${this.resolution} resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGCONT');
           this._isSuspended = false;
         }
       }
     } catch (err) {
-      console.error(`[transcode] Error managing cache for ${this.resolution}:`, err);
+      console.error(`[transcode] [session ${this.sessionId}] Error managing cache for ${this.resolution}:`, err);
     }
   }
 

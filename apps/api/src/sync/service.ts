@@ -8,14 +8,15 @@ type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['p
 
 export class SyncService {
   static async handleHeartbeat(payload: HeartbeatPayload, ctx: SocketContext) {
-    const { playback } = roomStore.getState();
-    
-    let expectedPosition = playback.anchorPosition;
-    if (playback.state === 'playing') {
-      const elapsedSeconds = (Date.now() - playback.anchorTime) / 1000;
-      expectedPosition += elapsedSeconds * playback.playbackRate;
+    const state = roomStore.getState();
+    const member = state.members.find(m => m.userId === ctx.userId);
+    if (member && member.status === 'async') {
+      roomStore.updateMember(ctx.userId, { position: payload.position });
+      return;
     }
 
+    const { playback } = state;
+    const expectedPosition = this.calculateExpectedPosition(playback);
     const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
 
     const SOFT_THRESHOLD_MS = 500;
@@ -27,50 +28,69 @@ export class SyncService {
     const isSeekingCooldown = (now - lastSeekTime) < 8000;
 
     if (driftMs > HARD_THRESHOLD_MS && !isSeekingCooldown) {
-      (ctx.socket as any).lastSeekTime = now;
+      this.applyHardCorrection(ctx, expectedPosition, driftMs, now);
+    } else if (driftMs > SOFT_THRESHOLD_MS) {
+      this.applySoftCorrection(ctx, payload, playback, expectedPosition, driftMs);
+    } else {
+      this.clearSoftCorrection(ctx, payload, playback, expectedPosition);
+    }
 
-      console.warn(`[sync] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
+    roomStore.updateMember(ctx.userId, { position: payload.position });
+  }
+
+  private static calculateExpectedPosition(playback: ReturnType<typeof roomStore.getState>['playback']): number {
+    let expectedPosition = playback.anchorPosition;
+    if (playback.state === 'playing') {
+      const elapsedSeconds = (Date.now() - playback.anchorTime) / 1000;
+      expectedPosition += elapsedSeconds * playback.playbackRate;
+    }
+    return expectedPosition;
+  }
+
+  private static applyHardCorrection(ctx: SocketContext, expectedPosition: number, driftMs: number, now: number) {
+    (ctx.socket as any).lastSeekTime = now;
+    console.warn(`[sync] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
+    SocketEmitter.sendToClient(ctx.socket, {
+      event: 'sync.correct',
+      payload: {
+        position: expectedPosition,
+        seek: true
+      }
+    });
+  }
+
+  private static applySoftCorrection(ctx: SocketContext, payload: HeartbeatPayload, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number, driftMs: number) {
+    const isCorrecting = payload.playbackRate !== playback.playbackRate;
+    if (!isCorrecting) {
+      const isBehind = payload.position < expectedPosition;
+      const correctionRate = isBehind ? 1.1 : 0.9;
+      
+      const speedDelta = Math.abs(correctionRate - playback.playbackRate);
+      const correctionDurationMs = Math.round(driftMs / speedDelta);
+
+      console.warn(`[sync] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate}x rate for ${correctionDurationMs}ms`);
       SocketEmitter.sendToClient(ctx.socket, {
         event: 'sync.correct',
         payload: {
           position: expectedPosition,
-          seek: true
+          playbackRate: correctionRate,
+          correctionDurationMs
         }
       });
-    } else if (driftMs > SOFT_THRESHOLD_MS) {
-      const isCorrecting = payload.playbackRate !== playback.playbackRate;
-      if (!isCorrecting) {
-        const isBehind = payload.position < expectedPosition;
-        const correctionRate = isBehind ? 1.1 : 0.9;
-        
-        const speedDelta = Math.abs(correctionRate - playback.playbackRate);
-        const correctionDurationMs = Math.round(driftMs / speedDelta);
-
-        console.warn(`[sync] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate}x rate for ${correctionDurationMs}ms`);
-        SocketEmitter.sendToClient(ctx.socket, {
-          event: 'sync.correct',
-          payload: {
-            position: expectedPosition,
-            playbackRate: correctionRate,
-            correctionDurationMs
-          }
-        });
-      }
-    } else {
-      // NOTE: Reset playbackRate if the client is in sync but still correcting.
-      if (payload.playbackRate !== playback.playbackRate) {
-        console.log(`[sync] User ${ctx.userId} is in sync. Resetting playbackRate to ${playback.playbackRate}x`);
-        SocketEmitter.sendToClient(ctx.socket, {
-          event: 'sync.correct',
-          payload: {
-            position: expectedPosition,
-            playbackRate: playback.playbackRate
-          }
-        });
-      }
     }
+  }
 
-    roomStore.updateMember(ctx.userId, { position: payload.position });
+  private static clearSoftCorrection(ctx: SocketContext, payload: HeartbeatPayload, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number) {
+    if (payload.playbackRate !== playback.playbackRate) {
+      console.log(`[sync] User ${ctx.userId} is in sync. Resetting playbackRate to ${playback.playbackRate}x`);
+      SocketEmitter.sendToClient(ctx.socket, {
+        event: 'sync.correct',
+        payload: {
+          position: expectedPosition,
+          playbackRate: playback.playbackRate
+        }
+      });
+    }
   }
 
   static async handleStatus(payload: StatusPayload, ctx: SocketContext) {
