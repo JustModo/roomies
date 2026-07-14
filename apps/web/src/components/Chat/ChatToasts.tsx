@@ -66,7 +66,7 @@ export const ChatToasts: React.FC = () => {
 
   return (
     <div
-      className={`absolute left-4 z-40 pointer-events-none flex flex-col gap-0.5 max-w-[200px] sm:max-w-[260px] lg:max-w-[300px] transition-all duration-300 ${
+      className={`absolute left-4 z-40 pointer-events-none flex flex-col gap-0.5 max-w-[200px] sm:max-w-[260px] lg:max-w-[500px] transition-all duration-300 ${
         controlsVisible ? 'bottom-16 lg:bottom-20' : 'bottom-8'
       }`}
       aria-live="polite"
@@ -104,7 +104,7 @@ export const ChatToasts: React.FC = () => {
           >
             {toast.isSystem ? (
               <span
-                className="text-paper/70 text-[10px] sm:text-[11px] lg:text-[14px] tracking-wide uppercase flex items-center leading-tight"
+                className="text-paper/70 text-[10px] sm:text-[11px] lg:text-[16px] tracking-wide uppercase flex items-center leading-tight"
                 style={halo}
               >
                 <SystemIcon type={toast.eventType} />
@@ -113,7 +113,7 @@ export const ChatToasts: React.FC = () => {
             ) : (
               <div className="flex flex-col leading-tight">
                 <span
-                  className="text-[9px] sm:text-[10px] lg:text-[12px] font-bold uppercase tracking-wider leading-none block"
+                  className="text-[9px] sm:text-[10px] lg:text-[14px] font-bold uppercase tracking-wider leading-none block"
                   style={{
                     color: getUsernameColor(toast.username || 'unknown'),
                     opacity: isGrouped ? 0 : 1,
@@ -126,7 +126,7 @@ export const ChatToasts: React.FC = () => {
                   {toast.username}
                 </span>
                 <span
-                  className="text-paper/90 text-[11px] sm:text-[13px] lg:text-[16px] leading-snug"
+                  className="text-paper/90 text-[11px] sm:text-[13px] lg:text-[20px] leading-snug"
                   style={halo}
                 >
                   {toast.body}
