@@ -24,6 +24,8 @@ interface VideoControlsProps {
   activeSubtitleId?: string | null;
   setActiveSubtitleId?: (id: string | null) => void;
   displaySubtitleLabel?: (language: string | null) => string;
+  isAsyncMode?: boolean;
+  onToggleAsync?: () => void;
 }
 
 // Compact icon button — smaller padding on mobile
@@ -77,6 +79,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   activeSubtitleId,
   setActiveSubtitleId,
   displaySubtitleLabel,
+  isAsyncMode,
+  onToggleAsync,
 }) => {
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
@@ -86,49 +90,78 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   return (
     <div className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1">
       {/* ── Left cluster: play, seek offsets, mute, time ── */}
-      <div className="flex items-center gap-0.5 sm:gap-2 lg:gap-3 min-w-0">
-        <Btn
-          disabled={isLocked}
-          onClick={handlePlayPause}
-          title={isPlaying ? 'Pause' : 'Play'}
-          important
-        >
-          {isPlaying
-            ? <Pause className="w-[18px] h-[18px] lg:w-5 lg:h-5" fill="currentColor" />
-            : <Play className="w-[18px] h-[18px] lg:w-5 lg:h-5" fill="currentColor" />}
-        </Btn>
+      <div className="flex items-center min-w-0">
+        {/* Playback Controls */}
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          <Btn
+            disabled={isLocked}
+            onClick={handlePlayPause}
+            title={isPlaying ? 'Pause' : 'Play'}
+            important
+          >
+            {isPlaying
+              ? <Pause className="w-[18px] h-[18px] lg:w-5 lg:h-5" fill="currentColor" />
+              : <Play className="w-[18px] h-[18px] lg:w-5 lg:h-5" fill="currentColor" />}
+          </Btn>
 
-        <Btn disabled={isLocked} onClick={() => handleSeekOffset(-10)} title="Back 10s">
-          <RotateCcw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-        </Btn>
+          <Btn disabled={isLocked} onClick={() => handleSeekOffset(-10)} title="Back 10s">
+            <RotateCcw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+          </Btn>
 
-        <Btn disabled={isLocked} onClick={() => handleSeekOffset(10)} title="Forward 10s">
-          <RotateCw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-        </Btn>
+          <Btn disabled={isLocked} onClick={() => handleSeekOffset(10)} title="Forward 10s">
+            <RotateCw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+          </Btn>
+        </div>
 
-        <Btn onClick={() => setIsMuted(!isMuted)} title={isMuted ? 'Unmute' : 'Mute'}>
-          {isMuted
-            ? <VolumeX className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-            : <Volume2 className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
-        </Btn>
+        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-4" />
 
-        {/* Time — hidden on very small portrait so it doesn't wrap */}
-        <span className="hidden xs:flex items-center h-7 lg:h-9 font-mono text-[11px] lg:text-base text-paper/70 whitespace-nowrap ml-1">
-          {formatTime(currentTime)} / {formatTime(totalDuration)}
-        </span>
+        {/* Audio & Time */}
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          <Btn onClick={() => setIsMuted(!isMuted)} title={isMuted ? 'Unmute' : 'Mute'}>
+            {isMuted
+              ? <VolumeX className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+              : <Volume2 className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
+          </Btn>
+
+          {/* Time — hidden on very small portrait so it doesn't wrap */}
+          <span className="hidden xs:flex items-center h-7 lg:h-9 font-mono text-[11px] lg:text-base text-paper/70 whitespace-nowrap ml-1 sm:ml-2">
+            {formatTime(currentTime)} / {formatTime(totalDuration)}
+          </span>
+        </div>
       </div>
 
       {/* ── Right cluster: rate, quality, chat, fullscreen ── */}
-      <div className="flex items-center gap-0.5 sm:gap-2 lg:gap-3 flex-shrink-0 relative">
-        {/* Playback rate */}
-        <button
-          disabled={isLocked}
-          onClick={cyclePlaybackRate}
-          className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
-          title="Playback speed"
-        >
-          {roomPlaybackState?.playbackRate || 1}x
-        </button>
+      <div className="flex items-center flex-shrink-0 relative">
+        {/* Sync & Rate */}
+        <div className="flex items-center gap-0 sm:gap-1">
+          {/* Async Mode Toggle */}
+          {onToggleAsync && (
+            <button
+              onClick={onToggleAsync}
+              className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
+                !isAsyncMode ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
+              }`}
+              title={isAsyncMode ? 'Resync with Room' : 'Go Async Mode'}
+            >
+              SYNC
+            </button>
+          )}
+
+          {/* Playback rate */}
+          <button
+            disabled={isLocked}
+            onClick={cyclePlaybackRate}
+            className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+            title="Playback speed"
+          >
+            {roomPlaybackState?.playbackRate || 1}x
+          </button>
+        </div>
+
+        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
+
+        {/* Media Settings */}
+        <div className="flex items-center gap-0 sm:gap-1">
 
         {/* Quality selector */}
         {levels.length > 0 && (
@@ -218,34 +251,40 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             )}
           </div>
         )}
+        </div>
 
-        {/* Chat toggle — desktop only */}
-        {onToggleChat && (
+        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
+
+        {/* Display Settings */}
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          {/* Chat toggle — desktop only */}
+          {onToggleChat && (
+            <Btn
+              onClick={onToggleChat}
+              active={showChat}
+              className="hidden lg:flex"
+              title="Toggle chat"
+            >
+              <MessageSquare className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+            </Btn>
+          )}
+
+          {/* Fullscreen */}
           <Btn
-            onClick={onToggleChat}
-            active={showChat}
-            className="hidden lg:flex"
-            title="Toggle chat"
+            onClick={() => {
+              if (document.fullscreenElement) {
+                document.exitFullscreen();
+              } else {
+                document.documentElement.requestFullscreen();
+              }
+            }}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
-            <MessageSquare className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+            {isFullscreen
+              ? <Minimize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+              : <Maximize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
           </Btn>
-        )}
-
-        {/* Fullscreen */}
-        <Btn
-          onClick={() => {
-            if (document.fullscreenElement) {
-              document.exitFullscreen();
-            } else {
-              document.documentElement.requestFullscreen();
-            }
-          }}
-          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-        >
-          {isFullscreen
-            ? <Minimize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-            : <Maximize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
-        </Btn>
+        </div>
       </div>
     </div>
   );

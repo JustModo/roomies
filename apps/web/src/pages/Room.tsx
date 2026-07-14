@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2 } from 'lucide-react';
 import { AdminOverlay } from '../components/AdminOverlay';
@@ -73,6 +73,8 @@ export default function Room() {
     sendMessage,
     addMessageHandler,
     reportLocalTime,
+    isAsyncMode,
+    toggleAsyncMode
   } = useRoomSync();
 
   useEffect(() => {
@@ -106,6 +108,8 @@ export default function Room() {
         handleExit={handleExit}
         showAdmin={showAdmin}
         setShowAdmin={setShowAdmin}
+        isAsyncMode={isAsyncMode}
+        toggleAsyncMode={toggleAsyncMode}
       />
     </ChatProvider>
   );
@@ -129,6 +133,8 @@ interface RoomInnerProps {
   handleExit: () => void;
   showAdmin: boolean;
   setShowAdmin: (show: boolean) => void;
+  isAsyncMode: boolean;
+  toggleAsyncMode: () => void;
 }
 
 function RoomInner({
@@ -149,11 +155,19 @@ function RoomInner({
   handleExit,
   showAdmin,
   setShowAdmin,
+  isAsyncMode,
+  toggleAsyncMode
 }: RoomInnerProps) {
   const { user } = useAuth();
-  const { isOpen, setIsOpen } = useChat();
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const vpHeight = useVisualViewportHeight();
+  const { isOpen, setIsOpen, addLocalSystemMessage } = useChat();
+
+  const handleToggleAsync = useCallback(() => {
+    toggleAsyncMode();
+    const newMode = !isAsyncMode;
+    addLocalSystemMessage(newMode ? 'Local Async Mode' : 'Synced with Room', 'play');
+  }, [toggleAsyncMode, isAsyncMode, addLocalSystemMessage]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Lock body scroll for the full room session.
   // The fixed-position container prevents most scroll, but iOS Safari
@@ -240,6 +254,8 @@ function RoomInner({
           showChat={isOpen}
           onToggleChat={() => setIsOpen(!isOpen)}
           isFullscreen={isFullscreen}
+          isAsyncMode={isAsyncMode}
+          onToggleAsync={handleToggleAsync}
         >
           <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-gradient-to-b from-ink/80 to-transparent relative">
             <div className="flex-none flex justify-start w-14 sm:w-20 lg:w-24">

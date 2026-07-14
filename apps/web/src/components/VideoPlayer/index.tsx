@@ -25,9 +25,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSetRate,
   onStatusChange,
   onReportTime,
-  showChat,
+  showChat = false,
   onToggleChat,
-  isFullscreen,
+  isFullscreen = false,
+  isAsyncMode = false,
+  onToggleAsync,
   children
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -320,6 +322,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           showChat={showChat}
           onToggleChat={onToggleChat}
           isFullscreen={isFullscreen}
+          isAsyncMode={isAsyncMode}
+          onToggleAsync={onToggleAsync}
           mediaInfo={mediaInfo}
           activeSubtitleId={activeSubtitleId}
           setActiveSubtitleId={setActiveSubtitleId}

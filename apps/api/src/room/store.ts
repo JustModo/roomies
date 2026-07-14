@@ -2,7 +2,7 @@ export interface MemberState {
     username: string;
     userId: string;
 
-    status: 'ready' | 'buffering';
+    status: 'ready' | 'buffering' | 'async';
     position: number;
 }
 
@@ -98,7 +98,9 @@ export class RoomStore {
 
     public resetAllMembers(): void {
         for (const member of this.state.members) {
-            member.status = 'buffering';
+            if (member.status !== 'async') {
+                member.status = 'buffering';
+            }
         }
     }
 

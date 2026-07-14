@@ -23,5 +23,7 @@ export interface VideoPlayerProps {
   showChat?: boolean;
   onToggleChat?: () => void;
   isFullscreen?: boolean;
+  isAsyncMode?: boolean;
+  onToggleAsync?: () => void;
   children?: ReactNode;
 }

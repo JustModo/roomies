@@ -13,7 +13,7 @@ export const ClientSyncHeartbeatSchema = z.object({
 export const ClientSyncStatusSchema = z.object({
   event: z.literal('sync.status'),
   payload: z.object({
-    status: z.enum(['ready', 'buffering']),
+    status: z.enum(['ready', 'buffering', 'async']),
   }),
 });
 
@@ -31,6 +31,6 @@ export const ServerUserStatusChangedSchema = z.object({
   event: z.literal('user.status_changed'),
   payload: z.object({
     userId: z.string(),
-    status: z.enum(['ready', 'buffering']),
+    status: z.enum(['ready', 'buffering', 'async']),
   }),
 });

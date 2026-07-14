@@ -19,6 +19,7 @@ interface ChatContextType {
   messages: Message[];
   sendMessage: (body: string) => void;
   toasts: Message[];
+  addLocalSystemMessage: (body: string, type?: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate') => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -205,8 +206,19 @@ export function ChatProvider({
     });
   }, [sendSocketMessage]);
 
+  const addLocalSystemMessage = useCallback((body: string, type: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate' = 'chat') => {
+    const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    appendMessage({
+      id: `system-local-${Date.now()}-${Math.random()}`,
+      timestamp: timestampStr,
+      body,
+      isSystem: true,
+      eventType: type,
+    });
+  }, [appendMessage]);
+
   return (
-    <ChatContext.Provider value={{ isOpen, setIsOpen, messages, sendMessage, toasts }}>
+    <ChatContext.Provider value={{ isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage }}>
       {children}
     </ChatContext.Provider>
   );
