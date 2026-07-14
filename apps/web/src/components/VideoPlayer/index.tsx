@@ -96,17 +96,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     clearTimeout(timerRef.current);
   }, []);
 
-  // Idle Timer — also resets on touch so mobile users can interact
+  // Idle Timer — wakes up UI on keyboard activity
   useEffect(() => {
-    window.addEventListener('mousemove', showControls);
-    window.addEventListener('keydown', showControls);
-    window.addEventListener('touchstart', showControls, { passive: true });
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      showControls();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
     showControls();
 
     return () => {
-      window.removeEventListener('mousemove', showControls);
-      window.removeEventListener('keydown', showControls);
-      window.removeEventListener('touchstart', showControls);
+      window.removeEventListener('keydown', handleKeyDown);
       clearTimeout(timerRef.current);
     };
   }, [showControls]);
@@ -262,7 +263,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [uiVisible]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center">
+    <div 
+      ref={containerRef} 
+      className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center"
+      onMouseMove={showControls}
+      onTouchStart={showControls}
+    >
       <video
         ref={videoRef}
         className="w-full h-full object-contain bg-ink"

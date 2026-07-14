@@ -36,8 +36,11 @@ export const ChatSidebar: React.FC = () => {
     const isJustOpened = isOpen && !prevIsOpen.current;
     const lastMsg = messages[messages.length - 1];
     const justSentByMe = lastMsg?.isMine === true;
+    
+    // Check if user is near the bottom (within ~200px)
+    const isAtBottom = containerRef.current.scrollHeight - containerRef.current.scrollTop - containerRef.current.clientHeight <= 200;
 
-    if (!justSentByMe && !isJustOpened) {
+    if (!justSentByMe && !isJustOpened && !isAtBottom) {
       prevIsOpen.current = isOpen;
       if (messages.length > 0) initialScrollDoneRef.current = true;
       return;
@@ -162,7 +165,7 @@ export const ChatSidebar: React.FC = () => {
           contains the rubber-band so it doesn't bleed to the parent. */}
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 overflow-y-auto px-4 py-2 flex flex-col"
+        className="flex-1 min-h-0 overflow-y-auto px-4 pt-2 pb-0 flex flex-col"
         style={{ touchAction: 'pan-y', overscrollBehavior: 'contain' }}
       >
         {messages.map((msg, index) => {
@@ -180,7 +183,7 @@ export const ChatSidebar: React.FC = () => {
       </div>
 
       {/* Input — always pinned to bottom */}
-      <div className="shrink-0 p-4 border-t border-ash/20 bg-void">
+      <div className="shrink-0 px-4 py-3 pt-2 border-t border-ash/20 bg-void">
         <form 
           onSubmit={handleSend} 
           className="flex items-center gap-2 bg-ink border border-ash/45 px-3 py-2 focus-within:border-paper/70 transition-all duration-150"
