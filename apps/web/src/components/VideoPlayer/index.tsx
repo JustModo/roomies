@@ -44,7 +44,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const progressBarRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting';
+  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering';
 
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
