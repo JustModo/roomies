@@ -41,8 +41,15 @@ export class RoomService {
     const state = roomStore.getState();
     const anyoneBuffering = state.members.some(m => m.status === 'buffering');
 
-    // NOTE: Resume playback if the departing member was the only one buffering.
-    if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering')) {
+    // NOTE: Pause playback if the room is now empty.
+    if (state.members.length === 0 && (state.playback.state === 'playing' || state.playback.intendedState === 'playing')) {
+      roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
+      SocketEmitter.broadcastToRoom(ctx.app, {
+        event: 'playback.state',
+        payload: roomStore.getState().playback
+      });
+    } else if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering')) {
+      // NOTE: Resume playback if the departing member was the only one buffering.
       roomStore.updatePlayback({ state: state.playback.intendedState, anchorTime: Date.now() });
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'playback.state',
