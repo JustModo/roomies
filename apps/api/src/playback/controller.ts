@@ -49,11 +49,11 @@ export const PlaybackController = {
     const { offset } = req.query as { offset?: string };
     const offsetNum = offset ? parseInt(offset, 10) : undefined;
     try {
-      const redirectUrl = await PlaybackService.ensureVariant(mediaId, sessionId, resolution, offsetNum);
+      const playlistContent = await PlaybackService.getVariantPlaylist(mediaId, sessionId, resolution, offsetNum);
       return reply
         .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-        .status(302)
-        .redirect(redirectUrl);
+        .type('application/vnd.apple.mpegurl')
+        .send(playlistContent);
     } catch (error: any) {
       if (error.message === 'Session not found') {
         return reply.status(404).send({ error: error.message });

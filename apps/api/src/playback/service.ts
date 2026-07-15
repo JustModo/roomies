@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { FastifyInstance } from 'fastify';
 import { SocketContext } from '../websocket/router';
@@ -107,7 +108,7 @@ export class PlaybackService {
     return lines.join('\n') + '\n';
   }
 
-  static async ensureVariant(mediaId: string, sessionId: string, resolution: Resolution, reqOffset?: number): Promise<string> {
+  static async getVariantPlaylist(mediaId: string, sessionId: string, resolution: Resolution, reqOffset?: number): Promise<string> {
     let session = TranscodeSessionManager.getSession(sessionId);
     if (!session) {
       const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId } });
@@ -119,13 +120,29 @@ export class PlaybackService {
     }
     
     // NOTE: Align variant startup position with requested offset or room transcode offset.
-    const position = reqOffset !== undefined ? reqOffset : (roomStore.getState().transcodeOffset || 0);
+    const originalPosition = reqOffset !== undefined ? reqOffset : (roomStore.getState().transcodeOffset || 0);
+
+    // NOTE: Resolve merged offsets seamlessly
+    let effectivePosition = originalPosition;
+    while (session.mergedOffsets.has(effectivePosition)) {
+      effectivePosition = session.mergedOffsets.get(effectivePosition)!;
+    }
+
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-    await session.ensureVariantReady(resolution, position, ffmpegPreset, hwAccelMode);
+    await session.ensureVariantReady(resolution, effectivePosition, ffmpegPreset, hwAccelMode);
     
-    const variantDir = session.getVariantOutputDir(resolution, position);
-    const relativePath = path.relative(CACHE_DIR, variantDir);
-    return `${HLS_BASE_URL}/${relativePath}/stream.m3u8`;
+    const variantDir = session.getVariantOutputDir(resolution, effectivePosition);
+    const playlistPath = path.join(variantDir, 'stream.m3u8');
+    
+    let content = await fs.promises.readFile(playlistPath, 'utf8');
+    
+    // NOTE: Rewrite segment URIs to point to Caddy absolute paths
+    const relativeDir = path.relative(CACHE_DIR, variantDir);
+    const baseUrl = `${HLS_BASE_URL}/${relativeDir}/`;
+    
+    content = content.replace(/^(?!#)(.+)$/gm, `${baseUrl}$1`);
+    
+    return content;
   }
 
   static async handlePlay(payload: PlayPayload, ctx: SocketContext) {

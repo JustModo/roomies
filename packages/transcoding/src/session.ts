@@ -16,6 +16,7 @@ export class TranscodeSession {
   // Map of offset -> Map of Resolution -> TranscodeVariant
   private variantGroups = new Map<number, Map<Resolution, TranscodeVariant>>();
   private groupCreatedAt = new Map<number, number>();
+  public mergedOffsets = new Map<number, number>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
 
@@ -98,13 +99,53 @@ export class TranscodeSession {
   }
 
   manageActiveCaches(activeOffsets: Set<number>, playheads: { position: number, resolution?: string }[]): void {
+    const coverage = new Map<number, Set<number>>();
+
+    // 1. Map playheads to the offsets that cover them
+    for (const offset of this.variantGroups.keys()) {
+      coverage.set(offset, new Set());
+      for (let i = 0; i < playheads.length; i++) {
+        if (this.isPositionCovered(playheads[i].position, offset)) {
+          coverage.get(offset)!.add(i);
+        }
+      }
+    }
+
+    // 2. Identify redundant offsets and merge them into larger offsets
+    for (const offset1 of this.variantGroups.keys()) {
+      const coveredBy1 = coverage.get(offset1)!;
+      if (coveredBy1.size === 0) continue;
+
+      for (const offset2 of this.variantGroups.keys()) {
+        if (offset1 >= offset2) continue; // Only merge into larger (future) offsets
+
+        const coveredBy2 = coverage.get(offset2)!;
+        
+        let isSuperset = true;
+        for (const phIdx of coveredBy1) {
+          if (!coveredBy2.has(phIdx)) {
+            isSuperset = false;
+            break;
+          }
+        }
+
+        if (isSuperset) {
+          console.log(`[transcode] Offset ${offset1} is fully redundant, merging into offset ${offset2}`);
+          this.mergedOffsets.set(offset1, offset2);
+          this.stopGroup(offset1);
+          coverage.get(offset1)!.clear(); // Mark as empty to skip further processing
+          break; // O1 is merged, move to next offset
+        }
+      }
+    }
+
+    // 3. Process remaining active offsets
     for (const [offset, group] of this.variantGroups.entries()) {
-      let isActive = activeOffsets.has(offset);
+      let isActive = activeOffsets.has(offset) || (coverage.get(offset)?.size ?? 0) > 0;
       let maxPlayheadInGroup = -1;
 
       for (const ph of playheads) {
         if (this.isPositionCovered(ph.position, offset)) {
-          isActive = true;
           if (ph.position > maxPlayheadInGroup) maxPlayheadInGroup = ph.position;
         }
       }
