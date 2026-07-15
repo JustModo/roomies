@@ -1,3 +1,5 @@
+import { Resolution } from '@roomies/transcoding';
+
 export interface AsyncSessionState {
     transcodeOffset: number;
 }
@@ -8,6 +10,7 @@ export interface MemberState {
 
     status: 'ready' | 'buffering' | 'async';
     position: number;
+    activeResolution?: Resolution;
     asyncSession?: AsyncSessionState;
 }
 

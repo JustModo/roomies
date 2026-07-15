@@ -6,6 +6,7 @@ export const ClientSyncHeartbeatSchema = z.object({
     position: z.number(),
     playing: z.boolean(),
     playbackRate: z.number(),
+    resolution: z.enum(['360p', '720p', '1080p']).optional(),
     timestamp: z.number().optional(),
   }),
 });

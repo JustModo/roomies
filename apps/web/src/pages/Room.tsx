@@ -73,6 +73,7 @@ export default function Room() {
     sendMessage,
     addMessageHandler,
     reportLocalTime,
+    reportActiveResolution,
     isAsyncMode,
     toggleAsyncMode
   } = useRoomSync();
@@ -104,6 +105,7 @@ export default function Room() {
         setRate={setRate}
         setStatus={setStatus}
         reportLocalTime={reportLocalTime}
+        reportActiveResolution={reportActiveResolution}
         viewersCount={viewersCount}
         handleExit={handleExit}
         showAdmin={showAdmin}
@@ -129,6 +131,7 @@ interface RoomInnerProps {
   setRate: (rate: number) => void;
   setStatus: (status: 'ready' | 'buffering') => void;
   reportLocalTime: (time: number) => void;
+  reportActiveResolution: (resolution: string) => void;
   viewersCount: number;
   handleExit: () => void;
   showAdmin: boolean;
@@ -151,6 +154,7 @@ function RoomInner({
   setRate,
   setStatus,
   reportLocalTime,
+  reportActiveResolution,
   viewersCount,
   handleExit,
   showAdmin,
@@ -251,6 +255,7 @@ function RoomInner({
           onSetRate={setRate}
           onStatusChange={setStatus}
           onReportTime={reportLocalTime}
+          onReportResolution={reportActiveResolution}
           showChat={isOpen}
           onToggleChat={() => setIsOpen(!isOpen)}
           isFullscreen={isFullscreen}

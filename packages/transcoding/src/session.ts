@@ -97,15 +97,15 @@ export class TranscodeSession {
     return this.variantGroups.get(offset)?.get(resolution)?.isReady ?? false;
   }
 
-  manageActiveCaches(activeOffset: number, playheads: number[]): void {
+  manageActiveCaches(activeOffset: number, playheads: { position: number, resolution?: string }[]): void {
     for (const offset of Array.from(this.variantGroups.keys())) {
       let isActive = (offset === activeOffset);
       let minPlayheadInGroup = Infinity;
 
-      for (const pos of playheads) {
-        if (this.isPositionCovered(pos, offset)) {
+      for (const ph of playheads) {
+        if (this.isPositionCovered(ph.position, offset)) {
           isActive = true;
-          if (pos < minPlayheadInGroup) minPlayheadInGroup = pos;
+          if (ph.position < minPlayheadInGroup) minPlayheadInGroup = ph.position;
         }
       }
 
@@ -121,8 +121,16 @@ export class TranscodeSession {
       } else {
         const group = this.variantGroups.get(offset);
         if (group && minPlayheadInGroup !== Infinity) {
+          const activeResolutions = new Set<string>();
+          for (const ph of playheads) {
+            if (this.isPositionCovered(ph.position, offset) && ph.resolution) {
+              activeResolutions.add(ph.resolution);
+            }
+          }
+
           for (const variant of group.values()) {
-            variant.manageCache(minPlayheadInGroup);
+            const isActivelyWatched = this.sessionId === 'sync' || activeResolutions.size === 0 || activeResolutions.has(variant.resolution);
+            variant.manageCache(minPlayheadInGroup, isActivelyWatched);
           }
         }
       }
@@ -177,11 +185,22 @@ export class TranscodeSession {
 
     for (const variant of activeVariants) {
       const maxCoveredTime = this.getMaxCoveredTime(variant);
-      if (newPosition < variant.startPosition || newPosition > maxCoveredTime) {
-        return false;
+      if (newPosition >= variant.startPosition && newPosition <= maxCoveredTime) {
+        return true;
       }
     }
-    return true;
+    return false;
+  }
+
+  isPositionCoveredByVariant(resolution: Resolution, newPosition: number, offset: number): boolean {
+    const group = this.variantGroups.get(offset);
+    if (!group) return false;
+    
+    const variant = group.get(resolution);
+    if (!variant) return false;
+
+    const maxCoveredTime = this.getMaxCoveredTime(variant);
+    return newPosition >= variant.startPosition && newPosition <= maxCoveredTime;
   }
 
   async seek(

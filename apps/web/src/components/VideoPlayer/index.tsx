@@ -25,6 +25,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSetRate,
   onStatusChange,
   onReportTime,
+  onReportResolution,
   showChat = false,
   onToggleChat,
   isFullscreen = false,
@@ -116,7 +117,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [showControls]);
 
-  const { levels, currentLevel, handleQualityChange } = useHlsPlayer({
+  const { levels, currentLevel, handleQualityChange, activeResolution } = useHlsPlayer({
     videoRef,
     mediaInfo,
     seekKey,
@@ -128,6 +129,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     userId,
     activeOffsetRef,
   });
+
+  useEffect(() => {
+    if (activeResolution && onReportResolution) {
+      onReportResolution(activeResolution);
+    }
+  }, [activeResolution, onReportResolution]);
 
   const { activeSubtitleId, setActiveSubtitleId, activeCueHtml } = useSubtitles({ mediaInfo, currentTime });
 

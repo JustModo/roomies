@@ -20,6 +20,7 @@ export interface VideoPlayerProps {
   onSetRate: (rate: number) => void;
   onStatusChange: (status: 'ready' | 'buffering') => void;
   onReportTime: (time: number) => void;
+  onReportResolution?: (resolution: string) => void;
   showChat?: boolean;
   onToggleChat?: () => void;
   isFullscreen?: boolean;

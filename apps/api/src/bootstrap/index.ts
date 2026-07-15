@@ -85,13 +85,13 @@ export const bootstrap = async (app: FastifyInstance) => {
   // NOTE: Periodically trigger transcoding cache management based on playhead position.
   const cacheInterval = setInterval(() => {
     const state = roomStore.getState();
-    const sessionPlayheads: Record<string, { activeOffset: number, playheads: number[] }> = {};
+    const sessionPlayheads: Record<string, { activeOffset: number, playheads: { position: number, resolution?: string }[] }> = {};
     
     // Sync session: collect playheads from all non-async members.
-    const syncPlayheads = [roomStore.getCurrentPosition()];
+    const syncPlayheads: { position: number, resolution?: string }[] = [{ position: roomStore.getCurrentPosition() }];
     for (const member of state.members) {
       if (member.status !== 'async') {
-        syncPlayheads.push(member.position);
+        syncPlayheads.push({ position: member.position, resolution: member.activeResolution });
       }
     }
     sessionPlayheads['sync'] = { activeOffset: state.transcodeOffset, playheads: syncPlayheads };
@@ -102,7 +102,7 @@ export const bootstrap = async (app: FastifyInstance) => {
       if (member.status === 'async' && member.asyncSession) {
         sessionPlayheads[member.userId] = {
           activeOffset: member.asyncSession.transcodeOffset,
-          playheads: [member.position],
+          playheads: [{ position: member.position, resolution: member.activeResolution }],
         };
       }
     }

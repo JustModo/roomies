@@ -4,7 +4,7 @@ import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { TranscodeSessionManager } from '@roomies/transcoding';
 import { coordinator } from '../playback/coordinator';
-import { getMasterPlaylistUrl } from '../playback/service';
+import { getMasterPlaylistUrl, PlaybackService } from '../playback/service';
 
 type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'sync.heartbeat' }>['payload'];
 type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['payload'];
@@ -13,11 +13,43 @@ export class SyncService {
   static async handleHeartbeat(payload: HeartbeatPayload, ctx: SocketContext) {
     const state = roomStore.getState();
     const member = state.members.find(m => m.userId === ctx.userId);
+    
     if (member && member.status === 'async') {
-      roomStore.updateMember(ctx.userId, { position: payload.position });
-      return;
+      this.handleAsyncHeartbeat(payload, ctx, member);
+    } else {
+      this.handleSyncHeartbeat(payload, ctx, state);
     }
+  }
 
+  private static handleAsyncHeartbeat(
+    payload: HeartbeatPayload,
+    ctx: SocketContext,
+    member: ReturnType<typeof roomStore.getState>['members'][0]
+  ) {
+    const oldRes = member.activeResolution;
+    roomStore.updateMember(ctx.userId, { 
+      position: payload.position,
+      activeResolution: payload.resolution 
+    });
+
+    if (payload.resolution && oldRes && payload.resolution !== oldRes) {
+      const session = TranscodeSessionManager.getSession(ctx.userId);
+      if (session) {
+        const offset = member.asyncSession?.transcodeOffset || 0;
+        const isCovered = session.isPositionCoveredByVariant(payload.resolution as any, payload.position, offset);
+        if (!isCovered && payload.position > offset + 5) {
+          console.log(`[playback] Async user ${ctx.userId} switched to lagging resolution ${payload.resolution}. Forcing hard seek.`);
+          PlaybackService.handleSeek({ position: payload.position, scope: 'user' }, ctx);
+        }
+      }
+    }
+  }
+
+  private static handleSyncHeartbeat(
+    payload: HeartbeatPayload,
+    ctx: SocketContext,
+    state: ReturnType<typeof roomStore.getState>
+  ) {
     const { playback } = state;
     const expectedPosition = this.calculateExpectedPosition(playback);
     const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
@@ -38,7 +70,10 @@ export class SyncService {
       this.clearSoftCorrection(ctx, payload, playback, expectedPosition);
     }
 
-    roomStore.updateMember(ctx.userId, { position: payload.position });
+    roomStore.updateMember(ctx.userId, { 
+      position: payload.position,
+      activeResolution: payload.resolution 
+    });
   }
 
   private static calculateExpectedPosition(playback: ReturnType<typeof roomStore.getState>['playback']): number {

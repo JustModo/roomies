@@ -30,6 +30,8 @@ export function useHlsPlayer({
   const hlsRef = useRef<Hls | null>(null);
   const [levels, setLevels] = useState<Level[]>([]);
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
+  const [activeResolution, setActiveResolution] = useState<string | undefined>();
+  const preferredLevelRef = useRef<number>(-1);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -84,14 +86,29 @@ export function useHlsPlayer({
 
       hls.on(Events.MANIFEST_PARSED, (_event: Events.MANIFEST_PARSED, data: ManifestParsedData) => {
         setLevels(data.levels);
+        
+        if (preferredLevelRef.current !== -1 && preferredLevelRef.current < data.levels.length) {
+          hls.currentLevel = preferredLevelRef.current;
+        }
+
         if (roomPlaybackState?.state === 'playing') {
           videoRef.current?.play().catch(err => console.error('[playback] Play failed:', err));
           setIsPlaying(true);
         }
       });
 
-      hls.on(Events.LEVEL_SWITCHED, () => {
-        setCurrentLevel(hls.autoLevelEnabled ? -1 : hls.currentLevel);
+      hls.on(Events.LEVEL_SWITCHED, (_event: Events.LEVEL_SWITCHED, data) => {
+        setCurrentLevel(hls.autoLevelEnabled ? -1 : data.level);
+        if (hls.levels && hls.levels[data.level]) {
+          setActiveResolution(hls.levels[data.level].name);
+        }
+      });
+
+      hls.on(Events.FRAG_LOADING, (_event, data) => {
+        const levelIndex = data.frag.level;
+        if (hls.levels && hls.levels[levelIndex]) {
+          setActiveResolution(hls.levels[levelIndex].name);
+        }
       });
 
       hls.on(Events.ERROR, (_event: Events.ERROR, data: ErrorData) => {
@@ -138,8 +155,12 @@ export function useHlsPlayer({
     if (hlsRef.current) {
       hlsRef.current.currentLevel = index;
       setCurrentLevel(index);
+      preferredLevelRef.current = index;
+      if (hlsRef.current.levels && hlsRef.current.levels[index]) {
+        setActiveResolution(hlsRef.current.levels[index].name);
+      }
     }
   };
 
-  return { levels, currentLevel, handleQualityChange };
+  return { levels, currentLevel, handleQualityChange, activeResolution };
 }

@@ -247,7 +247,7 @@ export class TranscodeVariant extends EventEmitter {
   }
 
   /** NOTE: Manages SIGSTOP/SIGCONT throttling based on playhead distance to cap CPU/disk usage. */
-  manageCache(currentPlayhead: number): void {
+  manageCache(currentPlayhead: number, isActivelyWatched: boolean = true): void {
     if (!this._isReady) return;
 
     try {
@@ -267,15 +267,16 @@ export class TranscodeVariant extends EventEmitter {
         }
       }
 
-      // NOTE: Suspend FFmpeg if ahead by >300s, resume when <60s to protect CPU/disk.
+      // NOTE: Suspend FFmpeg if ahead by >300s or NOT actively watched. Resume when <60s AND actively watched to protect CPU/disk.
       if (this.process && this._isRunning) {
         const aheadBy = newestSegmentTime - currentPlayhead;
 
-        if (aheadBy > 300 && !this._isSuspended) {
-          console.log(`[transcode] [session ${this.sessionId}] variant ${this.resolution} suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+        if ((!isActivelyWatched || aheadBy > 300) && !this._isSuspended) {
+          const reason = !isActivelyWatched ? 'not actively watched' : `ahead by ${aheadBy.toFixed(1)}s`;
+          console.log(`[transcode] [session ${this.sessionId}] variant ${this.resolution} suspending FFmpeg (${reason})`);
           this.process.kill('SIGSTOP');
           this._isSuspended = true;
-        } else if (aheadBy < 60 && this._isSuspended) {
+        } else if (isActivelyWatched && aheadBy < 60 && this._isSuspended) {
           console.log(`[transcode] [session ${this.sessionId}] variant ${this.resolution} resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGCONT');
           this._isSuspended = false;

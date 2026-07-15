@@ -28,6 +28,7 @@ export function useRoomSync() {
   const [localTime, setLocalTime] = useState(0);
   const [localCorrectionRate, setLocalCorrectionRate] = useState<number | null>(null);
   const localTimeRef = useRef(0);
+  const activeResolutionRef = useRef<string | undefined>();
   const correctionTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // NOTE: Explicit seek triggers to prevent seek feedback loops.
@@ -38,6 +39,7 @@ export function useRoomSync() {
     isConnected,
     sendMessage,
     localTimeRef,
+    activeResolutionRef,
     roomPlaybackState: roomState?.playback
   });
 
@@ -193,6 +195,23 @@ export function useRoomSync() {
     setLocalTime(time);
   }, []);
 
+  const reportActiveResolution = useCallback((resolution: string) => {
+    if (activeResolutionRef.current !== resolution) {
+      activeResolutionRef.current = resolution;
+      if (isConnected) {
+        sendMessage({
+          event: 'sync.heartbeat',
+          payload: { 
+            position: localTimeRef.current,
+            playing: playbackStateRef.current === 'playing',
+            playbackRate: activeRateRef.current,
+            resolution: resolution as any
+          }
+        });
+      }
+    }
+  }, [isConnected, sendMessage]);
+
   const playbackStateRef = useRef(roomState?.playback.state);
   const playbackRateRef = useRef(roomState?.playback.playbackRate);
   const activeRateRef = useRef(1);
@@ -212,7 +231,8 @@ export function useRoomSync() {
         payload: { 
           position: localTimeRef.current,
           playing: playbackStateRef.current === 'playing',
-          playbackRate: activeRateRef.current
+          playbackRate: activeRateRef.current,
+          resolution: activeResolutionRef.current as any
         }
       });
     }, 5000);
@@ -273,6 +293,7 @@ export function useRoomSync() {
     sendMessage,
     addMessageHandler,
     reportLocalTime,
+    reportActiveResolution,
     isAsyncMode: asyncPlayback.isAsyncMode,
     toggleAsyncMode: asyncPlayback.toggleAsyncMode
   };

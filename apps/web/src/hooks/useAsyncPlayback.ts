@@ -5,6 +5,7 @@ interface UseAsyncPlaybackParams {
   isConnected: boolean;
   sendMessage: (msg: any) => void;
   localTimeRef: MutableRefObject<number>;
+  activeResolutionRef: MutableRefObject<string | undefined>;
   roomPlaybackState?: RoomState['playback'];
 }
 
@@ -12,6 +13,7 @@ export function useAsyncPlayback({
   isConnected,
   sendMessage,
   localTimeRef,
+  activeResolutionRef,
   roomPlaybackState,
 }: UseAsyncPlaybackParams) {
   const [isAsyncMode, setIsAsyncMode] = useState(false);
@@ -29,7 +31,8 @@ export function useAsyncPlayback({
         payload: {
           position: localTimeRef.current,
           playing: asyncPlaybackState?.state === 'playing',
-          playbackRate: asyncPlaybackState?.playbackRate || 1
+          playbackRate: asyncPlaybackState?.playbackRate || 1,
+          resolution: activeResolutionRef.current as any
         }
       });
     }, 5000);
@@ -88,7 +91,8 @@ export function useAsyncPlayback({
       payload: {
         position,
         playing: false,
-        playbackRate: asyncPlaybackState?.playbackRate || 1
+        playbackRate: asyncPlaybackState?.playbackRate || 1,
+        resolution: activeResolutionRef.current as any
       }
     });
   }, [sendMessage, asyncPlaybackState]);

@@ -34,7 +34,7 @@ class TranscodeSessionManagerImpl {
     return this.sessions.get(sessionId) || null;
   }
 
-  manageActiveCaches(sessionPlayheads: Record<string, { activeOffset: number, playheads: number[] }>): void {
+  manageActiveCaches(sessionPlayheads: Record<string, { activeOffset: number, playheads: { position: number, resolution?: string }[] }>): void {
     for (const [sessionId, session] of this.sessions.entries()) {
       const data = sessionPlayheads[sessionId];
       if (data) {
