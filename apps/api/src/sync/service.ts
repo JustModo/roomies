@@ -33,7 +33,7 @@ export class SyncService {
     });
 
     if (payload.resolution && oldRes && payload.resolution !== oldRes) {
-      const session = TranscodeSessionManager.getSession(ctx.userId);
+      const session = TranscodeSessionManager.getSession('async');
       if (session) {
         const offset = member.asyncSession?.transcodeOffset || 0;
         const isCovered = session.isPositionCoveredByVariant(payload.resolution as any, payload.position, offset);
@@ -179,7 +179,7 @@ export class SyncService {
       payload: {
         mediaFileId: state.mediaId!,
         title: state.mediaTitle || 'Unknown Media',
-        hlsUrl: getMasterPlaylistUrl(state.mediaId!, ctx.userId),
+        hlsUrl: getMasterPlaylistUrl(state.mediaId!, 'async'),
         duration: state.duration,
         transcodeOffset: effectiveOffset,
         sessionScope: 'user',
@@ -193,8 +193,7 @@ export class SyncService {
     payload: StatusPayload, 
     state: ReturnType<typeof roomStore.getState>
   ) {
-    // EXITING ASYNC: Clean up async transcode session
-    TranscodeSessionManager.stopSession(ctx.userId);
+    // EXITING ASYNC: Remove async session state, let garbage collector handle the transcode session
     roomStore.updateMember(ctx.userId, {
       status: payload.status,
       asyncSession: undefined,

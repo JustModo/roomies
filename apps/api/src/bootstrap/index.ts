@@ -19,7 +19,7 @@ import { registerStoreSocketEvents } from '../websocket/store';
 import { TranscodeSessionManager, CACHE_DIR } from '@roomies/transcoding';
 import { CORS_ORIGIN } from '@roomies/config';
 import { SocketEmitter } from '../websocket/emitter';
-import { roomStore } from '../room/store';
+import { CacheManager } from '../playback/cache';
 
 export const bootstrap = async (app: FastifyInstance) => {
   // NOTE: Clean up cache directory to prevent disk leaks from past crashes.
@@ -82,33 +82,7 @@ export const bootstrap = async (app: FastifyInstance) => {
     });
   });
 
-  // NOTE: Periodically trigger transcoding cache management based on playhead position.
-  const cacheInterval = setInterval(() => {
-    const state = roomStore.getState();
-    const sessionPlayheads: Record<string, { activeOffset: number, playheads: { position: number, resolution?: string }[] }> = {};
-    
-    // Sync session: collect playheads from all non-async members.
-    const syncPlayheads: { position: number, resolution?: string }[] = [{ position: roomStore.getCurrentPosition() }];
-    for (const member of state.members) {
-      if (member.status !== 'async') {
-        syncPlayheads.push({ position: member.position, resolution: member.activeResolution });
-      }
-    }
-    sessionPlayheads['sync'] = { activeOffset: state.transcodeOffset, playheads: syncPlayheads };
-    
-    // Async sessions: read offset from per-member asyncSession state
-    // (set by the coordinator on seek, initialized on mode entry).
-    for (const member of state.members) {
-      if (member.status === 'async' && member.asyncSession) {
-        sessionPlayheads[member.userId] = {
-          activeOffset: member.asyncSession.transcodeOffset,
-          playheads: [{ position: member.position, resolution: member.activeResolution }],
-        };
-      }
-    }
-    
-    TranscodeSessionManager.manageActiveCaches(sessionPlayheads);
-  }, 1000);
+  CacheManager.start();
   registerChatSocketEvents();
   registerPlaybackSocketEvents();
   registerRoomSocketEvents();
@@ -126,7 +100,7 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   // 7. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {
-    clearInterval(cacheInterval);
+    CacheManager.stop();
     TranscodeSessionManager.stopAll();
     await prisma.$disconnect();
     console.log('[system] Graceful shutdown complete.');

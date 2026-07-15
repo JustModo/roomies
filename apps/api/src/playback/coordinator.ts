@@ -54,6 +54,12 @@ export class SessionPlaybackCoordinator {
       return { effectiveOffset: currentOffset, needsReinit: false };
     }
 
+    // Is it covered by ANY other active offset in the shared pool?
+    const coveringOffset = session.getCoveringOffset(position);
+    if (coveringOffset !== null) {
+      return { effectiveOffset: coveringOffset, needsReinit: true };
+    }
+
     // Not covered — compute aligned offset and begin recreation.
     const newOffset = this.offsetPolicy.align(position);
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();

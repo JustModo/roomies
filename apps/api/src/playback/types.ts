@@ -9,7 +9,7 @@ export type SessionScope =
 
 /** Convert a SessionScope to the string key used by TranscodeSessionManager. */
 export function sessionScopeToId(scope: SessionScope): string {
-  return scope.type === 'room' ? 'sync' : scope.userId;
+  return scope.type === 'room' ? 'sync' : 'async';
 }
 
 // ── Offset Policy ──────────────────────────────────────────────────────

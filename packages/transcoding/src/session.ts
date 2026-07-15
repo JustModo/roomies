@@ -97,15 +97,15 @@ export class TranscodeSession {
     return this.variantGroups.get(offset)?.get(resolution)?.isReady ?? false;
   }
 
-  manageActiveCaches(activeOffset: number, playheads: { position: number, resolution?: string }[]): void {
-    for (const offset of Array.from(this.variantGroups.keys())) {
-      let isActive = (offset === activeOffset);
-      let minPlayheadInGroup = Infinity;
+  manageActiveCaches(activeOffsets: Set<number>, playheads: { position: number, resolution?: string }[]): void {
+    for (const [offset, group] of this.variantGroups.entries()) {
+      let isActive = activeOffsets.has(offset);
+      let maxPlayheadInGroup = -1;
 
       for (const ph of playheads) {
         if (this.isPositionCovered(ph.position, offset)) {
           isActive = true;
-          if (ph.position < minPlayheadInGroup) minPlayheadInGroup = ph.position;
+          if (ph.position > maxPlayheadInGroup) maxPlayheadInGroup = ph.position;
         }
       }
 
@@ -119,8 +119,7 @@ export class TranscodeSession {
         console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
         this.stopGroup(offset);
       } else {
-        const group = this.variantGroups.get(offset);
-        if (group && minPlayheadInGroup !== Infinity) {
+        if (group && maxPlayheadInGroup !== -1) {
           const activeResolutions = new Set<string>();
           for (const ph of playheads) {
             if (this.isPositionCovered(ph.position, offset) && ph.resolution) {
@@ -130,7 +129,7 @@ export class TranscodeSession {
 
           for (const variant of group.values()) {
             const isActivelyWatched = this.sessionId === 'sync' || activeResolutions.size === 0 || activeResolutions.has(variant.resolution);
-            variant.manageCache(minPlayheadInGroup, isActivelyWatched);
+            variant.manageCache(maxPlayheadInGroup, isActivelyWatched);
           }
         }
       }
@@ -192,6 +191,15 @@ export class TranscodeSession {
     return false;
   }
 
+  getCoveringOffset(position: number): number | null {
+    for (const offset of this.variantGroups.keys()) {
+      if (this.isPositionCovered(position, offset)) {
+        return offset;
+      }
+    }
+    return null;
+  }
+
   isPositionCoveredByVariant(resolution: Resolution, newPosition: number, offset: number): boolean {
     const group = this.variantGroups.get(offset);
     if (!group) return false;
@@ -218,8 +226,6 @@ export class TranscodeSession {
     }
 
     console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s not covered by offset ${currentOffset}, starting new variants`);
-
-    await this.stopGroup(currentOffset);
 
     const alignedPosition = Math.max(
       0,

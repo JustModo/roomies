@@ -237,7 +237,7 @@ export class PlaybackService {
         payload: {
           mediaFileId: state.mediaId,
           title: state.mediaTitle || 'Unknown Media',
-          hlsUrl: getMasterPlaylistUrl(state.mediaId, ctx.userId),
+          hlsUrl: getMasterPlaylistUrl(state.mediaId, 'async'),
           duration: state.duration,
           transcodeOffset: effectiveOffset,
           sessionScope: 'user',

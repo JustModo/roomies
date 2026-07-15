@@ -73,8 +73,7 @@ export function useHlsPlayer({
         maxMaxBufferLength: 120,
       });
 
-      const sessionId = (isAsyncMode && userId) ? userId : 'sync';
-      const baseUrl = `/api/playback/hls/${mediaInfo.mediaFileId}/${sessionId}/master.m3u8`;
+      const baseUrl = mediaInfo.hlsUrl;
       const hlsUrl = new URL(baseUrl, window.location.origin);
       hlsUrl.searchParams.set('t', Date.now().toString());
       if (transcodeOffset > 0) {
@@ -133,8 +132,7 @@ export function useHlsPlayer({
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
       activeOffsetRef.current = transcodeOffset;
 
-      const sessionId = (isAsyncMode && userId) ? userId : 'sync';
-      const baseUrl = `/api/playback/hls/${mediaInfo.mediaFileId}/${sessionId}/master.m3u8`;
+      const baseUrl = mediaInfo.hlsUrl;
       const hlsUrl = new URL(baseUrl, window.location.origin);
       if (transcodeOffset > 0) {
         hlsUrl.searchParams.set('offset', transcodeOffset.toString());
