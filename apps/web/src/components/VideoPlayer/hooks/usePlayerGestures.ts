@@ -10,7 +10,7 @@ interface UsePlayerGesturesParams {
   setIsMuted: (muted: boolean) => void;
   onPlay: () => void;
   onPause: () => void;
-  onSeek: (position: number, isBuffered?: boolean) => void;
+  onSeek: (position: number) => void;
   onSetRate: (rate: number) => void;
   idle: boolean;
   showControls: () => void;
@@ -117,9 +117,7 @@ export function usePlayerGestures({
           if (video) {
             const currentAbsolute = video.currentTime + transcodeOffset;
             const newPos = Math.max(0, currentAbsolute - 10);
-            const isBuffered = Array.from({ length: video.buffered.length }, (_, i) => i)
-              .some(i => newPos >= video.buffered.start(i) && newPos <= video.buffered.end(i));
-            onSeek(newPos, isBuffered);
+            onSeek(newPos);
             video.currentTime = Math.max(0, newPos - transcodeOffset);
           }
         } else if (xPercent > 0.7) {
@@ -128,9 +126,7 @@ export function usePlayerGestures({
           if (video) {
             const currentAbsolute = video.currentTime + transcodeOffset;
             const newPos = Math.min(mediaDuration, currentAbsolute + 10);
-            const isBuffered = Array.from({ length: video.buffered.length }, (_, i) => i)
-              .some(i => newPos >= video.buffered.start(i) && newPos <= video.buffered.end(i));
-            onSeek(newPos, isBuffered);
+            onSeek(newPos);
             video.currentTime = Math.max(0, newPos - transcodeOffset);
           }
         } else {

@@ -188,9 +188,9 @@ export class TranscodeSession {
     newPosition: number,
     currentOffset: number,
     preset: FfmpegPreset = 'veryfast',
-    hwAccelMode: HwAccelMode = 'auto'
+    hwAccelMode: HwAccelMode = 'auto',
+    resolutionsToPrewarm: Resolution[] = ['360p', '720p', '1080p']
   ): Promise<number> {
-    const resolutions: Resolution[] = ['360p', '720p', '1080p'];
     const isCovered = this.isPositionCovered(newPosition, currentOffset);
 
     if (isCovered) {
@@ -207,9 +207,11 @@ export class TranscodeSession {
       Math.floor(newPosition / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION
     );
 
-    await Promise.all(
-      resolutions.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
-    );
+    if (resolutionsToPrewarm.length > 0) {
+      await Promise.all(
+        resolutionsToPrewarm.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
+      );
+    }
 
     return alignedPosition;
   }

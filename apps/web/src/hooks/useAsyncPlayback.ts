@@ -18,7 +18,6 @@ export function useAsyncPlayback({
   const isAsyncModeRef = useRef(false);
   
   const [asyncPlaybackState, setAsyncPlaybackState] = useState<RoomState['playback'] | null>(null);
-  const [asyncSeekKey, setAsyncSeekKey] = useState(0);
 
   // Send periodic heartbeat for the async transcoder
   useEffect(() => {
@@ -64,13 +63,24 @@ export function useAsyncPlayback({
     setAsyncPlaybackState(prev => prev ? { ...prev, state: 'paused', intendedState: 'paused', anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
   }, [localTimeRef]);
 
-  const seek = useCallback((position: number, isBuffered: boolean = false) => {
+  /**
+   * Seek in async mode — sends the request to the server, which uses the
+   * same coordinator as sync to decide whether a transcode reinit is needed.
+   *
+   * The server responds with a user-scoped `media.changed` event containing
+   * the resolved transcodeOffset. The HLS player reinits only when the
+   * offset actually changes (via seekKey in useRoomSync).
+   *
+   * Play/pause state is set locally (buffering) for instant feedback.
+   */
+  const seek = useCallback((position: number) => {
     setAsyncPlaybackState(prev => prev ? { ...prev, state: 'buffering', anchorPosition: position, anchorTime: Date.now() } : prev);
 
-    if (!isBuffered) {
-      // Position is outside the current HLS buffer — tear down and restart from new offset.
-      setAsyncSeekKey(prev => prev + 1);
-    }
+    // Server-decided seek: coordinator resolves coverage and offset.
+    sendMessage({
+      event: 'playback.seek',
+      payload: { position, scope: 'user' }
+    });
     
     // Immediate heartbeat for seek to help transcoder start ASAP
     sendMessage({
@@ -103,7 +113,6 @@ export function useAsyncPlayback({
     isAsyncMode,
     isAsyncModeRef,
     asyncPlaybackState,
-    asyncSeekKey,
     toggleAsyncMode,
     play,
     pause,

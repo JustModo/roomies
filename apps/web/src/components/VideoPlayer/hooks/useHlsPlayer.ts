@@ -52,15 +52,13 @@ export function useHlsPlayer({
     setCurrentLevel(-1);
 
     if (Hls.isSupported()) {
+      // Unified offset: always use server-provided transcodeOffset.
+      // No more client-side Math.floor(localTime / 10) * 10 computation.
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
-      let targetOffset = transcodeOffset;
-      if (isAsyncMode) {
-        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10);
-      }
-      activeOffsetRef.current = targetOffset;
+      activeOffsetRef.current = transcodeOffset;
       
       const hls = new Hls({
-        startPosition: Math.max(0, localTime - targetOffset),
+        startPosition: Math.max(0, localTime - transcodeOffset),
         enableWorker: true,
         lowLatencyMode: false,
         manifestLoadingMaxRetry: 10,
@@ -77,8 +75,8 @@ export function useHlsPlayer({
       const baseUrl = `/api/playback/hls/${mediaInfo.mediaFileId}/${sessionId}/master.m3u8`;
       const hlsUrl = new URL(baseUrl, window.location.origin);
       hlsUrl.searchParams.set('t', Date.now().toString());
-      if (isAsyncMode && targetOffset !== transcodeOffset) {
-        hlsUrl.searchParams.set('offset', targetOffset.toString());
+      if (transcodeOffset > 0) {
+        hlsUrl.searchParams.set('offset', transcodeOffset.toString());
       }
 
       hls.loadSource(hlsUrl.toString());
@@ -114,22 +112,19 @@ export function useHlsPlayer({
         hlsRef.current = null;
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native HLS (Safari): same unified offset logic.
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
-      let targetOffset = transcodeOffset;
-      if (isAsyncMode) {
-        targetOffset = Math.max(0, Math.floor(localTime / 10) * 10);
-      }
-      activeOffsetRef.current = targetOffset;
+      activeOffsetRef.current = transcodeOffset;
 
       const sessionId = (isAsyncMode && userId) ? userId : 'sync';
       const baseUrl = `/api/playback/hls/${mediaInfo.mediaFileId}/${sessionId}/master.m3u8`;
       const hlsUrl = new URL(baseUrl, window.location.origin);
-      if (isAsyncMode && targetOffset !== transcodeOffset) {
-        hlsUrl.searchParams.set('offset', targetOffset.toString());
+      if (transcodeOffset > 0) {
+        hlsUrl.searchParams.set('offset', transcodeOffset.toString());
       }
 
       videoRef.current.src = hlsUrl.toString();
-      const targetTime = Math.max(0, localTime - targetOffset);
+      const targetTime = Math.max(0, localTime - transcodeOffset);
       videoRef.current.addEventListener('loadedmetadata', () => {
         if (videoRef.current) {
           videoRef.current.currentTime = targetTime;

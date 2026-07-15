@@ -32,6 +32,7 @@ export const ServerRoomStateSchema = z.object({
         username: z.string(),
         status: z.enum(['ready', 'buffering', 'async']),
         position: z.number(),
+        asyncTranscodeOffset: z.number().optional(),
       })),
     })
   }),

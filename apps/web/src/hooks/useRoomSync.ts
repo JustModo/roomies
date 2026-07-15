@@ -110,20 +110,29 @@ export function useRoomSync() {
           }
         }
       } else if (msg.event === 'media.changed') {
+        const isUserScoped = (msg.payload as any).sessionScope === 'user';
+        const isAsync = asyncPlayback.isAsyncModeRef.current;
+
         if (msg.payload.mediaFileId && msg.payload.hlsUrl) {
           setMediaInfo((prev) => {
-              const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
-              const isDifferentOffset = prev?.transcodeOffset !== msg.payload.transcodeOffset;
-              const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
-              return {
-                mediaFileId: msg.payload.mediaFileId,
-                title: msg.payload.title,
-                hlsUrl: msg.payload.hlsUrl,
-                duration: msg.payload.duration,
-                seekKey: nextKey,
-                transcodeOffset: msg.payload.transcodeOffset || 0,
-                subtitles: msg.payload.subtitles || [],
-              };
+            // In async mode, only user-scoped events update the offset.
+            // Room-scoped events preserve the async user's current offset.
+            const effectiveOffset = (isAsync && !isUserScoped)
+              ? (prev?.transcodeOffset ?? 0)
+              : (msg.payload.transcodeOffset || 0);
+
+            const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
+            const isDifferentOffset = prev?.transcodeOffset !== effectiveOffset;
+            const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
+            return {
+              mediaFileId: msg.payload.mediaFileId,
+              title: msg.payload.title,
+              hlsUrl: msg.payload.hlsUrl,
+              duration: msg.payload.duration,
+              seekKey: nextKey,
+              transcodeOffset: effectiveOffset,
+              subtitles: msg.payload.subtitles || [],
+            };
           });
         } else {
           setMediaInfo(null);
@@ -220,10 +229,16 @@ export function useRoomSync() {
     sendMessage({ event: 'playback.pause', payload: {} });
   }, [sendMessage, asyncPlayback]);
 
-  const seek = useCallback((position: number, isBuffered: boolean = false) => {
+  const seek = useCallback((position: number) => {
     setLocalTime(position);
     localTimeRef.current = position;
-    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.seek(position, isBuffered);
+    if (asyncPlayback.isAsyncModeRef.current) {
+      asyncPlayback.seek(position);
+      // Trigger local video seek for instant feedback.
+      setSyncSeekPosition(position);
+      setSyncSeekTrigger(t => t + 1);
+      return;
+    }
     sendMessage({ event: 'playback.seek', payload: { position } });
   }, [sendMessage, asyncPlayback]);
 
@@ -245,7 +260,7 @@ export function useRoomSync() {
     isConnected,
     roomState: effectiveRoomState,
     mediaInfo,
-    seekKey: (mediaInfo?.seekKey ?? 0) + asyncPlayback.asyncSeekKey,
+    seekKey: mediaInfo?.seekKey ?? 0,
     localTime,
     localCorrectionRate,
     syncSeekTrigger,

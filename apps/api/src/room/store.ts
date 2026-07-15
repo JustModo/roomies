@@ -1,9 +1,14 @@
+export interface AsyncSessionState {
+    transcodeOffset: number;
+}
+
 export interface MemberState {
     username: string;
     userId: string;
 
     status: 'ready' | 'buffering' | 'async';
     position: number;
+    asyncSession?: AsyncSessionState;
 }
 
 export interface RoomPlaybackState {

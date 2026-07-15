@@ -182,6 +182,7 @@ export function useVideoEvents({
     };
 
     const onTimeUpdate = () => {
+      if (video.readyState === 0) return;
       const transOffset = activeOffsetRef.current;
       const absTime = video.currentTime + transOffset;
       if (!isDragging) {
@@ -193,6 +194,7 @@ export function useVideoEvents({
     };
 
     const onProgress = () => {
+      if (video.readyState === 0) return;
       updateBufferedRanges();
     };
 

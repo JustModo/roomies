@@ -157,10 +157,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [roomPlaybackState?.state, onPlay, onPause, isLocked]);
 
-  const isPositionBuffered = useCallback((pos: number) => {
-    return bufferedRanges.some(r => pos >= r.start && pos <= r.end);
-  }, [bufferedRanges]);
-
   const handleSeekOffset = useCallback((offset: number) => {
     if (isLocked) return;
     if (!videoRef.current) return;
@@ -168,8 +164,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const currentAbsolute = videoRef.current.currentTime + transOffset;
     const newPos = Math.max(0, currentAbsolute + offset);
     videoRef.current.currentTime = Math.max(0, newPos - transOffset);
-    onSeek(newPos, isPositionBuffered(newPos));
-  }, [mediaInfo?.transcodeOffset, onSeek, isLocked, isPositionBuffered]);
+    onSeek(newPos);
+  }, [mediaInfo?.transcodeOffset, onSeek, isLocked]);
 
   useKeyboardShortcuts({ handlePlayPause, handleSeekOffset });
 
@@ -249,7 +245,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
         const totalDuration = mediaInfo?.duration || duration;
         const newPos = pos * totalDuration;
-        onSeek(newPos, isPositionBuffered(newPos));
+        onSeek(newPos);
         if (videoRef.current) {
           const transOffset = activeOffsetRef.current;
           videoRef.current.currentTime = Math.max(0, newPos - transOffset);
@@ -263,7 +259,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         window.removeEventListener('pointerup', handlePointerUp);
       };
     }
-  }, [isDragging, dragProgress, duration, mediaInfo?.duration, mediaInfo?.transcodeOffset, onSeek, isPositionBuffered]);
+  }, [isDragging, dragProgress, duration, mediaInfo?.duration, mediaInfo?.transcodeOffset, onSeek]);
 
   const totalDuration = mediaInfo?.duration || duration;
   const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;

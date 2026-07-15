@@ -2,6 +2,9 @@ import { SocketContext } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
+import { TranscodeSessionManager } from '@roomies/transcoding';
+import { coordinator } from '../playback/coordinator';
+import { getMasterPlaylistUrl } from '../playback/service';
 
 type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'sync.heartbeat' }>['payload'];
 type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['payload'];
@@ -94,17 +97,95 @@ export class SyncService {
   }
 
   static async handleStatus(payload: StatusPayload, ctx: SocketContext) {
-    roomStore.updateMember(ctx.userId, { status: payload.status });
+    const state = roomStore.getState();
+    const member = state.members.find(m => m.userId === ctx.userId);
+    const wasAsync = member?.status === 'async';
+    const isNowAsync = payload.status === 'async';
+
+    if (isNowAsync && !wasAsync) {
+      await this.handleEnterAsyncMode(ctx, payload, state, member);
+    } else if (!isNowAsync && wasAsync) {
+      this.handleExitAsyncMode(ctx, payload, state);
+    } else {
+      roomStore.updateMember(ctx.userId, { status: payload.status });
+    }
 
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'user.status_changed',
       payload: { userId: ctx.userId, status: payload.status }
     });
     
+    this.reconcileRoomBufferingState(ctx);
+  }
+
+  private static async handleEnterAsyncMode(
+    ctx: SocketContext, 
+    payload: StatusPayload, 
+    state: ReturnType<typeof roomStore.getState>, 
+    member: ReturnType<typeof roomStore.getState>['members'][0] | undefined
+  ) {
+    // ENTERING ASYNC: Compute offset based on actual current playhead
+    const position = member?.position || state.playback.anchorPosition;
+    
+    const { effectiveOffset } = await coordinator.resolveSeek(
+      { type: 'user', userId: ctx.userId },
+      position,
+      state.mediaId!
+    );
+
+    roomStore.updateMember(ctx.userId, {
+      status: payload.status,
+      asyncSession: { transcodeOffset: effectiveOffset },
+    });
+
+    // Send the user-scoped media info back to start their HLS player
+    SocketEmitter.sendToClient(ctx.socket, {
+      event: 'media.changed',
+      payload: {
+        mediaFileId: state.mediaId!,
+        title: state.mediaTitle || 'Unknown Media',
+        hlsUrl: getMasterPlaylistUrl(state.mediaId!, ctx.userId),
+        duration: state.duration,
+        transcodeOffset: effectiveOffset,
+        sessionScope: 'user',
+        subtitles: state.subtitles,
+      }
+    });
+  }
+
+  private static handleExitAsyncMode(
+    ctx: SocketContext, 
+    payload: StatusPayload, 
+    state: ReturnType<typeof roomStore.getState>
+  ) {
+    // EXITING ASYNC: Clean up async transcode session
+    TranscodeSessionManager.stopSession(ctx.userId);
+    roomStore.updateMember(ctx.userId, {
+      status: payload.status,
+      asyncSession: undefined,
+    });
+
+    // Send the room-scoped media info back to reset their HLS player
+    SocketEmitter.sendToClient(ctx.socket, {
+      event: 'media.changed',
+      payload: {
+        mediaFileId: state.mediaId!,
+        title: state.mediaTitle || 'Unknown Media',
+        hlsUrl: getMasterPlaylistUrl(state.mediaId!, 'sync'),
+        duration: state.duration,
+        transcodeOffset: state.transcodeOffset,
+        sessionScope: 'room',
+        subtitles: state.subtitles,
+      }
+    });
+  }
+
+  private static reconcileRoomBufferingState(ctx: SocketContext) {
     const state = roomStore.getState();
     const anyoneBuffering = state.members.some(m => m.status === 'buffering');
     
     if (anyoneBuffering && state.playback.state === 'playing') {
+      // Pause room if someone starts buffering
       roomStore.updatePlayback({ state: 'buffering', anchorTime: Date.now() });
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'playback.state',
@@ -112,8 +193,8 @@ export class SyncService {
       });
     }
     
-    // NOTE: Resume playback if no members are buffering.
     if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering')) {
+      // Resume playback if no members are buffering
       roomStore.updatePlayback({ state: state.playback.intendedState, anchorTime: Date.now() });
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'playback.state',
@@ -122,3 +203,4 @@ export class SyncService {
     }
   }
 }
+

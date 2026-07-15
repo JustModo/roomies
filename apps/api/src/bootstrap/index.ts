@@ -87,7 +87,7 @@ export const bootstrap = async (app: FastifyInstance) => {
     const state = roomStore.getState();
     const sessionPlayheads: Record<string, { activeOffset: number, playheads: number[] }> = {};
     
-    // Sync session
+    // Sync session: collect playheads from all non-async members.
     const syncPlayheads = [roomStore.getCurrentPosition()];
     for (const member of state.members) {
       if (member.status !== 'async') {
@@ -96,13 +96,14 @@ export const bootstrap = async (app: FastifyInstance) => {
     }
     sessionPlayheads['sync'] = { activeOffset: state.transcodeOffset, playheads: syncPlayheads };
     
-    // Async sessions
+    // Async sessions: read offset from per-member asyncSession state
+    // (set by the coordinator on seek, initialized on mode entry).
     for (const member of state.members) {
-      if (member.status === 'async') {
-        const asyncPlayhead = member.position;
-        // The async user's primary offset aligns to the 10-second mark (as per frontend hook)
-        const asyncOffset = Math.max(0, Math.floor(asyncPlayhead / 10) * 10);
-        sessionPlayheads[member.userId] = { activeOffset: asyncOffset, playheads: [asyncPlayhead] };
+      if (member.status === 'async' && member.asyncSession) {
+        sessionPlayheads[member.userId] = {
+          activeOffset: member.asyncSession.transcodeOffset,
+          playheads: [member.position],
+        };
       }
     }
     

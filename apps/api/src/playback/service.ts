@@ -6,8 +6,10 @@ import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
 import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings, SEGMENT_DURATION } from '@roomies/transcoding';
+import { coordinator } from './coordinator';
+import { SessionScope } from './types';
 
-const getMasterPlaylistUrl = (mediaFileId: string, sessionId: string = 'sync') => `/api/playback/hls/${mediaFileId}/${sessionId}/master.m3u8`;
+export const getMasterPlaylistUrl = (mediaFileId: string, sessionId: string = 'sync') => `/api/playback/hls/${mediaFileId}/${sessionId}/master.m3u8`;
 
 type PlayPayload = Extract<IncomingSocketMessage, { event: 'playback.play' }>['payload'];
 type PausePayload = Extract<IncomingSocketMessage, { event: 'playback.pause' }>['payload'];
@@ -152,53 +154,57 @@ export class PlaybackService {
     });
   }
 
+  /**
+   * Unified seek handler for both room (sync) and user (async) scopes.
+   *
+   * The coordinator makes the coverage/alignment decision identically for
+   * both scopes. The only difference is how the result is communicated:
+   * - room: broadcast to all clients
+   * - user: send only to the requesting client
+   */
   static async handleSeek(payload: SeekPayload, ctx: SocketContext) {
     const state = roomStore.getState();
+    const scope: SessionScope = payload.scope === 'user'
+      ? { type: 'user', userId: ctx.userId }
+      : { type: 'room' };
 
+    if (!state.mediaId) return;
+
+    if (scope.type === 'user') {
+      await PlaybackService.handleUserSeek(payload, ctx, state);
+    } else {
+      await PlaybackService.handleRoomSeek(payload, ctx, state);
+    }
+  }
+
+  // ── Room-scoped seek (sync) ──────────────────────────────────────────
+
+  private static async handleRoomSeek(payload: SeekPayload, ctx: SocketContext, state: ReturnType<typeof roomStore.getState>) {
     const currentState = state.playback;
     const nextIntendedState = currentState.state === 'playing' || currentState.intendedState === 'playing' ? 'playing' : 'paused';
-    
-    const session = TranscodeSessionManager.getSession('sync');
-    
-    let actualOffset = payload.position;
-    
-    if (session && state.mediaId === session.mediaFileId) {
-      const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-      const currentOffset = state.transcodeOffset;
-      
-      const isCovered = session.isPositionCovered(payload.position, currentOffset);
-      const seekPromise = session.seek(payload.position, currentOffset, ffmpegPreset, hwAccelMode);
-      
-      if (isCovered) {
-        actualOffset = currentOffset;
-      } else {
-        actualOffset = Math.max(0, Math.floor(payload.position / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION);
-      }
-      
-      roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
-      roomStore.updateTranscodeOffset(actualOffset);
-      roomStore.resetAllMembers();
-      
-      seekPromise.catch((err) => {
-        console.error(`[playback] session.seek failed for ${state.mediaId}:`, err);
-      });
 
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'media.changed',
-        payload: {
-          mediaFileId: state.mediaId,
-          title: state.mediaTitle || 'Unknown Media',
-          hlsUrl: getMasterPlaylistUrl(state.mediaId),
-          duration: state.duration,
-          transcodeOffset: actualOffset,
-          subtitles: state.subtitles,
-        }
-      });
-    } else {
-      roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
-      roomStore.updateTranscodeOffset(actualOffset);
-      roomStore.resetAllMembers();
-    }
+    const { effectiveOffset } = await coordinator.resolveSeek(
+      { type: 'room' },
+      payload.position,
+      state.mediaId,
+    );
+
+    roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
+    roomStore.updateTranscodeOffset(effectiveOffset);
+    roomStore.resetAllMembers();
+
+    SocketEmitter.broadcastToRoom(ctx.app, {
+      event: 'media.changed',
+      payload: {
+        mediaFileId: state.mediaId,
+        title: state.mediaTitle || 'Unknown Media',
+        hlsUrl: getMasterPlaylistUrl(state.mediaId),
+        duration: state.duration,
+        transcodeOffset: effectiveOffset,
+        sessionScope: 'room',
+        subtitles: state.subtitles,
+      }
+    });
 
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'playback.state',
@@ -208,6 +214,37 @@ export class PlaybackService {
         action: 'seek',
       }
     });
+  }
+
+  // ── User-scoped seek (async) ─────────────────────────────────────────
+
+  private static async handleUserSeek(payload: SeekPayload, ctx: SocketContext, state: ReturnType<typeof roomStore.getState>) {
+    const { effectiveOffset, needsReinit } = await coordinator.resolveSeek(
+      { type: 'user', userId: ctx.userId },
+      payload.position,
+      state.mediaId,
+    );
+
+    // Persist the user's async offset so cache GC can track it.
+    roomStore.updateMember(ctx.userId, {
+      asyncSession: { transcodeOffset: effectiveOffset },
+    });
+
+    // Only notify the client when the offset actually changed.
+    if (needsReinit) {
+      SocketEmitter.sendToClient(ctx.socket, {
+        event: 'media.changed',
+        payload: {
+          mediaFileId: state.mediaId,
+          title: state.mediaTitle || 'Unknown Media',
+          hlsUrl: getMasterPlaylistUrl(state.mediaId, ctx.userId),
+          duration: state.duration,
+          transcodeOffset: effectiveOffset,
+          sessionScope: 'user',
+          subtitles: state.subtitles,
+        }
+      });
+    }
   }
 
   static async handleSetRate(payload: SetRatePayload, ctx: SocketContext) {
