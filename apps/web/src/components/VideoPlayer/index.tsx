@@ -117,6 +117,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [showControls]);
 
+  const triggerQualitySeek = useCallback(() => {
+    if (videoRef.current) {
+      const currentPlayhead = videoRef.current.currentTime + activeOffsetRef.current;
+      onSeek(currentPlayhead, true);
+    }
+  }, [onSeek]);
+
   const { levels, currentLevel, handleQualityChange, activeResolution } = useHlsPlayer({
     videoRef,
     mediaInfo,
@@ -128,6 +135,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isAsyncMode,
     userId,
     activeOffsetRef,
+    triggerQualitySeek,
   });
 
   useEffect(() => {

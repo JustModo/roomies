@@ -35,6 +35,7 @@ export class SessionPlaybackCoordinator {
     scope: SessionScope,
     position: number,
     mediaFileId: string,
+    forceNewOffset: boolean = false,
   ): Promise<SeekResult> {
     const sessionId = sessionScopeToId(scope);
     const session = TranscodeSessionManager.getSession(sessionId);
@@ -48,19 +49,21 @@ export class SessionPlaybackCoordinator {
     }
 
     const currentOffset = this.getCurrentOffset(scope);
-    const isCovered = session.isPositionCovered(position, currentOffset);
+    
+    if (!forceNewOffset) {
+      const isCovered = session.isPositionCovered(position, currentOffset);
+      if (isCovered) {
+        return { effectiveOffset: currentOffset, needsReinit: false };
+      }
 
-    if (isCovered) {
-      return { effectiveOffset: currentOffset, needsReinit: false };
+      // Is it covered by ANY other active offset in the shared pool?
+      const coveringOffset = session.getCoveringOffset(position);
+      if (coveringOffset !== null) {
+        return { effectiveOffset: coveringOffset, needsReinit: true };
+      }
     }
 
-    // Is it covered by ANY other active offset in the shared pool?
-    const coveringOffset = session.getCoveringOffset(position);
-    if (coveringOffset !== null) {
-      return { effectiveOffset: coveringOffset, needsReinit: true };
-    }
-
-    // Not covered — compute aligned offset and begin recreation.
+    // Not covered (or forced) — compute aligned offset and begin recreation.
     const newOffset = this.offsetPolicy.align(position);
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
 

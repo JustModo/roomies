@@ -16,7 +16,7 @@ export interface VideoPlayerProps {
   syncSeekPosition?: number;
   onPlay: () => void;
   onPause: () => void;
-  onSeek: (position: number) => void;
+  onSeek: (position: number, forceNewOffset?: boolean) => void;
   onSetRate: (rate: number) => void;
   onStatusChange: (status: 'ready' | 'buffering') => void;
   onReportTime: (time: number) => void;

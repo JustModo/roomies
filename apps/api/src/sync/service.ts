@@ -26,23 +26,10 @@ export class SyncService {
     ctx: SocketContext,
     member: ReturnType<typeof roomStore.getState>['members'][0]
   ) {
-    const oldRes = member.activeResolution;
     roomStore.updateMember(ctx.userId, { 
       position: payload.position,
       activeResolution: payload.resolution 
     });
-
-    if (payload.resolution && oldRes && payload.resolution !== oldRes) {
-      const session = TranscodeSessionManager.getSession('async');
-      if (session) {
-        const offset = member.asyncSession?.transcodeOffset || 0;
-        const isCovered = session.isPositionCoveredByVariant(payload.resolution as any, payload.position, offset);
-        if (!isCovered && payload.position > offset + 5) {
-          console.log(`[playback] Async user ${ctx.userId} switched to lagging resolution ${payload.resolution}. Forcing hard seek.`);
-          PlaybackService.handleSeek({ position: payload.position, scope: 'user' }, ctx);
-        }
-      }
-    }
   }
 
   private static handleSyncHeartbeat(

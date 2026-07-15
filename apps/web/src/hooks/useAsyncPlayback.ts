@@ -76,13 +76,12 @@ export function useAsyncPlayback({
    *
    * Play/pause state is set locally (buffering) for instant feedback.
    */
-  const seek = useCallback((position: number) => {
+  const seek = useCallback((position: number, forceNewOffset: boolean = false) => {
     setAsyncPlaybackState(prev => prev ? { ...prev, state: 'buffering', anchorPosition: position, anchorTime: Date.now() } : prev);
 
-    // Server-decided seek: coordinator resolves coverage and offset.
-    sendMessage({
-      event: 'playback.seek',
-      payload: { position, scope: 'user' }
+    sendMessage({ 
+      event: 'playback.seek', 
+      payload: { position, scope: 'user', forceNewOffset } 
     });
     
     // Immediate heartbeat for seek to help transcoder start ASAP

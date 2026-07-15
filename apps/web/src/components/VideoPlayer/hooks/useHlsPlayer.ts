@@ -13,6 +13,7 @@ interface UseHlsPlayerParams {
   isAsyncMode: boolean;
   userId?: string;
   activeOffsetRef: MutableRefObject<number>;
+  triggerQualitySeek: () => void;
 }
 
 export function useHlsPlayer({
@@ -26,6 +27,7 @@ export function useHlsPlayer({
   isAsyncMode,
   userId,
   activeOffsetRef,
+  triggerQualitySeek,
 }: UseHlsPlayerParams) {
   const hlsRef = useRef<Hls | null>(null);
   const [levels, setLevels] = useState<Level[]>([]);
@@ -156,6 +158,13 @@ export function useHlsPlayer({
       preferredLevelRef.current = index;
       if (hlsRef.current.levels && hlsRef.current.levels[index]) {
         setActiveResolution(hlsRef.current.levels[index].name);
+      }
+      
+      // NOTE: In sync mode, all 3 variants are actively running and perfectly aligned,
+      // so HLS.js can seamlessly switch natively. We only need to force a hard seek 
+      // in async mode, where unused variants are suspended and left behind!
+      if (isAsyncMode) {
+        triggerQualitySeek();
       }
     }
   };

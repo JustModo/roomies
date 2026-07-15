@@ -15,6 +15,7 @@ export const ClientPlaybackSeekSchema = z.object({
   payload: z.object({
     position: z.number(),
     scope: z.enum(['room', 'user']).optional(),
+    forceNewOffset: z.boolean().optional(),
   }),
 });
 

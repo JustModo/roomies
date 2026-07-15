@@ -80,16 +80,28 @@ export function useRoomSync() {
 
         if (msg.payload.room.mediaId && msg.payload.room.hlsUrl) {
           setMediaInfo((prev) => {
+            const isAsync = asyncPlayback.isAsyncModeRef.current;
             const isDifferentMedia = prev?.mediaFileId !== msg.payload.room.mediaId;
-            const isDifferentOffset = prev?.transcodeOffset !== msg.payload.room.transcodeOffset;
+            
+            // In async mode, preserve our offset and URL if the video hasn't changed.
+            // room.state always broadcasts the sync offset and sync URL.
+            const effectiveOffset = (isAsync && !isDifferentMedia)
+              ? (prev?.transcodeOffset ?? 0)
+              : (msg.payload.room.transcodeOffset || 0);
+              
+            const effectiveHlsUrl = (isAsync && !isDifferentMedia)
+              ? (prev?.hlsUrl ?? msg.payload.room.hlsUrl!)
+              : msg.payload.room.hlsUrl!;
+
+            const isDifferentOffset = prev?.transcodeOffset !== effectiveOffset;
             const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
             return {
               mediaFileId: msg.payload.room.mediaId!,
               title: msg.payload.room.mediaTitle || '',
-              hlsUrl: msg.payload.room.hlsUrl!,
+              hlsUrl: effectiveHlsUrl,
               duration: msg.payload.room.duration,
               seekKey: nextKey,
-              transcodeOffset: msg.payload.room.transcodeOffset || 0,
+              transcodeOffset: effectiveOffset,
               subtitles: msg.payload.room.subtitles || [],
             };
           });
@@ -117,19 +129,24 @@ export function useRoomSync() {
 
         if (msg.payload.mediaFileId && msg.payload.hlsUrl) {
           setMediaInfo((prev) => {
-            // In async mode, only user-scoped events update the offset.
-            // Room-scoped events preserve the async user's current offset.
-            const effectiveOffset = (isAsync && !isUserScoped)
+            const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
+
+            // In async mode, only user-scoped events update the offset/url (unless media changed).
+            // Room-scoped events preserve the async user's current offset and url.
+            const effectiveOffset = (isAsync && !isUserScoped && !isDifferentMedia)
               ? (prev?.transcodeOffset ?? 0)
               : (msg.payload.transcodeOffset || 0);
+              
+            const effectiveHlsUrl = (isAsync && !isUserScoped && !isDifferentMedia)
+              ? (prev?.hlsUrl ?? msg.payload.hlsUrl)
+              : msg.payload.hlsUrl;
 
-            const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
             const isDifferentOffset = prev?.transcodeOffset !== effectiveOffset;
             const nextKey = (isDifferentMedia || isDifferentOffset) ? (prev?.seekKey ?? 0) + 1 : prev?.seekKey ?? 0;
             return {
               mediaFileId: msg.payload.mediaFileId,
               title: msg.payload.title,
-              hlsUrl: msg.payload.hlsUrl,
+              hlsUrl: effectiveHlsUrl,
               duration: msg.payload.duration,
               seekKey: nextKey,
               transcodeOffset: effectiveOffset,
@@ -249,17 +266,17 @@ export function useRoomSync() {
     sendMessage({ event: 'playback.pause', payload: {} });
   }, [sendMessage, asyncPlayback]);
 
-  const seek = useCallback((position: number) => {
+  const seek = useCallback((position: number, forceNewOffset: boolean = false) => {
     setLocalTime(position);
     localTimeRef.current = position;
     if (asyncPlayback.isAsyncModeRef.current) {
-      asyncPlayback.seek(position);
+      asyncPlayback.seek(position, forceNewOffset);
       // Trigger local video seek for instant feedback.
       setSyncSeekPosition(position);
       setSyncSeekTrigger(t => t + 1);
       return;
     }
-    sendMessage({ event: 'playback.seek', payload: { position } });
+    sendMessage({ event: 'playback.seek', payload: { position, forceNewOffset } });
   }, [sendMessage, asyncPlayback]);
 
   const setStatus = useCallback((status: 'ready' | 'buffering') => {

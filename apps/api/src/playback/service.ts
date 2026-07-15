@@ -204,6 +204,7 @@ export class PlaybackService {
       { type: 'room' },
       payload.position,
       state.mediaId,
+      payload.forceNewOffset,
     );
 
     roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
@@ -240,6 +241,7 @@ export class PlaybackService {
       { type: 'user', userId: ctx.userId },
       payload.position,
       state.mediaId,
+      payload.forceNewOffset,
     );
 
     // Persist the user's async offset so cache GC can track it.
