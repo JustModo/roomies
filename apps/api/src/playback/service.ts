@@ -122,16 +122,10 @@ export class PlaybackService {
     // NOTE: Align variant startup position with requested offset or room transcode offset.
     const originalPosition = reqOffset !== undefined ? reqOffset : (roomStore.getState().transcodeOffset || 0);
 
-    // NOTE: Resolve merged offsets seamlessly
-    let effectivePosition = originalPosition;
-    while (session.mergedOffsets.has(effectivePosition)) {
-      effectivePosition = session.mergedOffsets.get(effectivePosition)!;
-    }
-
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-    await session.ensureVariantReady(resolution, effectivePosition, ffmpegPreset, hwAccelMode);
+    await session.ensureVariantReady(resolution, originalPosition, ffmpegPreset, hwAccelMode);
     
-    const variantDir = session.getVariantOutputDir(resolution, effectivePosition);
+    const variantDir = session.getVariantOutputDir(resolution, originalPosition);
     const playlistPath = path.join(variantDir, 'stream.m3u8');
     
     let content = await fs.promises.readFile(playlistPath, 'utf8');

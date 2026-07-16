@@ -1,8 +1,8 @@
-import fs from 'fs';
 import path from 'path';
 import { TranscodeErrorCallback } from './types';
 import { TranscodeSession } from './session';
 import { CACHE_DIR } from './config';
+import { TranscodeCache } from './cache';
 
 /** Singleton manager for active transcoding sessions. Manages one sync session and isolated async sessions. */
 class TranscodeSessionManagerImpl {
@@ -14,7 +14,7 @@ class TranscodeSessionManagerImpl {
 
     // Isolate cache directory per session and media
     const outputDir = path.join(CACHE_DIR, sessionId, mediaFileId);
-    this.cleanDirectory(outputDir);
+    TranscodeCache.cleanDirectory(outputDir);
 
     const session = new TranscodeSession(sessionId, mediaFileId, inputPath, outputDir);
 
@@ -63,16 +63,6 @@ class TranscodeSessionManagerImpl {
 
   onError(callback: TranscodeErrorCallback): void {
     this.errorCallbacks.push(callback);
-  }
-
-  private cleanDirectory(dir: string): void {
-    try {
-      if (fs.existsSync(dir)) {
-        fs.rmSync(dir, { recursive: true, force: true });
-      }
-    } catch (err) {
-      console.error(`[transcode] Failed to clean directory ${dir}:`, err);
-    }
   }
 }
 

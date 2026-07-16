@@ -13,6 +13,7 @@ import {
   VIDEO_CODEC,
 } from './config';
 import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
+import { TranscodeCache } from './cache';
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
 const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
@@ -160,7 +161,7 @@ export class TranscodeVariant extends EventEmitter {
   }
 
   private spawnProcess(hw: HardwareEncoder | null): void {
-    fs.mkdirSync(this.outputDir, { recursive: true });
+    TranscodeCache.ensureDirectory(this.outputDir);
 
     const args = this.buildArgs(hw);
     const proc = spawn(FFMPEG_PATH, args, {
@@ -251,21 +252,7 @@ export class TranscodeVariant extends EventEmitter {
     if (!this._isReady) return;
 
     try {
-      const files = fs.readdirSync(this.outputDir);
-      let newestSegmentTime = 0;
-
-      for (const file of files) {
-        if (!file.endsWith('.ts')) continue;
-
-        const match = file.match(/seg_(\d+)\.ts/);
-        if (match) {
-          const index = parseInt(match[1], 10);
-          const segmentTime = this.startPosition + (index * SEGMENT_DURATION);
-          if (segmentTime > newestSegmentTime) {
-            newestSegmentTime = segmentTime;
-          }
-        }
-      }
+      const { newestSegmentTime } = TranscodeCache.getVariantCacheStats(this.outputDir, this.startPosition);
 
       // NOTE: Suspend FFmpeg if ahead by >300s or NOT actively watched. Resume when <60s AND actively watched to protect CPU/disk.
       if (this.process && this._isRunning) {
@@ -290,28 +277,20 @@ export class TranscodeVariant extends EventEmitter {
   /** Watches the output directory for the first .ts segment file. */
   private watchForFirstSegment(): void {
     // NOTE: Check if lookahead segments already exist from a previous run.
-    try {
-      const files = fs.readdirSync(this.outputDir);
-      const tsCount = files.filter(f => f.endsWith('.ts')).length;
-      if (tsCount >= LOOK_AHEAD_SEGMENTS) {
-        this._isReady = true;
-        this.emit('ready');
-        return;
-      }
-    } catch {
+    const initialTsCount = TranscodeCache.getSegmentCount(this.outputDir);
+    if (initialTsCount >= LOOK_AHEAD_SEGMENTS) {
+      this._isReady = true;
+      this.emit('ready');
+      return;
     }
 
     // NOTE: Emits 'ready' once enough lookahead segments are present to prevent initial stall.
     const checkReady = () => {
-      try {
-        const files = fs.readdirSync(this.outputDir);
-        const tsCount = files.filter(f => f.endsWith('.ts')).length;
-        if (tsCount >= LOOK_AHEAD_SEGMENTS && !this._isReady) {
-          this._isReady = true;
-          this.stopWatcher();
-          this.emit('ready');
-        }
-      } catch {
+      const tsCount = TranscodeCache.getSegmentCount(this.outputDir);
+      if (tsCount >= LOOK_AHEAD_SEGMENTS && !this._isReady) {
+        this._isReady = true;
+        this.stopWatcher();
+        this.emit('ready');
       }
     };
 

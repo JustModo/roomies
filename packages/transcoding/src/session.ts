@@ -1,10 +1,11 @@
-import fs from 'fs';
 import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
 import { getSourceFrameRate } from './ffprobe';
+import { TranscodeCache } from './cache';
+import { getAlignedPosition } from './utils';
 
 /** Manages all transcoding variants for a single media file, grouped by transcode offset. */
 export class TranscodeSession {
@@ -26,11 +27,19 @@ export class TranscodeSession {
     this.inputPath = inputPath;
     this.outputBaseDir = outputBaseDir;
 
-    fs.mkdirSync(this.outputBaseDir, { recursive: true });
+    TranscodeCache.ensureDirectory(this.outputBaseDir);
   }
 
   onError(callback: (resolution: Resolution, error: Error) => void): void {
     this.onErrorCallback = callback;
+  }
+
+  resolveMergedOffset(offset: number): number {
+    let effectiveOffset = offset;
+    while (this.mergedOffsets.has(effectiveOffset)) {
+      effectiveOffset = this.mergedOffsets.get(effectiveOffset)!;
+    }
+    return effectiveOffset;
   }
 
   private getSourceFps(): Promise<number> {
@@ -54,6 +63,8 @@ export class TranscodeSession {
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
+    offset = this.resolveMergedOffset(offset);
+
     let group = this.variantGroups.get(offset);
     if (!group) {
       group = new Map<Resolution, TranscodeVariant>();
@@ -190,14 +201,8 @@ export class TranscodeSession {
     this.variantGroups.delete(offset);
     this.groupCreatedAt.delete(offset);
 
-    try {
-      const groupDir = path.join(this.outputBaseDir, offset.toString());
-      if (fs.existsSync(groupDir)) {
-        fs.rmSync(groupDir, { recursive: true, force: true });
-      }
-    } catch (err) {
-      console.error(`[transcode] Failed to delete cache directory for offset ${offset}:`, err);
-    }
+    const groupDir = path.join(this.outputBaseDir, offset.toString());
+    TranscodeCache.cleanDirectory(groupDir);
   }
 
   async stop(): Promise<void> {
@@ -207,13 +212,7 @@ export class TranscodeSession {
     }
     await Promise.all(promises);
 
-    try {
-      if (fs.existsSync(this.outputBaseDir)) {
-        fs.rmSync(this.outputBaseDir, { recursive: true, force: true });
-      }
-    } catch (err) {
-      console.error(`[transcode] Failed to delete base cache directory on stop:`, err);
-    }
+    TranscodeCache.cleanDirectory(this.outputBaseDir);
   }
 
   isPositionCovered(newPosition: number, offset: number): boolean {
@@ -268,10 +267,7 @@ export class TranscodeSession {
 
     console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s not covered by offset ${currentOffset}, starting new variants`);
 
-    const alignedPosition = Math.max(
-      0,
-      Math.floor(newPosition / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION
-    );
+    const alignedPosition = getAlignedPosition(newPosition);
 
     if (resolutionsToPrewarm.length > 0) {
       await Promise.all(
@@ -283,6 +279,7 @@ export class TranscodeSession {
   }
 
   getVariantOutputDir(resolution: Resolution, offset: number): string {
+    offset = this.resolveMergedOffset(offset);
     const group = this.variantGroups.get(offset);
     const variant = group?.get(resolution);
     if (!variant) {
@@ -292,20 +289,6 @@ export class TranscodeSession {
   }
 
   private getMaxCoveredTime(variant: TranscodeVariant): number {
-    try {
-      const files = fs.readdirSync(variant.outputDir);
-      let maxIndex = -1;
-      for (const file of files) {
-        const match = file.match(/seg_(\d+)\.ts/);
-        if (match) {
-          const idx = parseInt(match[1], 10);
-          if (idx > maxIndex) maxIndex = idx;
-        }
-      }
-      if (maxIndex < 0) return 0;
-      return variant.startPosition + (maxIndex + 1) * SEGMENT_DURATION;
-    } catch {
-      return 0;
-    }
+    return TranscodeCache.getVariantCacheStats(variant.outputDir, variant.startPosition).maxCoveredTime;
   }
 }

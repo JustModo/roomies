@@ -1,6 +1,8 @@
 export { TranscodeSessionManager } from './manager';
 export { TranscodeSession } from './session';
 export { TranscodeVariant } from './variant';
+export { TranscodeCache } from './cache';
+export { getAlignedPosition } from './utils';
 export { detectHardwareEncoder, getDetectedHardwareEncoder } from './hwaccel';
 export { initTranscodeSettings, getTranscodeSettings } from './settings';
 export type { TranscodeSettings, FfmpegPreset, HwAccelMode } from './settings';

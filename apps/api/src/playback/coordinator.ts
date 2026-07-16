@@ -1,7 +1,7 @@
-import { TranscodeSessionManager, getTranscodeSettings, SEGMENT_DURATION } from '@roomies/transcoding';
+import { TranscodeSessionManager, getTranscodeSettings, getAlignedPosition } from '@roomies/transcoding';
 import { prisma } from '../database/sqlite';
 import { roomStore } from '../room/store';
-import { SessionScope, sessionScopeToId, OffsetPolicy, defaultOffsetPolicy } from './types';
+import { SessionScope, sessionScopeToId } from './types';
 import { Resolution } from '@roomies/transcoding';
 
 export interface SeekResult {
@@ -19,7 +19,53 @@ export interface SeekResult {
  * by the SessionScope.
  */
 export class SessionPlaybackCoordinator {
-  constructor(private offsetPolicy: OffsetPolicy = defaultOffsetPolicy) {}
+  private cacheInterval?: NodeJS.Timeout;
+
+  startCacheManager() {
+    if (this.cacheInterval) return;
+
+    // NOTE: Periodically trigger transcoding cache management based on playhead position.
+    this.cacheInterval = setInterval(() => {
+      const state = roomStore.getState();
+      const sessionPlayheads: Record<string, { activeOffsets: Set<number>, playheads: { position: number, resolution?: string }[] }> = {};
+      
+      // Sync session: collect playheads from all non-async members.
+      const syncPlayheads: { position: number, resolution?: string }[] = [{ position: roomStore.getCurrentPosition() }];
+      for (const member of state.members) {
+        if (member.status !== 'async') {
+          syncPlayheads.push({ position: member.position, resolution: member.activeResolution });
+        }
+      }
+      sessionPlayheads['sync'] = { activeOffsets: new Set([state.transcodeOffset]), playheads: syncPlayheads };
+      
+      // Async sessions: pool all async members into a single 'async' session
+      const asyncPlayheads: { position: number, resolution?: string }[] = [];
+      const asyncActiveOffsets = new Set<number>();
+      
+      for (const member of state.members) {
+        if (member.status === 'async' && member.asyncSession) {
+          asyncActiveOffsets.add(member.asyncSession.transcodeOffset);
+          asyncPlayheads.push({ position: member.position, resolution: member.activeResolution });
+        }
+      }
+      
+      if (asyncPlayheads.length > 0) {
+        sessionPlayheads['async'] = {
+          activeOffsets: asyncActiveOffsets,
+          playheads: asyncPlayheads,
+        };
+      }
+      
+      TranscodeSessionManager.manageActiveCaches(sessionPlayheads);
+    }, 1000);
+  }
+
+  stopCacheManager() {
+    if (this.cacheInterval) {
+      clearInterval(this.cacheInterval);
+      this.cacheInterval = undefined;
+    }
+  }
 
   /**
    * Resolve a seek request for the given session.
@@ -42,7 +88,7 @@ export class SessionPlaybackCoordinator {
 
     // No existing session → uncovered by definition.
     if (!session || session.mediaFileId !== mediaFileId) {
-      const offset = this.offsetPolicy.align(position);
+      const offset = getAlignedPosition(position);
       // Lazily create the session so ensureVariant works on first request.
       await this.ensureSessionExists(sessionId, mediaFileId);
       return { effectiveOffset: offset, needsReinit: true };
@@ -64,7 +110,7 @@ export class SessionPlaybackCoordinator {
     }
 
     // Not covered (or forced) — compute aligned offset and begin recreation.
-    const newOffset = this.offsetPolicy.align(position);
+    const newOffset = getAlignedPosition(position);
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
 
     // Fire-and-forget: variants spin up in background.

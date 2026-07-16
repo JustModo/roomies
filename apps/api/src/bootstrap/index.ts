@@ -1,5 +1,4 @@
 import { FastifyInstance } from 'fastify';
-import fs from 'fs';
 import fastifyCors from '@fastify/cors';
 import fastifyWebsocket from '@fastify/websocket';
 import { prisma } from '../database/sqlite';
@@ -12,39 +11,18 @@ import { playbackRoutes } from '../playback/routes';
 import { LibraryService } from '@roomies/library';
 import { initializeConfig } from '../config';
 import { registerChatSocketEvents } from '../chat/socket';
-import { registerPlaybackSocketEvents } from '../playback/socket';
+import { registerPlaybackSocketEvents, registerTranscodeEvents } from '../playback/socket';
 import { registerRoomSocketEvents } from '../room/socket';
 import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
-import { TranscodeSessionManager, CACHE_DIR } from '@roomies/transcoding';
-import { CORS_ORIGIN } from '@roomies/config';
-import { SocketEmitter } from '../websocket/emitter';
-import { CacheManager } from '../playback/cache';
+import { TranscodeSessionManager, TranscodeCache } from '@roomies/transcoding';
+import { getCorsOptions } from '../config/cors';
+import { coordinator } from '../playback/coordinator';
 
 export const bootstrap = async (app: FastifyInstance) => {
-  // NOTE: Clean up cache directory to prevent disk leaks from past crashes.
-  try {
-    if (fs.existsSync(CACHE_DIR)) {
-      const files = fs.readdirSync(CACHE_DIR);
-      for (const file of files) {
-        fs.rmSync(require('path').join(CACHE_DIR, file), { recursive: true, force: true });
-      }
-    } else {
-      fs.mkdirSync(CACHE_DIR, { recursive: true });
-    }
-    console.log('[transcode] Cleaned up global transcode cache directory.');
-  } catch (err) {
-    console.error('[transcode] Failed to clean global cache directory:', err);
-  }
+  TranscodeCache.cleanGlobalCache();
 
-  // NOTE: JWT authorization uses headers, so credentialed CORS is not required.
-  const allowedOrigins = CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
-
-  await app.register(fastifyCors, {
-    origin: allowedOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: false,
-  });
+  await app.register(fastifyCors, getCorsOptions());
 
   await app.register(fastifyWebsocket, {
     options: {
@@ -70,19 +48,9 @@ export const bootstrap = async (app: FastifyInstance) => {
     process.exit(1);
   }
 
-  // NOTE: Broadcast transcoding failures to all clients.
-  TranscodeSessionManager.onError((resolution, error) => {
-    console.error('[transcode] Transcoding variant error:', { resolution, error: error.message });
-    SocketEmitter.broadcastToRoom(app, {
-      event: 'error',
-      payload: {
-        message: `Transcoding error for ${resolution}: ${error.message}`,
-        code: 'TRANSCODE_ERROR',
-      },
-    });
-  });
+  registerTranscodeEvents(app);
 
-  CacheManager.start();
+  coordinator.startCacheManager();
   registerChatSocketEvents();
   registerPlaybackSocketEvents();
   registerRoomSocketEvents();
@@ -100,7 +68,7 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   // 7. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {
-    CacheManager.stop();
+    coordinator.stopCacheManager();
     TranscodeSessionManager.stopAll();
     await prisma.$disconnect();
     console.log('[system] Graceful shutdown complete.');
