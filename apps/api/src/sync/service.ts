@@ -219,6 +219,18 @@ export class SyncService {
 
   private static reconcileRoomBufferingState(ctx: SocketContext) {
     const state = roomStore.getState();
+    const activeMembers = state.members.filter(m => m.status !== 'async');
+
+    // Pause room if everyone went async
+    if (activeMembers.length === 0 && (state.playback.state === 'playing' || state.playback.intendedState === 'playing')) {
+      roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
+      SocketEmitter.broadcastToRoom(ctx.app, {
+        event: 'playback.state',
+        payload: roomStore.getState().playback
+      });
+      return;
+    }
+
     const anyoneBuffering = state.members.some(m => m.status === 'buffering');
     
     if (anyoneBuffering && state.playback.state === 'playing') {
@@ -230,7 +242,7 @@ export class SyncService {
       });
     }
     
-    if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering')) {
+    if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering') && activeMembers.length > 0) {
       // Resume playback if no members are buffering
       roomStore.updatePlayback({ state: state.playback.intendedState, anchorTime: Date.now() });
       SocketEmitter.broadcastToRoom(ctx.app, {
