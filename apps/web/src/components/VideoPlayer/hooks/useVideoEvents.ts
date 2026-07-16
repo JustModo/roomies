@@ -49,6 +49,7 @@ export function useVideoEvents({
   activeOffsetRef,
 }: UseVideoEventsParams) {
   const lastProcessedTriggerRef = useRef(0);
+  const targetRateRef = useRef(1);
 
   // Sync state changes from server (play/pause)
   useEffect(() => {
@@ -64,8 +65,10 @@ export function useVideoEvents({
 
   // Sync playback rate
   useEffect(() => {
+    const targetRate = localCorrectionRate ?? roomPlaybackState?.playbackRate ?? 1;
+    targetRateRef.current = targetRate;
+
     if (videoRef.current) {
-      const targetRate = localCorrectionRate ?? roomPlaybackState?.playbackRate ?? 1;
       if (videoRef.current.playbackRate !== targetRate) {
         videoRef.current.playbackRate = targetRate;
       }
@@ -123,11 +126,19 @@ export function useVideoEvents({
       handleReady();
     };
 
+    // Aggressively enforce playback rate against DOM resets
+    const handleRateChange = () => {
+      if (video.playbackRate !== targetRateRef.current) {
+        video.playbackRate = targetRateRef.current;
+      }
+    };
+
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handleReady);
     video.addEventListener('canplay', handleReady);
     video.addEventListener('progress', handleProgress);
     video.addEventListener('seeked', handleReady);
+    video.addEventListener('ratechange', handleRateChange);
 
     return () => {
       clearTimeout(bufferingTimeout);
@@ -136,6 +147,7 @@ export function useVideoEvents({
       video.removeEventListener('canplay', handleReady);
       video.removeEventListener('progress', handleProgress);
       video.removeEventListener('seeked', handleReady);
+      video.removeEventListener('ratechange', handleRateChange);
     };
   }, [reportStatus]);
 

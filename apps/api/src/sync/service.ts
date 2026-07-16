@@ -45,6 +45,16 @@ export class SyncService {
     const SOFT_THRESHOLD_MS = 500;
     const HARD_THRESHOLD_MS = 4000;
 
+    // NOTE: If the room is buffering, wait for it to resume before enforcing sync.
+    if (playback.state === 'buffering') {
+      roomStore.updateMember(ctx.userId, { 
+        position: payload.position,
+        activeResolution: payload.resolution 
+      });
+      coordinator.updateSyncPlayhead(ctx.userId, payload.position, payload.resolution);
+      return;
+    }
+
     // NOTE: Cooldown check for hard seeks to prevent feedback loops.
     const lastSeekTime = (ctx.socket as any).lastSeekTime || 0;
     const now = Date.now();
@@ -91,12 +101,14 @@ export class SyncService {
     const isCorrecting = payload.playbackRate !== playback.playbackRate;
     if (!isCorrecting) {
       const isBehind = payload.position < expectedPosition;
-      const correctionRate = isBehind ? 1.1 : 0.9;
+      
+      // Make correction relative to the current room playback rate
+      const correctionRate = isBehind ? playback.playbackRate * 1.1 : playback.playbackRate * 0.9;
       
       const speedDelta = Math.abs(correctionRate - playback.playbackRate);
       const correctionDurationMs = Math.round(driftMs / speedDelta);
 
-      console.warn(`[sync] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate}x rate for ${correctionDurationMs}ms`);
+      console.warn(`[sync] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate.toFixed(2)}x rate for ${correctionDurationMs}ms`);
       SocketEmitter.sendToClient(ctx.socket, {
         event: 'sync.correct',
         payload: {
