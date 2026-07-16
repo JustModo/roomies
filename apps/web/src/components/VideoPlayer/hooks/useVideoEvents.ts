@@ -112,6 +112,11 @@ export function useVideoEvents({
     };
 
     const handleReady = () => {
+      // Re-assert playrate in case the browser loaded new metadata and reverted it to 1.0
+      if (video.playbackRate !== targetRateRef.current) {
+        video.playbackRate = targetRateRef.current;
+      }
+
       const bufferedAhead = getBufferedAhead(video);
       const remainingTime = video.duration ? (video.duration - video.currentTime) : 0;
       const threshold = video.duration ? Math.min(3.0, remainingTime) : 3.0;

@@ -238,6 +238,24 @@ export function useRoomSync() {
   const playbackRateRef = useRef(roomState?.playback.playbackRate);
   const activeRateRef = useRef(1);
 
+  // Clear soft correction when room playrate changes
+  const prevPlaybackRateRef = useRef(roomState?.playback.playbackRate);
+  useEffect(() => {
+    if (roomState?.playback.playbackRate !== prevPlaybackRateRef.current) {
+      setLocalCorrectionRate(null);
+      if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
+    }
+    prevPlaybackRateRef.current = roomState?.playback.playbackRate;
+  }, [roomState?.playback.playbackRate]);
+
+  // Clear soft correction when entering async mode
+  useEffect(() => {
+    if (asyncPlayback.isAsyncModeRef.current) {
+      setLocalCorrectionRate(null);
+      if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
+    }
+  }, [asyncPlayback.isAsyncModeRef.current]);
+
   useEffect(() => {
     playbackStateRef.current = roomState?.playback.state;
     playbackRateRef.current = roomState?.playback.playbackRate;
