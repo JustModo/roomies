@@ -60,7 +60,7 @@ export function useHlsPlayer({
       // No more client-side Math.floor(localTime / 10) * 10 computation.
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
       activeOffsetRef.current = transcodeOffset;
-      
+
       const hls = new Hls({
         startPosition: Math.max(0, localTime - transcodeOffset),
         enableWorker: true,
@@ -71,8 +71,9 @@ export function useHlsPlayer({
         levelLoadingRetryDelay: 1000,
         fragLoadingMaxRetry: 10,
         fragLoadingRetryDelay: 1000,
-        maxBufferLength: 60,
-        maxMaxBufferLength: 120,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        backBufferLength: 15,
       });
 
       const baseUrl = mediaInfo.hlsUrl;
@@ -87,7 +88,7 @@ export function useHlsPlayer({
 
       hls.on(Events.MANIFEST_PARSED, (_event: Events.MANIFEST_PARSED, data: ManifestParsedData) => {
         setLevels(data.levels);
-        
+
         if (preferredLevelRef.current !== -1 && preferredLevelRef.current < data.levels.length) {
           hls.currentLevel = preferredLevelRef.current;
         }
@@ -159,7 +160,7 @@ export function useHlsPlayer({
       if (hlsRef.current.levels && hlsRef.current.levels[index]) {
         setActiveResolution(hlsRef.current.levels[index].name);
       }
-      
+
       // NOTE: In sync mode, all 3 variants are actively running and perfectly aligned,
       // so HLS.js can seamlessly switch natively. We only need to force a hard seek 
       // in async mode, where unused variants are suspended and left behind!
