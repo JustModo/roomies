@@ -57,6 +57,10 @@ export default function Room() {
     }
   }, [navigate]);
 
+  if (!hasUserInteracted) {
+    return null;
+  }
+
   const {
     roomState,
     mediaInfo,

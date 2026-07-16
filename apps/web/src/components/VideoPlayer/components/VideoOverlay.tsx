@@ -28,7 +28,7 @@ export const VideoOverlay: React.FC<VideoOverlayProps> = ({
     }
   }, [mediaInfo, roomPlaybackState?.state, isAsyncMode]);
 
-  const showOverlay = roomPlaybackState?.state === 'buffering' || (!isPlaying && !isDragging);
+  const showOverlay = roomPlaybackState !== undefined && (roomPlaybackState.state === 'buffering' || (!isPlaying && !isDragging));
 
   return (
     <div
