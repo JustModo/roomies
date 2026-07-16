@@ -64,7 +64,6 @@ export const MovieSchema = z.object({
   type: z.enum(['movie', 'show']),
   name: z.string(),
   path: z.string(),
-  coverPath: z.string().nullable(),
   mediaFiles: z.array(MediaFileSchema),
 });
 export type Movie = z.infer<typeof MovieSchema>;

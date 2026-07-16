@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { Dirent } from 'fs';
-import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS, IMAGE_EXTENSIONS } from './constants';
+import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS } from './constants';
 import { ScannedEpisode, ScannedMovie, ScannedSubtitle } from './types';
 import { parseEpisodeFilename } from './parser';
 
@@ -79,12 +79,6 @@ const matchSubtitles = (videoPath: string, subtitlePaths: string[]): ScannedSubt
   return matches;
 };
 
-const findCover = (folder: string, allFiles: string[]): string | null => {
-  // Look for cover in the root of the title folder
-  const covers = filterByExtension(allFiles, IMAGE_EXTENSIONS);
-  const rootCovers = covers.filter(c => path.dirname(c) === folder);
-  return rootCovers.length > 0 ? rootCovers[0] : (covers.length > 0 ? covers[0] : null);
-};
 
 /** Builds the sorted episode list for a title folder from its video + subtitle files. */
 const buildEpisodes = (folder: string, allFiles: string[]): ScannedEpisode[] => {
@@ -185,7 +179,6 @@ export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMovie[
       path: titleFolder,
       name: entry.name,
       type: episodes.length > 1 ? 'show' : 'movie',
-      coverPath: findCover(titleFolder, titleFiles),
       episodes,
     });
   }

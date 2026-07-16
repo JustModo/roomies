@@ -35,22 +35,22 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
   return (
     <div className="fixed inset-0 bg-void z-50 flex flex-col">
 
-      <div className="border-b border-ash flex justify-between items-center p-6">
-        <h1 className="text-20 font-medium uppercase tracking-[0.08em] text-paper">
+      <div className="border-b border-ash flex justify-between items-center p-4 sm:p-6">
+        <h1 className="text-16 sm:text-20 font-medium uppercase tracking-[0.08em] text-paper">
           MANAGE ROOM
         </h1>
         <IconButton icon={<X size={24} strokeWidth={1.5} />} onClick={onClose} />
       </div>
 
       {mediaTitle ? (
-        <div className="bg-ash/5 px-6 py-4 flex items-center justify-between border-b border-ash/50">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 flex items-center justify-center text-blue-400">
+        <div className="bg-ash/5 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between border-b border-ash/50">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-10 h-10 flex items-center justify-center text-blue-400 flex-shrink-0">
               <Play size={18} fill="currentColor" />
             </div>
-            <div className="flex flex-col">
+            <div className="flex flex-col min-w-0">
               <span className="text-11 text-blue-400/80 font-semibold tracking-[0.15em] uppercase mb-1">Now Playing</span>
-              <span className="text-15 text-paper font-medium truncate max-w-md">{mediaTitle}</span>
+              <span className="text-14 sm:text-15 text-paper font-medium truncate w-full">{mediaTitle}</span>
             </div>
           </div>
           <button
@@ -61,14 +61,14 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
           </button>
         </div>
       ) : (
-        <div className="bg-ash/5 px-6 py-4 flex items-center justify-between border-b border-ash/50 opacity-60">
+        <div className="bg-ash/5 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between border-b border-ash/50 opacity-60">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-ash/10 flex items-center justify-center text-fog">
+            <div className="w-10 h-10 rounded-full bg-ash/10 flex items-center justify-center text-fog flex-shrink-0">
               <Film size={18} />
             </div>
             <div className="flex flex-col">
               <span className="text-11 text-fog font-semibold tracking-[0.15em] uppercase mb-1">Status</span>
-              <span className="text-14 text-fog font-medium">No media selected</span>
+              <span className="text-14 sm:text-15 text-fog font-medium">No media selected</span>
             </div>
           </div>
         </div>
@@ -80,7 +80,7 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`
-              flex-1 py-4 text-14 uppercase tracking-[0.1em] transition-colors duration-150 relative text-center
+              flex-1 py-3 sm:py-4 text-12 sm:text-14 uppercase tracking-[0.1em] transition-colors duration-150 relative text-center
               ${activeTab === tab ? 'text-paper font-medium' : 'text-fog hover:text-paper'}
             `}
           >
@@ -92,7 +92,7 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {activeTab === 'USERS' && <UsersTab />}
         {activeTab === 'MEDIA' && <MediaTab onClose={onClose} />}
       </div>
@@ -174,12 +174,12 @@ const UsersTab = () => {
   if (isCreating) {
     return (
       <div className="w-full">
-        <div className="flex items-center gap-3 mb-8 w-full">
+        <div className="flex items-center gap-3 mb-6 sm:mb-8 w-full">
           <IconButton icon={<ChevronLeft size={20} strokeWidth={1.5} />} onClick={() => setIsCreating(false)} />
-          <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">NEW GUEST USER</h2>
+          <h2 className="text-14 sm:text-16 font-medium uppercase tracking-[0.08em] text-paper">NEW GUEST USER</h2>
         </div>
 
-        <div className="flex flex-col gap-8 w-full max-w-sm bg-ash/5 border border-ash/15 p-8 mx-auto mt-12">
+        <div className="flex flex-col gap-8 w-full max-w-sm bg-ash/5 border border-ash/15 p-6 sm:p-8 mx-auto mt-12">
           <div className="flex flex-col gap-4 w-full">
             <Input label="USERNAME" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} autoComplete="off" />
             <Input label="PASSWORD" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
@@ -199,90 +199,42 @@ const UsersTab = () => {
 
   return (
     <div className="w-full flex flex-col items-center">
-      <div className="flex justify-between items-center w-full mb-8">
-        <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">ALL USERS</h2>
+      <div className="flex justify-between items-center w-full mb-6 sm:mb-8">
+        <h2 className="text-14 sm:text-16 font-medium uppercase tracking-[0.08em] text-paper">ALL USERS</h2>
         <Button onClick={() => setIsCreating(true)}>+ ADD USER</Button>
       </div>
 
       <div className="w-full">
-        <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
-          {users.map(u => (
-            <div key={u.id} className="flex items-center justify-between p-4.5 hover:bg-ash/5 transition-all duration-200 group w-full">
-              <div className="flex items-center gap-6 min-w-0">
-                <div className="w-2" />
-                <div className="min-w-0">
-                  <p className="text-15 font-medium text-paper/85">{u.username}</p>
-                  <p className="text-12 text-fog/60 font-mono mt-1 lowercase">
-                    {u.role === 'root' ? 'admin' : u.role} • joined {u.joined}
-                  </p>
+        {users.length > 0 && (
+          <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
+            {users.map(u => (
+              <div key={u.id} className="flex items-center justify-between p-3 sm:p-4.5 hover:bg-ash/5 transition-all duration-200 group w-full">
+                <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+                  <div className="w-2 hidden sm:block" />
+                  <div className="min-w-0">
+                    <p className="text-14 sm:text-15 font-medium text-paper/85 truncate">{u.username}</p>
+                    <p className="text-11 sm:text-12 text-fog/60 font-mono mt-1 lowercase">
+                      {u.role === 'root' ? 'admin' : u.role} • joined {u.joined}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 pr-2">
+                  {u.role !== 'root' && (
+                    <button
+                      onClick={() => handleDelete(u.id)}
+                      className="text-12 font-medium tracking-wider text-fog group-hover:text-red-400 uppercase opacity-0 group-hover:opacity-100 transition-all duration-300 hover:scale-105"
+                    >
+                      REMOVE
+                    </button>
+                  )}
                 </div>
               </div>
-
-              <div className="flex items-center gap-4 pr-2">
-                {u.role !== 'root' && (
-                  <button
-                    onClick={() => handleDelete(u.id)}
-                    className="text-12 font-medium tracking-wider text-fog group-hover:text-red-400 uppercase opacity-0 group-hover:opacity-100 transition-all duration-300 hover:scale-105"
-                  >
-                    REMOVE
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
-  );
-};
-
-const CoverTile = ({ movieId, name, onClick }: { movieId: string; name: string; onClick: () => void }) => {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-
-    fetch(`/api/library/cover/${movieId}`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('No cover');
-        return res.blob();
-      })
-      .then(blob => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setSrc(objectUrl);
-      })
-      .catch(() => { });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [movieId]);
-
-  return (
-    <button
-      onClick={onClick}
-      className="group relative aspect-[3/4] w-full overflow-hidden bg-ash text-left cursor-pointer"
-    >
-      {src ? (
-        <img src={src} alt="" className="absolute inset-0 w-full h-full object-cover" />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-void">
-          <Film size={32} strokeWidth={1.5} className="text-fog" />
-        </div>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-void via-void/10 to-transparent opacity-80 group-hover:opacity-95 transition-opacity" />
-      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-        <Play size={28} strokeWidth={1.5} className="text-paper" />
-      </div>
-      <span className="absolute bottom-2 left-2 right-2 text-14 font-medium text-paper truncate">
-        {name}
-      </span>
-    </button>
   );
 };
 
@@ -290,6 +242,13 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const formatDuration = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   const fetchLibrary = () => {
     fetch('/api/library', {
@@ -364,73 +323,120 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
 
     return (
       <div className="w-full">
-        <div className="flex items-center gap-3 mb-8">
-          <IconButton icon={<ChevronLeft size={20} strokeWidth={1.5} />} onClick={() => setSelectedMovie(null)} />
-          <h2 className="text-16 font-medium uppercase tracking-[0.08em] text-paper">{selectedMovie.name}</h2>
+        <div className="flex items-center gap-3 mb-6 sm:mb-8 min-w-0">
+          <div className="flex-shrink-0">
+            <IconButton icon={<ChevronLeft size={20} strokeWidth={1.5} />} onClick={() => setSelectedMovie(null)} />
+          </div>
+          <h2 className="text-14 sm:text-16 font-medium uppercase tracking-[0.08em] text-paper truncate">{selectedMovie.name}</h2>
         </div>
 
-        <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
-          {sortedEpisodes.map((mf: MediaFile) => {
-            const formatDuration = (sec: number) => {
-              const m = Math.floor(sec / 60);
-              const s = Math.floor(sec % 60);
-              return `${m}:${s.toString().padStart(2, '0')}`;
-            };
-
-            return (
-              <div
-                key={mf.id}
-                className="flex items-center justify-between p-4.5 hover:bg-ash/5 transition-all duration-200 group cursor-pointer w-full"
-                onClick={() => handleStart(mf.id)}
-              >
-                <div className="flex items-center gap-6 min-w-0">
-                  <div className="flex items-center justify-center w-6 h-6 transition-all duration-300">
-                    <Play
-                      size={14}
-                      className="text-fog group-hover:text-paper fill-current opacity-35 group-hover:opacity-100 scale-90 group-hover:scale-110 transition-all duration-300 ease-out"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-15 font-medium text-paper/85 group-hover:text-paper transition-colors truncate">
-                      {mf.title}
-                    </p>
-                    {mf.duration > 0 && (
-                      <p className="text-12 text-fog/60 font-mono mt-1">
-                        {formatDuration(mf.duration)}
+        {sortedEpisodes.length > 0 && (
+          <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
+            {sortedEpisodes.map((mf: MediaFile) => {
+              return (
+                <div
+                  key={mf.id}
+                  className="flex items-center justify-between p-3 sm:p-4.5 hover:bg-ash/5 transition-all duration-200 group cursor-pointer w-full"
+                  onClick={() => handleStart(mf.id)}
+                >
+                  <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+                    <div className="flex items-center justify-center w-6 h-6 transition-all duration-300 flex-shrink-0">
+                      <Play
+                        size={14}
+                        className="text-fog group-hover:text-paper fill-current opacity-35 group-hover:opacity-100 scale-90 group-hover:scale-110 transition-all duration-300 ease-out"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-14 sm:text-15 font-medium text-paper/85 group-hover:text-paper transition-colors truncate">
+                        {mf.title}
                       </p>
-                    )}
+                      {mf.duration > 0 && (
+                        <p className="text-11 sm:text-12 text-fog/60 font-mono mt-1">
+                          {formatDuration(mf.duration)}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <span className="text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
-                  PLAY NOW
-                </span>
-              </div>
-            );
-          })}
-        </div>
+                  <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300 flex-shrink-0 ml-4">
+                    PLAY NOW
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
 
+  const filteredMovies = movies.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
   return (
     <div className="w-full">
-      <div className="flex justify-between items-center mb-8">
-        <Input label="SEARCH MEDIA" placeholder="Title..." className="max-w-sm w-full" />
-        <Button onClick={handleScan} disabled={isScanning}>
-          {isScanning ? 'SCANNING...' : 'SCAN MEDIA LIBRARY'}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+        <Input 
+          label="SEARCH MEDIA" 
+          placeholder="Title..." 
+          className="w-full sm:max-w-sm" 
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <Button onClick={handleScan} disabled={isScanning} className="w-full sm:w-auto min-w-[140px] flex-shrink-0">
+          {isScanning ? 'SCANNING...' : 'SCAN'}
         </Button>
       </div>
 
-      {movies.length === 0 && !isScanning && (
-        <p className="text-14 text-fog">No media found. Try scanning the library.</p>
+      {filteredMovies.length === 0 && !isScanning && (
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-ash/20 border-dashed bg-ash/5 w-full">
+          <div className="w-12 h-12 rounded-full bg-ash/10 flex items-center justify-center text-fog mb-4">
+            <Film size={24} strokeWidth={1.5} />
+          </div>
+          <p className="text-15 font-medium text-paper mb-1">No media found</p>
+          <p className="text-13 text-fog/70 max-w-sm">
+            {searchQuery ? 'We couldn\'t find anything matching your search.' : 'Try scanning your library directory to import media.'}
+          </p>
+        </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {movies.map(m => (
-          <CoverTile key={m.id} movieId={m.id} name={m.name} onClick={() => handleMovieClick(m)} />
-        ))}
-      </div>
+      {filteredMovies.length > 0 && (
+        <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
+          {filteredMovies.map(m => (
+            <div
+              key={m.id}
+              className="flex items-center justify-between p-3 sm:p-4.5 hover:bg-ash/5 transition-all duration-200 group cursor-pointer w-full"
+              onClick={() => handleMovieClick(m)}
+            >
+              <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+                <div className="flex items-center justify-center w-6 h-6 transition-all duration-300 flex-shrink-0">
+                  <Film
+                    size={14}
+                    className="text-fog group-hover:text-paper opacity-35 group-hover:opacity-100 scale-90 group-hover:scale-110 transition-all duration-300 ease-out"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-14 sm:text-15 font-medium text-paper/85 group-hover:text-paper transition-colors truncate">
+                    {m.name}
+                  </p>
+                  <p className="text-11 sm:text-12 text-fog/60 font-mono mt-1 uppercase flex items-center gap-2">
+                    <span>{m.type === 'show' ? `${m.mediaFiles.length} EPISODES` : 'MOVIE'}</span>
+                    {m.type === 'movie' && m.mediaFiles[0]?.duration > 0 && (
+                      <>
+                        <span>•</span>
+                        <span>{formatDuration(m.mediaFiles[0].duration)}</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300 flex-shrink-0 ml-4">
+                {m.type === 'show' ? 'VIEW EPISODES' : 'PLAY NOW'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

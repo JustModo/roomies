@@ -6,12 +6,7 @@ import { MEDIA_ROOT } from '@roomies/config';
 import { ScanLibraryRequest } from '@roomies/contracts';
 import { prisma } from '../database/sqlite';
 
-const MIME_TYPES: Record<string, string> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-};
+
 
 const SUBTITLE_EXTENSIONS = ['.srt', '.vtt'];
 
@@ -35,31 +30,7 @@ export const LibraryController = {
     }
   },
 
-  async getCover(req: FastifyRequest<{ Params: { movieId: string } }>, reply: FastifyReply) {
-    const movie = await prisma.movie.findUnique({ where: { id: req.params.movieId } });
-    if (!movie || !movie.coverPath) {
-      return reply.status(404).send({ error: 'Cover not found' });
-    }
 
-    const resolved = path.resolve(movie.coverPath);
-    if (resolved !== MEDIA_ROOT && !resolved.startsWith(MEDIA_ROOT + path.sep)) {
-      return reply.status(404).send({ error: 'Cover not found' });
-    }
-
-    const ext = path.extname(resolved).toLowerCase();
-    const mimeType = MIME_TYPES[ext];
-    if (!mimeType) {
-      return reply.status(404).send({ error: 'Cover not found' });
-    }
-
-    try {
-      const stream = fs.createReadStream(resolved);
-      reply.type(mimeType);
-      return reply.send(stream);
-    } catch (e) {
-      return reply.status(404).send({ error: 'Cover not found' });
-    }
-  },
 
   async getSubtitle(req: FastifyRequest<{ Params: { subtitleId: string }; Querystring: { offset?: string } }>, reply: FastifyReply) {
     const subtitle = await prisma.subtitle.findUnique({ where: { id: req.params.subtitleId } });

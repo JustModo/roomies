@@ -31,7 +31,7 @@ const serializeMediaFile = (mf: {
 });
 
 const serializeMovie = (movie: {
-  id: string; libraryId: string; type: string; name: string; path: string; coverPath: string | null;
+  id: string; libraryId: string; type: string; name: string; path: string;
   mediaFiles: Parameters<typeof serializeMediaFile>[0][];
 }): Movie => ({
   id: movie.id,
@@ -39,7 +39,6 @@ const serializeMovie = (movie: {
   type: movie.type as 'movie' | 'show',
   name: movie.name,
   path: movie.path,
-  coverPath: movie.coverPath,
   mediaFiles: movie.mediaFiles.map(serializeMediaFile),
 });
 
@@ -131,17 +130,15 @@ const syncMovies = async (prisma: PrismaClient, libraryId: string, scannedMovies
           type: scannedMovie.type,
           name: scannedMovie.name,
           path: scannedMovie.path,
-          coverPath: scannedMovie.coverPath,
         },
       });
     } else if (
       movie.type !== scannedMovie.type ||
-      movie.name !== scannedMovie.name ||
-      movie.coverPath !== scannedMovie.coverPath
+      movie.name !== scannedMovie.name
     ) {
       movie = await prisma.movie.update({
         where: { id: movie.id },
-        data: { type: scannedMovie.type, name: scannedMovie.name, coverPath: scannedMovie.coverPath },
+        data: { type: scannedMovie.type, name: scannedMovie.name },
       });
     }
     await syncEpisodes(prisma, movie.id, scannedMovie.episodes);
@@ -172,7 +169,7 @@ export const LibraryService = {
       for (const m of movies) {
         await prisma.movie.update({
           where: { id: m.id },
-          data: { path: rewrite(m.path), coverPath: m.coverPath ? rewrite(m.coverPath) : null },
+          data: { path: rewrite(m.path) },
         });
       }
 

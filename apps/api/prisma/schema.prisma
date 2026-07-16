@@ -34,7 +34,6 @@ model Movie {
   type      String   // "movie" or "show"
   name      String
   path      String
-  coverPath String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

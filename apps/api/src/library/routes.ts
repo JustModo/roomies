@@ -7,7 +7,6 @@ export const libraryRoutes = async (app: FastifyInstance) => {
   app.addHook('preHandler', verifyJwt);
 
   app.get('/', LibraryController.getLibraries);
-  app.get('/cover/:movieId', LibraryController.getCover);
   app.get('/subtitles/:subtitleId', LibraryController.getSubtitle);
 
   // NOTE: Library scanning is restricted to root accounts.
