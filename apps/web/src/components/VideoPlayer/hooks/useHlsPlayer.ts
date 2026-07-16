@@ -35,6 +35,8 @@ export function useHlsPlayer({
   const [activeResolution, setActiveResolution] = useState<string | undefined>();
   const preferredLevelRef = useRef<number>(-1);
 
+  const lastMediaIdRef = useRef<string | undefined>();
+
   useEffect(() => {
     if (!videoRef.current) return;
 
@@ -48,12 +50,20 @@ export function useHlsPlayer({
     if (!mediaInfo?.hlsUrl) {
       setLevels([]);
       setCurrentLevel(-1);
+      preferredLevelRef.current = -1;
+      lastMediaIdRef.current = undefined;
       return;
     }
 
+    const isNewMedia = mediaInfo.mediaFileId !== lastMediaIdRef.current;
+    lastMediaIdRef.current = mediaInfo.mediaFileId;
+
     reportStatus('buffering');
-    setLevels([]);
-    setCurrentLevel(-1);
+    if (isNewMedia) {
+      setLevels([]);
+      setCurrentLevel(-1);
+      preferredLevelRef.current = -1;
+    }
 
     if (Hls.isSupported()) {
       // Unified offset: always use server-provided transcodeOffset.

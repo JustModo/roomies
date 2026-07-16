@@ -44,6 +44,41 @@ export function usePlayerGestures({
   const isHoldingRef = useRef<boolean>(false);
   const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Sync volatile state/callbacks to refs to prevent effect teardown
+  const stateRef = useRef({
+    isPlaying,
+    playbackRate,
+    isMuted,
+    idle,
+    mediaDuration,
+    transcodeOffset,
+    setIsMuted,
+    onPlay,
+    onPause,
+    onSeek,
+    onSetRate,
+    showControls,
+    hideControls
+  });
+  
+  useEffect(() => {
+    stateRef.current = {
+      isPlaying,
+      playbackRate,
+      isMuted,
+      idle,
+      mediaDuration,
+      transcodeOffset,
+      setIsMuted,
+      onPlay,
+      onPause,
+      onSeek,
+      onSetRate,
+      showControls,
+      hideControls
+    };
+  });
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -71,8 +106,8 @@ export function usePlayerGestures({
       holdTimeoutRef.current = setTimeout(() => {
         // Trigger 2x speed hold
         isHoldingRef.current = true;
-        prevRateRef.current = playbackRate || 1;
-        onSetRate(2);
+        prevRateRef.current = stateRef.current.playbackRate || 1;
+        stateRef.current.onSetRate(2);
       }, 500); // 500ms long press threshold
     };
 
@@ -86,7 +121,7 @@ export function usePlayerGestures({
       if (isHoldingRef.current) {
         // Release 2x speed hold
         isHoldingRef.current = false;
-        onSetRate(prevRateRef.current);
+        stateRef.current.onSetRate(prevRateRef.current);
         e.preventDefault();
         e.stopPropagation();
         return;
@@ -115,19 +150,19 @@ export function usePlayerGestures({
           // Double click left: Seek back 10s
           const video = videoRef.current;
           if (video) {
-            const currentAbsolute = video.currentTime + transcodeOffset;
+            const currentAbsolute = video.currentTime + stateRef.current.transcodeOffset;
             const newPos = Math.max(0, currentAbsolute - 10);
-            onSeek(newPos);
-            video.currentTime = Math.max(0, newPos - transcodeOffset);
+            stateRef.current.onSeek(newPos);
+            video.currentTime = Math.max(0, newPos - stateRef.current.transcodeOffset);
           }
         } else if (xPercent > 0.7) {
           // Double click right: Seek forward 10s
           const video = videoRef.current;
           if (video) {
-            const currentAbsolute = video.currentTime + transcodeOffset;
-            const newPos = Math.min(mediaDuration, currentAbsolute + 10);
-            onSeek(newPos);
-            video.currentTime = Math.max(0, newPos - transcodeOffset);
+            const currentAbsolute = video.currentTime + stateRef.current.transcodeOffset;
+            const newPos = Math.min(stateRef.current.mediaDuration, currentAbsolute + 10);
+            stateRef.current.onSeek(newPos);
+            video.currentTime = Math.max(0, newPos - stateRef.current.transcodeOffset);
           }
         } else {
           // Double click center: Toggle Fullscreen
@@ -145,21 +180,21 @@ export function usePlayerGestures({
           // If the UI was just woken up by this tap's touchstart within the last 500ms,
           // it means the UI was hidden before the tap. 
           // If idle is true, it means it's currently hidden.
-          const wasHidden = idle || (Date.now() - lastShowTimeRef.current < 500);
+          const wasHidden = stateRef.current.idle || (Date.now() - lastShowTimeRef.current < 500);
 
           if (wasHidden) {
-            showControls();
+            stateRef.current.showControls();
           } else {
             if (xPercent >= 0.3 && xPercent <= 0.7) {
               // Single click center: Toggle Play/Pause
-              if (isPlaying) {
-                onPause();
+              if (stateRef.current.isPlaying) {
+                stateRef.current.onPause();
               } else {
-                onPlay();
+                stateRef.current.onPlay();
               }
             } else {
               // Single click outer bounds: Hide UI
-              hideControls();
+              stateRef.current.hideControls();
             }
           }
         }, 250); // 250ms double-click window
@@ -172,10 +207,10 @@ export function usePlayerGestures({
 
       if (e.deltaY > 0) {
         // Scroll down: Mute
-        setIsMuted(true);
+        stateRef.current.setIsMuted(true);
       } else if (e.deltaY < 0) {
         // Scroll up: Unmute
-        setIsMuted(false);
+        stateRef.current.setIsMuted(false);
       }
     };
 
@@ -190,22 +225,5 @@ export function usePlayerGestures({
       if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
       if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
     };
-  }, [
-    isLocked,
-    isPlaying,
-    playbackRate,
-    isMuted,
-    setIsMuted,
-    onPlay,
-    onPause,
-    onSeek,
-    onSetRate,
-    idle,
-    showControls,
-    hideControls,
-    lastShowTimeRef,
-    mediaDuration,
-    videoRef,
-    containerRef
-  ]);
+  }, [isLocked, videoRef, containerRef, lastShowTimeRef]);
 }
