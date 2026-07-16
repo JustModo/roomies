@@ -132,128 +132,131 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
 
       {/* ── Right cluster: rate, quality, chat, fullscreen ── */}
       <div className="flex items-center flex-shrink-0 relative">
-        {/* Sync & Rate */}
-        <div className="flex items-center gap-0 sm:gap-1">
-          {/* Async Mode Toggle */}
-          {onToggleAsync && (
-            <button
-              onClick={onToggleAsync}
-              className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
-                !isAsyncMode ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
-              }`}
-              title={isAsyncMode ? 'Resync with Room' : 'Go Async Mode'}
-            >
-              SYNC
-            </button>
-          )}
-
-          {/* Playback rate */}
-          <button
-            disabled={isLocked}
-            onClick={cyclePlaybackRate}
-            className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
-            title="Playback speed"
-          >
-            {roomPlaybackState?.playbackRate || 1}x
-          </button>
-        </div>
-
-        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
-
-        {/* Media Settings */}
-        <div className="flex items-center gap-0 sm:gap-1">
-
-        {/* Quality selector */}
-        {levels.length > 0 && (
-          <div className="relative">
-            <button
-              onClick={() => setShowQualityMenu(!showQualityMenu)}
-              className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
-                currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
-              }`}
-              title="Quality"
-            >
-              {currentLevel === -1 ? 'AUTO' : `${levels[currentLevel]?.height}p`}
-            </button>
-
-            {showQualityMenu && (
-              <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[110px] overflow-hidden z-50 shadow-2xl">
-                <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Quality</div>
-                <button
-                  onClick={() => { handleQualityChange(-1); setShowQualityMenu(false); }}
-                  className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                    currentLevel === -1 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
-                  }`}
-                >
-                  Auto
-                </button>
-                {[...levels].reverse().map((level) => {
-                  const originalIndex = levels.indexOf(level);
-                  return (
-                    <button
-                      key={originalIndex}
-                      onClick={() => { handleQualityChange(originalIndex); setShowQualityMenu(false); }}
-                      className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                        currentLevel === originalIndex ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
-                      }`}
-                    >
-                      {level.height}p
-                    </button>
-                  );
-                })}
-              </div>
+        {mediaInfo?.hlsUrl && (
+          <>
+            {/* Sync Mode Toggle */}
+            {onToggleAsync && (
+              <>
+                <div className="flex items-center gap-0 sm:gap-1">
+                  <button
+                    onClick={onToggleAsync}
+                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
+                      !isAsyncMode ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
+                    }`}
+                    title={isAsyncMode ? 'Resync with Room' : 'Go Async Mode'}
+                  >
+                    SYNC
+                  </button>
+                </div>
+                <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
+              </>
             )}
-          </div>
-        )}
 
-        {/* Subtitle Selector */}
-        {setActiveSubtitleId && displaySubtitleLabel && (
-          <div className="relative">
-            <Btn
-              onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
-              active={activeSubtitleId !== null}
-              title="Subtitles"
-            >
-              <ClosedCaption className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-            </Btn>
+            {/* Media Settings (Rate, Quality, Subtitles) */}
+            <div className="flex items-center gap-0 sm:gap-1">
+              {/* Playback rate */}
+              <button
+                disabled={isLocked}
+                onClick={cyclePlaybackRate}
+                className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                title="Playback speed"
+              >
+                {roomPlaybackState?.playbackRate || 1}x
+              </button>
 
-            {showSubtitleMenu && (
-              <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[140px] overflow-hidden z-50 shadow-2xl">
-                <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Subtitles</div>
-                {!(mediaInfo?.subtitles?.length) ? (
-                  <div className="px-3 py-2 text-[12px] lg:text-sm text-paper/50 italic">
-                    None
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => { setActiveSubtitleId(null); setShowSubtitleMenu(false); }}
-                      className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                        activeSubtitleId === null ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
-                      }`}
-                    >
-                      Off
-                    </button>
-                    {mediaInfo!.subtitles.map((sub) => (
+              {/* Quality selector */}
+              {levels.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowQualityMenu(!showQualityMenu)}
+                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
+                      currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
+                    }`}
+                    title="Quality"
+                  >
+                    {currentLevel === -1 ? 'AUTO' : `${levels[currentLevel]?.height}p`}
+                  </button>
+
+                  {showQualityMenu && (
+                    <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[110px] overflow-hidden z-50 shadow-2xl">
+                      <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Quality</div>
                       <button
-                        key={sub.id}
-                        onClick={() => { setActiveSubtitleId(sub.id); setShowSubtitleMenu(false); }}
+                        onClick={() => { handleQualityChange(-1); setShowQualityMenu(false); }}
                         className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                          activeSubtitleId === sub.id ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+                          currentLevel === -1 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
                         }`}
                       >
-                        {displaySubtitleLabel(sub.language)}
+                        Auto
                       </button>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        </div>
+                      {[...levels].reverse().map((level) => {
+                        const originalIndex = levels.indexOf(level);
+                        return (
+                          <button
+                            key={originalIndex}
+                            onClick={() => { handleQualityChange(originalIndex); setShowQualityMenu(false); }}
+                            className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
+                              currentLevel === originalIndex ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+                            }`}
+                          >
+                            {level.height}p
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
-        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
+              {/* Subtitle Selector */}
+              {setActiveSubtitleId && displaySubtitleLabel && (
+                <div className="relative">
+                  <Btn
+                    onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
+                    active={activeSubtitleId !== null}
+                    title="Subtitles"
+                  >
+                    <ClosedCaption className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+                  </Btn>
+
+                  {showSubtitleMenu && (
+                    <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[140px] overflow-hidden z-50 shadow-2xl">
+                      <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Subtitles</div>
+                      {!(mediaInfo?.subtitles?.length) ? (
+                        <div className="px-3 py-2 text-[12px] lg:text-sm text-paper/50 italic">
+                          None
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => { setActiveSubtitleId(null); setShowSubtitleMenu(false); }}
+                            className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
+                              activeSubtitleId === null ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+                            }`}
+                          >
+                            Off
+                          </button>
+                          {mediaInfo!.subtitles.map((sub) => (
+                            <button
+                              key={sub.id}
+                              onClick={() => { setActiveSubtitleId(sub.id); setShowSubtitleMenu(false); }}
+                              className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
+                                activeSubtitleId === sub.id ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+                              }`}
+                            >
+                              {displaySubtitleLabel(sub.language)}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
+          </>
+        )}
 
         {/* Display Settings */}
         <div className="flex items-center gap-0.5 sm:gap-1">

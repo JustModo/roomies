@@ -39,12 +39,12 @@ export function useAsyncPlayback({
     return () => clearInterval(interval);
   }, [isConnected, sendMessage, asyncPlaybackState]);
 
-  const toggleAsyncMode = useCallback(() => {
+  const forceAsyncMode = useCallback((enabled: boolean) => {
     setIsAsyncMode(prev => {
-      const next = !prev;
-      isAsyncModeRef.current = next;
+      if (prev === enabled) return prev;
+      isAsyncModeRef.current = enabled;
       
-      if (next) {
+      if (enabled) {
         sendMessage({ event: 'sync.status', payload: { status: 'async' as any } });
         setAsyncPlaybackState(roomPlaybackState ? {
           ...roomPlaybackState,
@@ -52,11 +52,16 @@ export function useAsyncPlayback({
           anchorTime: Date.now(),
         } : null);
       } else {
+        sendMessage({ event: 'sync.status', payload: { status: 'watching' as any } });
         setAsyncPlaybackState(null);
       }
-      return next;
+      return enabled;
     });
   }, [sendMessage, roomPlaybackState, localTimeRef]);
+
+  const toggleAsyncMode = useCallback(() => {
+    forceAsyncMode(!isAsyncModeRef.current);
+  }, [forceAsyncMode]);
 
   const play = useCallback(() => {
     setAsyncPlaybackState(prev => prev ? { ...prev, state: 'playing', intendedState: 'playing', anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
@@ -117,6 +122,7 @@ export function useAsyncPlayback({
     isAsyncModeRef,
     asyncPlaybackState,
     toggleAsyncMode,
+    forceAsyncMode,
     play,
     pause,
     seek,

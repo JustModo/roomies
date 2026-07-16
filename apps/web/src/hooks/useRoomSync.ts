@@ -128,8 +128,13 @@ export function useRoomSync() {
         const isAsync = asyncPlayback.isAsyncModeRef.current;
 
         if (msg.payload.mediaFileId && msg.payload.hlsUrl) {
+          let isDifferentMedia = false;
           setMediaInfo((prev) => {
-            const isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
+            isDifferentMedia = prev?.mediaFileId !== msg.payload.mediaFileId;
+
+            if (isDifferentMedia && isAsync && !isUserScoped) {
+              setTimeout(() => asyncPlayback.forceAsyncMode(false), 0);
+            }
 
             // In async mode, only user-scoped events update the offset/url (unless media changed).
             // Room-scoped events preserve the async user's current offset and url.
@@ -312,6 +317,7 @@ export function useRoomSync() {
     reportLocalTime,
     reportActiveResolution,
     isAsyncMode: asyncPlayback.isAsyncMode,
-    toggleAsyncMode: asyncPlayback.toggleAsyncMode
+    toggleAsyncMode: asyncPlayback.toggleAsyncMode,
+    forceAsyncMode: asyncPlayback.forceAsyncMode
   };
 }
