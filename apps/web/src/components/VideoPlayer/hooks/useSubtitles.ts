@@ -112,7 +112,8 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
   // Raw VTT text per subtitle id (fetched once with offset=0)
   const [parsedTracks, setParsedTracks] = useState<Record<string, ParsedCue[]>>({});
 
-  // Load from localStorage or reset when media changes
+  const subtitlesSignature = (mediaInfo?.subtitles || []).map(s => s.id).join(',');
+
   useEffect(() => {
     if (mediaInfo?.mediaFileId) {
       const savedId = localStorage.getItem(`roomies_subtitle_${mediaInfo.mediaFileId}`);
@@ -124,9 +125,9 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
       }
     } else {
       setActiveSubtitleId(null);
+      setParsedTracks({});
     }
-    setParsedTracks({});
-  }, [mediaInfo?.mediaFileId, mediaInfo?.subtitles]);
+  }, [mediaInfo?.mediaFileId, subtitlesSignature]);
 
   // Wrapper to save to localStorage whenever the user changes the selection
   const handleSetActiveSubtitleId = useCallback((id: string | null) => {
@@ -139,8 +140,6 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
       }
     }
   }, [mediaInfo?.mediaFileId]);
-
-  const subtitlesSignature = (mediaInfo?.subtitles || []).map(s => s.id).join(',');
 
   // Fetch all subtitle tracks ONCE with offset=0
   useEffect(() => {
