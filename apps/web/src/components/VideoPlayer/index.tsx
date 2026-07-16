@@ -269,9 +269,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       window.addEventListener('pointermove', handlePointerMove);
       window.addEventListener('pointerup', handlePointerUp);
+      window.addEventListener('pointercancel', handlePointerUp);
       return () => {
         window.removeEventListener('pointermove', handlePointerMove);
         window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerUp);
       };
     }
   }, [isDragging, dragProgress, duration, mediaInfo?.duration, mediaInfo?.transcodeOffset, onSeek]);
@@ -287,7 +289,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div 
       ref={containerRef} 
-      className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center"
+      className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none"
       onMouseMove={showControls}
     >
       <video
