@@ -25,9 +25,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSetRate,
   onStatusChange,
   onReportTime,
-  showChat,
+  onReportResolution,
+  showChat = false,
   onToggleChat,
-  isFullscreen,
+  isFullscreen = false,
+  isAsyncMode = false,
+  onToggleAsync,
+  userId,
   children
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -40,6 +44,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [dragProgress, setDragProgress] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const activeOffsetRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const progressBarRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -112,7 +117,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [showControls]);
 
-  const { levels, currentLevel, handleQualityChange } = useHlsPlayer({
+  const triggerQualitySeek = useCallback(() => {
+    if (videoRef.current) {
+      const currentPlayhead = videoRef.current.currentTime + activeOffsetRef.current;
+      onSeek(currentPlayhead, true);
+    }
+  }, [onSeek]);
+
+  const { levels, currentLevel, handleQualityChange, activeResolution } = useHlsPlayer({
     videoRef,
     mediaInfo,
     seekKey,
@@ -120,13 +132,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     roomPlaybackState,
     reportStatus,
     setIsPlaying,
+    isAsyncMode,
+    userId,
+    activeOffsetRef,
+    triggerQualitySeek,
   });
+
+  useEffect(() => {
+    if (activeResolution && onReportResolution) {
+      onReportResolution(activeResolution);
+    }
+  }, [activeResolution, onReportResolution]);
 
   const { activeSubtitleId, setActiveSubtitleId, activeCueHtml } = useSubtitles({ mediaInfo, currentTime });
 
   useVideoEvents({
     videoRef,
-    mediaInfo,
     roomPlaybackState,
     localCorrectionRate,
     syncSeekTrigger,
@@ -139,6 +160,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setDuration,
     setBufferedRanges,
     onReportTime,
+    activeOffsetRef,
   });
 
   const handlePlayPause = useCallback(() => {
@@ -240,7 +262,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const newPos = pos * totalDuration;
         onSeek(newPos);
         if (videoRef.current) {
-          const transOffset = mediaInfo?.transcodeOffset || 0;
+          const transOffset = activeOffsetRef.current;
           videoRef.current.currentTime = Math.max(0, newPos - transOffset);
         }
       };
@@ -267,7 +289,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ref={containerRef} 
       className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center"
       onMouseMove={showControls}
-      onTouchStart={showControls}
     >
       <video
         ref={videoRef}
@@ -284,6 +305,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         roomPlaybackState={roomPlaybackState}
         isPlaying={isPlaying}
         isDragging={isDragging}
+        isAsyncMode={isAsyncMode}
       />
 
       {/* Top Bar Container passed as children */}
@@ -320,6 +342,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           showChat={showChat}
           onToggleChat={onToggleChat}
           isFullscreen={isFullscreen}
+          isAsyncMode={isAsyncMode}
+          onToggleAsync={onToggleAsync}
           mediaInfo={mediaInfo}
           activeSubtitleId={activeSubtitleId}
           setActiveSubtitleId={setActiveSubtitleId}

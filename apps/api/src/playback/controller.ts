@@ -35,7 +35,9 @@ export const PlaybackController = {
   },
 
   async getMasterPlaylist(req: FastifyRequest, reply: FastifyReply) {
-    const playlist = PlaybackService.generateMasterPlaylist();
+    const { offset } = req.query as { offset?: string };
+    const offsetNum = offset ? parseInt(offset, 10) : undefined;
+    const playlist = PlaybackService.generateMasterPlaylist(offsetNum);
     return reply
       .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
       .type('application/vnd.apple.mpegurl')
@@ -43,13 +45,15 @@ export const PlaybackController = {
   },
 
   async getVariantStream(req: FastifyRequest, reply: FastifyReply) {
-    const { mediaId, resolution } = req.params as { mediaId: string; resolution: Resolution };
+    const { mediaId, sessionId, resolution } = req.params as { mediaId: string; sessionId: string; resolution: Resolution };
+    const { offset } = req.query as { offset?: string };
+    const offsetNum = offset ? parseInt(offset, 10) : undefined;
     try {
-      const redirectUrl = await PlaybackService.ensureVariant(mediaId, resolution);
+      const playlistContent = await PlaybackService.getVariantPlaylist(mediaId, sessionId, resolution, offsetNum);
       return reply
         .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-        .status(302)
-        .redirect(redirectUrl);
+        .type('application/vnd.apple.mpegurl')
+        .send(playlistContent);
     } catch (error: any) {
       if (error.message === 'Session not found') {
         return reply.status(404).send({ error: error.message });

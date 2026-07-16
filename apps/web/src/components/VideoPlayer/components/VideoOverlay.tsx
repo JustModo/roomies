@@ -6,13 +6,15 @@ interface VideoOverlayProps {
   roomPlaybackState?: RoomState['playback'];
   isPlaying: boolean;
   isDragging: boolean;
+  isAsyncMode: boolean;
 }
 
 export const VideoOverlay: React.FC<VideoOverlayProps> = ({
   mediaInfo,
   roomPlaybackState,
   isPlaying,
-  isDragging
+  isDragging,
+  isAsyncMode
 }) => {
   const overlayTextRef = useRef(!mediaInfo ? 'THE PARTY WILL START SOON' : 'PAUSED');
 
@@ -20,13 +22,13 @@ export const VideoOverlay: React.FC<VideoOverlayProps> = ({
     if (!mediaInfo) {
       overlayTextRef.current = 'THE PARTY WILL START SOON';
     } else if (roomPlaybackState?.state === 'buffering') {
-      overlayTextRef.current = 'SYNCING';
+      overlayTextRef.current = isAsyncMode ? 'BUFFERING' : 'SYNCING';
     } else if (roomPlaybackState?.state === 'paused' || roomPlaybackState?.state === 'waiting') {
       overlayTextRef.current = 'PAUSED';
     }
-  }, [mediaInfo, roomPlaybackState?.state]);
+  }, [mediaInfo, roomPlaybackState?.state, isAsyncMode]);
 
-  const showOverlay = roomPlaybackState?.state === 'buffering' || (!isPlaying && !isDragging);
+  const showOverlay = roomPlaybackState !== undefined && (roomPlaybackState.state === 'buffering' || (!isPlaying && !isDragging));
 
   return (
     <div

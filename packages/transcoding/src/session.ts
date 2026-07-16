@@ -1,34 +1,54 @@
-import fs from 'fs';
 import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
 import { getSourceFrameRate } from './ffprobe';
+import { TranscodeCache } from './cache';
+import { getAlignedPosition } from './utils';
 
-/** Manages all transcoding variants for a single media file. */
+export interface PlayheadState {
+  position: number;
+  resolution?: string;
+  currentOffset: number;
+}
+
+/** Manages all transcoding variants for a single media file, grouped by transcode offset. */
 export class TranscodeSession {
+  public readonly sessionId: string;
   public readonly mediaFileId: string;
   public readonly inputPath: string;
   public readonly outputBaseDir: string;
 
-  private variants = new Map<Resolution, TranscodeVariant>();
+  // Map of offset -> Map of Resolution -> TranscodeVariant
+  private variantGroups = new Map<number, Map<Resolution, TranscodeVariant>>();
+  private groupCreatedAt = new Map<number, number>();
+  public mergedOffsets = new Map<number, number>();
+  private playheads = new Map<string, PlayheadState>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
 
-  constructor(mediaFileId: string, inputPath: string, outputBaseDir: string) {
+  constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string) {
+    this.sessionId = sessionId;
     this.mediaFileId = mediaFileId;
     this.inputPath = inputPath;
     this.outputBaseDir = outputBaseDir;
 
-    fs.mkdirSync(this.outputBaseDir, { recursive: true });
+    TranscodeCache.ensureDirectory(this.outputBaseDir);
   }
 
   onError(callback: (resolution: Resolution, error: Error) => void): void {
     this.onErrorCallback = callback;
   }
 
-  /** Probes the source frame rate once and caches it, so parallel variant starts share one ffprobe call. */
+  resolveMergedOffset(offset: number): number {
+    let effectiveOffset = offset;
+    while (this.mergedOffsets.has(effectiveOffset)) {
+      effectiveOffset = this.mergedOffsets.get(effectiveOffset)!;
+    }
+    return effectiveOffset;
+  }
+
   private getSourceFps(): Promise<number> {
     if (!this.fpsPromise) {
       this.fpsPromise = getSourceFrameRate(this.inputPath);
@@ -36,179 +56,277 @@ export class TranscodeSession {
     return this.fpsPromise;
   }
 
+  private getTotalActiveVariants(): number {
+    let total = 0;
+    for (const group of this.variantGroups.values()) {
+      total += group.size;
+    }
+    return total;
+  }
+
   async ensureVariantReady(
     resolution: Resolution,
-    startPosition: number = 0,
+    offset: number = 0,
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
-    const existing = this.variants.get(resolution);
-    if (existing) {
-      if (existing.isReady) {
-        return;
-      }
-      return new Promise((resolve) => {
-        existing.once('ready', resolve);
-      });
+    offset = this.resolveMergedOffset(offset);
+
+    let group = this.variantGroups.get(offset);
+    if (!group) {
+      group = new Map<Resolution, TranscodeVariant>();
+      this.variantGroups.set(offset, group);
+      this.groupCreatedAt.set(offset, Date.now());
     }
 
-    if (this.variants.size >= MAX_CONCURRENT_VARIANTS) {
-      console.error(`[transcode] Refusing to spawn variant ${resolution}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
+    const existing = group.get(resolution);
+    if (existing) {
+      if (existing.isReady) return;
+      return new Promise((resolve) => existing.once('ready', resolve));
+    }
+
+    if (this.getTotalActiveVariants() >= MAX_CONCURRENT_VARIANTS) {
+      console.error(`[transcode] Refusing to spawn variant ${resolution} at offset ${offset}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
       throw new Error('Maximum concurrent transcode variants reached');
     }
 
     const randomSuffix = Math.random().toString(36).substring(2, 8);
-    const variantDir = path.join(this.outputBaseDir, resolution, `ss-${startPosition}-${randomSuffix}`);
-    const variant = new TranscodeVariant(resolution, variantDir);
+    // Include offset in the directory path so groups are isolated
+    const variantDir = path.join(this.outputBaseDir, offset.toString(), resolution, `ss-${offset}-${randomSuffix}`);
+    const variant = new TranscodeVariant(resolution, variantDir, this.sessionId);
 
-    variant.on('ready', () => {
-      console.log(`[transcode] Variant ${resolution} ready (first segment available)`);
-    });
-
+    variant.on('ready', () => console.log(`[transcode] [session ${this.sessionId}] Variant ${resolution}@${offset} ready`));
     variant.on('error', (err: Error) => {
-      console.error(`[transcode] Variant ${resolution} error:`, err.message);
-      if (this.onErrorCallback) {
-        this.onErrorCallback(resolution, err);
-      }
+      console.error(`[transcode] [session ${this.sessionId}] Variant ${resolution}@${offset} error:`, err.message);
+      if (this.onErrorCallback) this.onErrorCallback(resolution, err);
     });
-
     variant.on('exit', (code: number | null) => {
-      if (code === 0) {
-        console.log(`[transcode] Variant ${resolution} completed successfully`);
-      }
+      if (code === 0) console.log(`[transcode] [session ${this.sessionId}] Variant ${resolution}@${offset} completed`);
     });
 
-    this.variants.set(resolution, variant);
+    group.set(resolution, variant);
 
     const sourceFps = await this.getSourceFps();
-    variant.start(this.inputPath, startPosition, preset, hwAccelMode, sourceFps);
+    variant.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
 
-    return new Promise((resolve) => {
-      variant.once('ready', resolve);
-    });
+    return new Promise((resolve) => variant.once('ready', resolve));
   }
 
-  getActiveResolutions(): Resolution[] {
-    return Array.from(this.variants.keys());
+  isVariantReady(resolution: Resolution, offset: number): boolean {
+    return this.variantGroups.get(offset)?.get(resolution)?.isReady ?? false;
   }
 
-  isVariantReady(resolution: Resolution): boolean {
-    return this.variants.get(resolution)?.isReady ?? false;
-  }
+  updatePlayhead(id: string, position: number, resolution?: string): number | null {
+    const state = this.playheads.get(id);
+    let currentOffset = state?.currentOffset ?? -1;
 
-  manageActiveCaches(currentPlayhead: number): void {
-    for (const variant of this.variants.values()) {
-      variant.manageCache(currentPlayhead);
+    let maxOffset = -1;
+    for (const offset of this.variantGroups.keys()) {
+      if (this.isPositionCovered(position, offset)) {
+        if (offset > maxOffset) {
+          maxOffset = offset;
+        }
+      }
     }
+
+    if (maxOffset === -1) {
+      if (state) {
+        state.position = position;
+        state.resolution = resolution;
+      } else {
+        this.playheads.set(id, { position, resolution, currentOffset: -1 });
+      }
+      return null;
+    }
+
+    let swappedToOffset: number | null = null;
+    if (state) {
+      if (state.currentOffset !== maxOffset) {
+        const oldOffset = state.currentOffset;
+        console.log(`[transcode] Playhead ${id} shifted from offset ${oldOffset} to new offset ${maxOffset}`);
+        state.currentOffset = maxOffset;
+        swappedToOffset = maxOffset;
+        this.cleanupOffsetIfEmpty(oldOffset);
+      }
+      state.position = position;
+      state.resolution = resolution;
+    } else {
+      this.playheads.set(id, { position, resolution, currentOffset: maxOffset });
+      swappedToOffset = maxOffset;
+    }
+
+    this.updateVariantCache(maxOffset);
+    return swappedToOffset;
+  }
+
+  removePlayhead(id: string): void {
+    const state = this.playheads.get(id);
+    if (state) {
+      const oldOffset = state.currentOffset;
+      this.playheads.delete(id);
+      this.cleanupOffsetIfEmpty(oldOffset);
+    }
+  }
+
+  private cleanupOffsetIfEmpty(offset: number) {
+    if (offset === -1 || !this.variantGroups.has(offset)) return;
+
+    let hasPlayheads = false;
+    for (const ph of this.playheads.values()) {
+      if (ph.currentOffset === offset) {
+        hasPlayheads = true;
+        break;
+      }
+    }
+
+    if (!hasPlayheads) {
+      const createdAt = this.groupCreatedAt.get(offset) || 0;
+      const age = Date.now() - createdAt;
+      
+      if (age < 15000) {
+        setTimeout(() => this.cleanupOffsetIfEmpty(offset), 15000 - age + 100);
+        return;
+      }
+
+      const sortedOffsets = Array.from(this.variantGroups.keys()).sort((a, b) => a - b);
+      const nextOffset = sortedOffsets.find(o => o > offset);
+
+      if (nextOffset !== undefined) {
+        console.log(`[transcode] Offset ${offset} has no remaining playheads, merging into ${nextOffset}`);
+        this.mergedOffsets.set(offset, nextOffset);
+        this.stopGroup(offset);
+      } else {
+        console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
+        this.stopGroup(offset);
+      }
+    } else {
+       this.updateVariantCache(offset);
+    }
+  }
+
+  private updateVariantCache(offset: number) {
+    const group = this.variantGroups.get(offset);
+    if (!group) return;
+
+    let maxPlayheadInGroup = -1;
+    const activeResolutions = new Set<string>();
+
+    for (const ph of this.playheads.values()) {
+      if (ph.currentOffset === offset) {
+        if (ph.position > maxPlayheadInGroup) maxPlayheadInGroup = ph.position;
+        if (ph.resolution) activeResolutions.add(ph.resolution);
+      }
+    }
+
+    if (maxPlayheadInGroup !== -1) {
+      for (const variant of group.values()) {
+        const isActivelyWatched = this.sessionId === 'sync' || activeResolutions.size === 0 || activeResolutions.has(variant.resolution);
+        variant.manageCache(maxPlayheadInGroup, isActivelyWatched);
+      }
+    }
+  }
+
+  async stopGroup(offset: number): Promise<void> {
+    const group = this.variantGroups.get(offset);
+    if (!group) return;
+
+    console.log(`[transcode] Stopping all variants for offset ${offset}`);
+    const promises: Promise<void>[] = [];
+    for (const variant of group.values()) {
+      promises.push(variant.stop());
+    }
+    await Promise.all(promises);
+    this.variantGroups.delete(offset);
+    this.groupCreatedAt.delete(offset);
+
+    const groupDir = path.join(this.outputBaseDir, offset.toString());
+    TranscodeCache.cleanDirectory(groupDir);
   }
 
   async stop(): Promise<void> {
     const promises: Promise<void>[] = [];
-    for (const [resolution, variant] of this.variants) {
-      console.log(`[transcode] Stopping variant ${resolution}`);
-      promises.push(variant.stop());
+    for (const offset of this.variantGroups.keys()) {
+      promises.push(this.stopGroup(offset));
     }
     await Promise.all(promises);
-    this.variants.clear();
 
-    try {
-      if (fs.existsSync(this.outputBaseDir)) {
-        fs.rmSync(this.outputBaseDir, { recursive: true, force: true });
-      }
-    } catch (err) {
-      console.error(`[transcode] Failed to delete cache directory on stop:`, err);
-    }
+    TranscodeCache.cleanDirectory(this.outputBaseDir);
   }
 
-  isSeekCovered(newPosition: number): boolean {
-    const activeVariants = Array.from(this.variants.values());
+  isPositionCovered(newPosition: number, offset: number): boolean {
+    const group = this.variantGroups.get(offset);
+    if (!group) return false;
+    
+    const activeVariants = Array.from(group.values());
     if (activeVariants.length === 0) return false;
 
     for (const variant of activeVariants) {
       const maxCoveredTime = this.getMaxCoveredTime(variant);
-      if (newPosition < variant.startPosition || newPosition > maxCoveredTime) {
-        return false;
+      if (newPosition >= variant.startPosition && newPosition <= maxCoveredTime) {
+        return true;
       }
     }
-    return true;
+    return false;
+  }
+
+  getCoveringOffset(position: number): number | null {
+    for (const offset of this.variantGroups.keys()) {
+      if (this.isPositionCovered(position, offset)) {
+        return offset;
+      }
+    }
+    return null;
+  }
+
+  isPositionCoveredByVariant(resolution: Resolution, newPosition: number, offset: number): boolean {
+    const group = this.variantGroups.get(offset);
+    if (!group) return false;
+    
+    const variant = group.get(resolution);
+    if (!variant) return false;
+
+    const maxCoveredTime = this.getMaxCoveredTime(variant);
+    return newPosition >= variant.startPosition && newPosition <= maxCoveredTime;
   }
 
   async seek(
     newPosition: number,
+    currentOffset: number,
     preset: FfmpegPreset = 'veryfast',
-    hwAccelMode: HwAccelMode = 'auto'
-  ): Promise<void> {
-    const resolutions: Resolution[] = ['360p', '720p', '1080p'];
-    const isCovered = this.isSeekCovered(newPosition);
+    hwAccelMode: HwAccelMode = 'auto',
+    resolutionsToPrewarm: Resolution[] = ['360p', '720p', '1080p']
+  ): Promise<number> {
+    const isCovered = this.isPositionCovered(newPosition, currentOffset);
 
     if (isCovered) {
-      console.log(
-        `[transcode] Seek to ${newPosition.toFixed(1)}s is covered by all active variants, reusing cache`
+      console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s is covered by offset ${currentOffset}, reusing cache`);
+      return currentOffset;
+    }
+
+    console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s not covered by offset ${currentOffset}, starting new variants`);
+
+    const alignedPosition = getAlignedPosition(newPosition);
+
+    if (resolutionsToPrewarm.length > 0) {
+      await Promise.all(
+        resolutionsToPrewarm.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
       );
-      return;
     }
 
-    console.log(
-      `[transcode] Seek to ${newPosition.toFixed(1)}s not covered, restarting all variants from new position`
-    );
-
-    const stopPromises: Promise<void>[] = [];
-    for (const res of resolutions) {
-      const existing = this.variants.get(res);
-      if (existing) {
-        stopPromises.push((async () => {
-          await existing.stop();
-          try {
-            fs.rmSync(existing.outputDir, { recursive: true, force: true });
-          } catch (err) {
-            console.error(`[transcode] Failed to clear variant dir for ${res}:`, err);
-          }
-        })());
-        this.variants.delete(res);
-      }
-    }
-    await Promise.all(stopPromises);
-
-    // NOTE: Align startPosition to segment boundary, starting at least 1 segment before.
-    const alignedPosition = Math.max(
-      0,
-      Math.floor(newPosition / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION
-    );
-
-    await Promise.all(
-      resolutions.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
-    );
+    return alignedPosition;
   }
 
-  getVariantOutputDir(resolution: Resolution): string {
-    const variant = this.variants.get(resolution);
+  getVariantOutputDir(resolution: Resolution, offset: number): string {
+    offset = this.resolveMergedOffset(offset);
+    const group = this.variantGroups.get(offset);
+    const variant = group?.get(resolution);
     if (!variant) {
-      throw new Error(`Variant not found for resolution ${resolution}`);
+      throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
     }
     return variant.outputDir;
   }
 
   private getMaxCoveredTime(variant: TranscodeVariant): number {
-    try {
-      const files = fs.readdirSync(variant.outputDir);
-      let maxIndex = -1;
-      for (const file of files) {
-        const match = file.match(/seg_(\d+)\.ts/);
-        if (match) {
-          const idx = parseInt(match[1], 10);
-          if (idx > maxIndex) maxIndex = idx;
-        }
-      }
-      if (maxIndex < 0) return 0;
-      return variant.startPosition + (maxIndex + 1) * SEGMENT_DURATION;
-    } catch {
-      return 0;
-    }
-  }
-
-  getTranscodeOffset(): number {
-    const active = this.variants.values().next().value;
-    return active ? active.startPosition : 0;
+    return TranscodeCache.getVariantCacheStats(variant.outputDir, variant.startPosition).maxCoveredTime;
   }
 }
-

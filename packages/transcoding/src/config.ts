@@ -39,7 +39,7 @@ export const HLS_LIST_SIZE = 0;
 export const LOOK_AHEAD_SEGMENTS = 4;
 
 /** Upper bound on concurrent FFmpeg variant processes per session. */
-export const MAX_CONCURRENT_VARIANTS = 3;
+export const MAX_CONCURRENT_VARIANTS = 24;
 
 import { FFMPEG_PATH as CONFIG_FFMPEG_PATH, CACHE_DIR as CONFIG_CACHE_DIR, VIDEO_CODEC as CONFIG_VIDEO_CODEC } from '@roomies/config';
 

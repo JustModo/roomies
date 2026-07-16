@@ -1,21 +1,22 @@
-import fs from 'fs';
 import path from 'path';
 import { TranscodeErrorCallback } from './types';
 import { TranscodeSession } from './session';
 import { CACHE_DIR } from './config';
+import { TranscodeCache } from './cache';
 
-/** Singleton manager for the active transcoding session. Only one media file can transcode at a time. */
+/** Singleton manager for active transcoding sessions. Manages one sync session and isolated async sessions. */
 class TranscodeSessionManagerImpl {
-  private currentSession: TranscodeSession | null = null;
+  private sessions = new Map<string, TranscodeSession>();
   private errorCallbacks: TranscodeErrorCallback[] = [];
 
-  startSession(mediaFileId: string, inputPath: string): TranscodeSession {
-    this.stopSession();
+  startSession(sessionId: string, mediaFileId: string, inputPath: string): TranscodeSession {
+    this.stopSession(sessionId);
 
-    const outputDir = path.join(CACHE_DIR, mediaFileId);
-    this.cleanDirectory(outputDir);
+    // Isolate cache directory per session and media
+    const outputDir = path.join(CACHE_DIR, sessionId, mediaFileId);
+    TranscodeCache.cleanDirectory(outputDir);
 
-    const session = new TranscodeSession(mediaFileId, inputPath, outputDir);
+    const session = new TranscodeSession(sessionId, mediaFileId, inputPath, outputDir);
 
     session.onError((resolution, error) => {
       for (const cb of this.errorCallbacks) {
@@ -23,42 +24,35 @@ class TranscodeSessionManagerImpl {
       }
     });
 
-    this.currentSession = session;
-    console.log(`[transcode] Started new session for media ${mediaFileId}`);
+    this.sessions.set(sessionId, session);
+    console.log(`[transcode] Started new session ${sessionId} for media ${mediaFileId}`);
 
     return session;
   }
 
-  getSession(): TranscodeSession | null {
-    return this.currentSession;
+  getSession(sessionId: string): TranscodeSession | null {
+    return this.sessions.get(sessionId) || null;
   }
 
-  manageActiveCaches(currentPlayhead: number): void {
-    if (this.currentSession) {
-      this.currentSession.manageActiveCaches(currentPlayhead);
+
+
+  stopSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      console.log(`[transcode] Stopping session ${sessionId} for media ${session.mediaFileId}`);
+      session.stop();
+      this.sessions.delete(sessionId);
     }
   }
 
-  stopSession(): void {
-    if (this.currentSession) {
-      console.log(`[transcode] Stopping session for media ${this.currentSession.mediaFileId}`);
-      this.currentSession.stop();
-      this.currentSession = null;
+  stopAll(): void {
+    for (const sessionId of this.sessions.keys()) {
+      this.stopSession(sessionId);
     }
   }
 
   onError(callback: TranscodeErrorCallback): void {
     this.errorCallbacks.push(callback);
-  }
-
-  private cleanDirectory(dir: string): void {
-    try {
-      if (fs.existsSync(dir)) {
-        fs.rmSync(dir, { recursive: true, force: true });
-      }
-    } catch (err) {
-      console.error(`[transcode] Failed to clean directory ${dir}:`, err);
-    }
   }
 }
 

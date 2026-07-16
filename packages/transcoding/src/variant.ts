@@ -13,6 +13,7 @@ import {
   VIDEO_CODEC,
 } from './config';
 import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
+import { TranscodeCache } from './cache';
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
 const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
@@ -27,6 +28,7 @@ const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
 export class TranscodeVariant extends EventEmitter {
   public readonly resolution: Resolution;
   public readonly outputDir: string;
+  public readonly sessionId: string;
 
   private process: ChildProcess | null = null;
   private watcher: fs.FSWatcher | null = null;
@@ -41,10 +43,11 @@ export class TranscodeVariant extends EventEmitter {
   private sourceFps: number = 24;
   private stopRequested = false;
 
-  constructor(resolution: Resolution, outputDir: string) {
+  constructor(resolution: Resolution, outputDir: string, sessionId: string) {
     super();
     this.resolution = resolution;
     this.outputDir = outputDir;
+    this.sessionId = sessionId;
   }
 
   get isReady(): boolean {
@@ -158,7 +161,7 @@ export class TranscodeVariant extends EventEmitter {
   }
 
   private spawnProcess(hw: HardwareEncoder | null): void {
-    fs.mkdirSync(this.outputDir, { recursive: true });
+    TranscodeCache.ensureDirectory(this.outputDir);
 
     const args = this.buildArgs(hw);
     const proc = spawn(FFMPEG_PATH, args, {
@@ -245,70 +248,49 @@ export class TranscodeVariant extends EventEmitter {
   }
 
   /** NOTE: Manages SIGSTOP/SIGCONT throttling based on playhead distance to cap CPU/disk usage. */
-  manageCache(currentPlayhead: number): void {
+  manageCache(currentPlayhead: number, isActivelyWatched: boolean = true): void {
     if (!this._isReady) return;
 
     try {
-      const files = fs.readdirSync(this.outputDir);
-      let newestSegmentTime = 0;
+      const { newestSegmentTime } = TranscodeCache.getVariantCacheStats(this.outputDir, this.startPosition);
 
-      for (const file of files) {
-        if (!file.endsWith('.ts')) continue;
-
-        const match = file.match(/seg_(\d+)\.ts/);
-        if (match) {
-          const index = parseInt(match[1], 10);
-          const segmentTime = this.startPosition + (index * SEGMENT_DURATION);
-          if (segmentTime > newestSegmentTime) {
-            newestSegmentTime = segmentTime;
-          }
-        }
-      }
-
-      // NOTE: Suspend FFmpeg if ahead by >300s, resume when <60s to protect CPU/disk.
+      // NOTE: Suspend FFmpeg if ahead by >300s or NOT actively watched. Resume when <60s AND actively watched to protect CPU/disk.
       if (this.process && this._isRunning) {
         const aheadBy = newestSegmentTime - currentPlayhead;
 
-        if (aheadBy > 300 && !this._isSuspended) {
-          console.log(`[transcode] variant ${this.resolution} suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+        if ((!isActivelyWatched || aheadBy > 300) && !this._isSuspended) {
+          const reason = !isActivelyWatched ? 'not actively watched' : `ahead by ${aheadBy.toFixed(1)}s`;
+          console.log(`[transcode] [session ${this.sessionId}] variant ${this.resolution} suspending FFmpeg (${reason})`);
           this.process.kill('SIGSTOP');
           this._isSuspended = true;
-        } else if (aheadBy < 60 && this._isSuspended) {
-          console.log(`[transcode] variant ${this.resolution} resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+        } else if (isActivelyWatched && aheadBy < 60 && this._isSuspended) {
+          console.log(`[transcode] [session ${this.sessionId}] variant ${this.resolution} resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGCONT');
           this._isSuspended = false;
         }
       }
     } catch (err) {
-      console.error(`[transcode] Error managing cache for ${this.resolution}:`, err);
+      console.error(`[transcode] [session ${this.sessionId}] Error managing cache for ${this.resolution}:`, err);
     }
   }
 
   /** Watches the output directory for the first .ts segment file. */
   private watchForFirstSegment(): void {
     // NOTE: Check if lookahead segments already exist from a previous run.
-    try {
-      const files = fs.readdirSync(this.outputDir);
-      const tsCount = files.filter(f => f.endsWith('.ts')).length;
-      if (tsCount >= LOOK_AHEAD_SEGMENTS) {
-        this._isReady = true;
-        this.emit('ready');
-        return;
-      }
-    } catch {
+    const initialTsCount = TranscodeCache.getSegmentCount(this.outputDir);
+    if (initialTsCount >= LOOK_AHEAD_SEGMENTS) {
+      this._isReady = true;
+      this.emit('ready');
+      return;
     }
 
     // NOTE: Emits 'ready' once enough lookahead segments are present to prevent initial stall.
     const checkReady = () => {
-      try {
-        const files = fs.readdirSync(this.outputDir);
-        const tsCount = files.filter(f => f.endsWith('.ts')).length;
-        if (tsCount >= LOOK_AHEAD_SEGMENTS && !this._isReady) {
-          this._isReady = true;
-          this.stopWatcher();
-          this.emit('ready');
-        }
-      } catch {
+      const tsCount = TranscodeCache.getSegmentCount(this.outputDir);
+      if (tsCount >= LOOK_AHEAD_SEGMENTS && !this._isReady) {
+        this._isReady = true;
+        this.stopWatcher();
+        this.emit('ready');
       }
     };
 

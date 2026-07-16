@@ -1,9 +1,17 @@
+import { Resolution } from '@roomies/transcoding';
+
+export interface AsyncSessionState {
+    transcodeOffset: number;
+}
+
 export interface MemberState {
     username: string;
     userId: string;
 
-    status: 'ready' | 'buffering';
+    status: 'ready' | 'buffering' | 'async';
     position: number;
+    activeResolution?: Resolution;
+    asyncSession?: AsyncSessionState;
 }
 
 export interface RoomPlaybackState {
@@ -98,7 +106,9 @@ export class RoomStore {
 
     public resetAllMembers(): void {
         for (const member of this.state.members) {
-            member.status = 'buffering';
+            if (member.status !== 'async') {
+                member.status = 'buffering';
+            }
         }
     }
 

@@ -1,10 +1,9 @@
 import { useEffect, MutableRefObject, useRef } from 'react';
-import { MediaInfo, RoomState } from '../../../hooks/useRoomSync';
+import { RoomState } from '../../../hooks/useRoomSync';
 import { BufferedRange } from '../types';
 
 interface UseVideoEventsParams {
   videoRef: MutableRefObject<HTMLVideoElement | null>;
-  mediaInfo: MediaInfo | null;
   roomPlaybackState?: RoomState['playback'];
   localCorrectionRate?: number | null;
   syncSeekTrigger?: number;
@@ -17,6 +16,7 @@ interface UseVideoEventsParams {
   setDuration: (duration: number) => void;
   setBufferedRanges: (ranges: BufferedRange[]) => void;
   onReportTime: (time: number) => void;
+  activeOffsetRef: MutableRefObject<number>;
 }
 
 const getBufferedAhead = (vid: HTMLVideoElement) => {
@@ -34,7 +34,6 @@ const getBufferedAhead = (vid: HTMLVideoElement) => {
 
 export function useVideoEvents({
   videoRef,
-  mediaInfo,
   roomPlaybackState,
   localCorrectionRate,
   syncSeekTrigger = 0,
@@ -47,6 +46,7 @@ export function useVideoEvents({
   setDuration,
   setBufferedRanges,
   onReportTime,
+  activeOffsetRef,
 }: UseVideoEventsParams) {
   const lastProcessedTriggerRef = useRef(0);
 
@@ -85,14 +85,14 @@ export function useVideoEvents({
 
     lastProcessedTriggerRef.current = syncSeekTrigger;
 
-    const transOffset = mediaInfo?.transcodeOffset || 0;
+    const transOffset = activeOffsetRef.current;
     console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
 
     reportStatus('buffering');
 
     videoRef.current.currentTime = Math.max(0, syncSeekPosition - transOffset);
     setCurrentTime(syncSeekPosition);
-  }, [syncSeekTrigger, syncSeekPosition, isDragging, mediaInfo?.transcodeOffset, reportStatus, setCurrentTime]);
+  }, [syncSeekTrigger, syncSeekPosition, isDragging, reportStatus, setCurrentTime]);
 
   // DOM Event Listeners
   useEffect(() => {
@@ -144,7 +144,7 @@ export function useVideoEvents({
     if (!video) return;
 
     const updateBufferedRanges = () => {
-      const transOffset = mediaInfo?.transcodeOffset || 0;
+      const transOffset = activeOffsetRef.current;
       const rawRanges: { start: number, end: number }[] = [];
       for (let i = 0; i < video.buffered.length; i++) {
         rawRanges.push({
@@ -182,7 +182,8 @@ export function useVideoEvents({
     };
 
     const onTimeUpdate = () => {
-      const transOffset = mediaInfo?.transcodeOffset || 0;
+      if (video.readyState === 0) return;
+      const transOffset = activeOffsetRef.current;
       const absTime = video.currentTime + transOffset;
       if (!isDragging) {
         setCurrentTime(absTime);
@@ -193,6 +194,7 @@ export function useVideoEvents({
     };
 
     const onProgress = () => {
+      if (video.readyState === 0) return;
       updateBufferedRanges();
     };
 
@@ -210,5 +212,5 @@ export function useVideoEvents({
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
     };
-  }, [isDragging, mediaInfo?.transcodeOffset, setCurrentTime, setDuration, setBufferedRanges, setIsPlaying, onReportTime]);
+  }, [isDragging, setCurrentTime, setDuration, setBufferedRanges, setIsPlaying, onReportTime]);
 }

@@ -14,6 +14,8 @@ export const ClientPlaybackSeekSchema = z.object({
   event: z.literal('playback.seek'),
   payload: z.object({
     position: z.number(),
+    scope: z.enum(['room', 'user']).optional(),
+    forceNewOffset: z.boolean().optional(),
   }),
 });
 
@@ -45,6 +47,7 @@ export const ServerMediaChangedSchema = z.object({
     hlsUrl: z.string(),
     duration: z.number().optional(),
     transcodeOffset: z.number().optional(),
+    sessionScope: z.enum(['room', 'user']).optional(),
     subtitles: z.array(z.object({ id: z.string(), language: z.string().nullable() })).optional(),
   }),
 });
