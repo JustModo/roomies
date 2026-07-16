@@ -140,6 +140,8 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
     }
   }, [mediaInfo?.mediaFileId]);
 
+  const subtitlesSignature = (mediaInfo?.subtitles || []).map(s => s.id).join(',');
+
   // Fetch all subtitle tracks ONCE with offset=0
   useEffect(() => {
     const subtitles = mediaInfo?.subtitles || [];
@@ -168,7 +170,7 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
     }).catch(() => { });
 
     return () => { cancelled = true; };
-  }, [mediaInfo?.subtitles]);
+  }, [subtitlesSignature]); // use signature to prevent refetch on seek
 
   // Compute active cue HTML from currentTime — no effects, pure derivation
   const activeCueHtml = useMemo(() => {
