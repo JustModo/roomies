@@ -7,6 +7,12 @@ import { getSourceFrameRate } from './ffprobe';
 import { TranscodeCache } from './cache';
 import { getAlignedPosition } from './utils';
 
+export interface PlayheadState {
+  position: number;
+  resolution?: string;
+  currentOffset: number;
+}
+
 /** Manages all transcoding variants for a single media file, grouped by transcode offset. */
 export class TranscodeSession {
   public readonly sessionId: string;
@@ -18,6 +24,7 @@ export class TranscodeSession {
   private variantGroups = new Map<number, Map<Resolution, TranscodeVariant>>();
   private groupCreatedAt = new Map<number, number>();
   public mergedOffsets = new Map<number, number>();
+  private playheads = new Map<string, PlayheadState>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
 
@@ -109,81 +116,112 @@ export class TranscodeSession {
     return this.variantGroups.get(offset)?.get(resolution)?.isReady ?? false;
   }
 
-  manageActiveCaches(activeOffsets: Set<number>, playheads: { position: number, resolution?: string }[]): void {
-    const coverage = new Map<number, Set<number>>();
+  updatePlayhead(id: string, position: number, resolution?: string): number | null {
+    const state = this.playheads.get(id);
+    let currentOffset = state?.currentOffset ?? -1;
 
-    // 1. Map playheads to the offsets that cover them
+    let maxOffset = -1;
     for (const offset of this.variantGroups.keys()) {
-      coverage.set(offset, new Set());
-      for (let i = 0; i < playheads.length; i++) {
-        if (this.isPositionCovered(playheads[i].position, offset)) {
-          coverage.get(offset)!.add(i);
+      if (this.isPositionCovered(position, offset)) {
+        if (offset > maxOffset) {
+          maxOffset = offset;
         }
       }
     }
 
-    // 2. Identify redundant offsets and merge them into larger offsets
-    for (const offset1 of this.variantGroups.keys()) {
-      const coveredBy1 = coverage.get(offset1)!;
-      if (coveredBy1.size === 0) continue;
+    if (maxOffset === -1) {
+      if (state) {
+        state.position = position;
+        state.resolution = resolution;
+      } else {
+        this.playheads.set(id, { position, resolution, currentOffset: -1 });
+      }
+      return null;
+    }
 
-      for (const offset2 of this.variantGroups.keys()) {
-        if (offset1 >= offset2) continue; // Only merge into larger (future) offsets
+    let swappedToOffset: number | null = null;
+    if (state) {
+      if (state.currentOffset !== maxOffset) {
+        const oldOffset = state.currentOffset;
+        console.log(`[transcode] Playhead ${id} shifted from offset ${oldOffset} to new offset ${maxOffset}`);
+        state.currentOffset = maxOffset;
+        swappedToOffset = maxOffset;
+        this.cleanupOffsetIfEmpty(oldOffset);
+      }
+      state.position = position;
+      state.resolution = resolution;
+    } else {
+      this.playheads.set(id, { position, resolution, currentOffset: maxOffset });
+      swappedToOffset = maxOffset;
+    }
 
-        const coveredBy2 = coverage.get(offset2)!;
-        
-        let isSuperset = true;
-        for (const phIdx of coveredBy1) {
-          if (!coveredBy2.has(phIdx)) {
-            isSuperset = false;
-            break;
-          }
-        }
+    this.updateVariantCache(maxOffset);
+    return swappedToOffset;
+  }
 
-        if (isSuperset) {
-          console.log(`[transcode] Offset ${offset1} is fully redundant, merging into offset ${offset2}`);
-          this.mergedOffsets.set(offset1, offset2);
-          this.stopGroup(offset1);
-          coverage.get(offset1)!.clear(); // Mark as empty to skip further processing
-          break; // O1 is merged, move to next offset
-        }
+  removePlayhead(id: string): void {
+    const state = this.playheads.get(id);
+    if (state) {
+      const oldOffset = state.currentOffset;
+      this.playheads.delete(id);
+      this.cleanupOffsetIfEmpty(oldOffset);
+    }
+  }
+
+  private cleanupOffsetIfEmpty(offset: number) {
+    if (offset === -1 || !this.variantGroups.has(offset)) return;
+
+    let hasPlayheads = false;
+    for (const ph of this.playheads.values()) {
+      if (ph.currentOffset === offset) {
+        hasPlayheads = true;
+        break;
       }
     }
 
-    // 3. Process remaining active offsets
-    for (const [offset, group] of this.variantGroups.entries()) {
-      let isActive = activeOffsets.has(offset) || (coverage.get(offset)?.size ?? 0) > 0;
-      let maxPlayheadInGroup = -1;
-
-      for (const ph of playheads) {
-        if (this.isPositionCovered(ph.position, offset)) {
-          if (ph.position > maxPlayheadInGroup) maxPlayheadInGroup = ph.position;
-        }
+    if (!hasPlayheads) {
+      const createdAt = this.groupCreatedAt.get(offset) || 0;
+      const age = Date.now() - createdAt;
+      
+      if (age < 15000) {
+        setTimeout(() => this.cleanupOffsetIfEmpty(offset), 15000 - age + 100);
+        return;
       }
 
-      if (!isActive) {
-        const createdAt = this.groupCreatedAt.get(offset) || 0;
-        if (Date.now() - createdAt < 15000) {
-          // Keep it alive during the 15-second grace period
-          continue;
-        }
+      const sortedOffsets = Array.from(this.variantGroups.keys()).sort((a, b) => a - b);
+      const nextOffset = sortedOffsets.find(o => o > offset);
 
-        console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
+      if (nextOffset !== undefined) {
+        console.log(`[transcode] Offset ${offset} has no remaining playheads, merging into ${nextOffset}`);
+        this.mergedOffsets.set(offset, nextOffset);
         this.stopGroup(offset);
       } else {
-        if (group && maxPlayheadInGroup !== -1) {
-          const activeResolutions = new Set<string>();
-          for (const ph of playheads) {
-            if (this.isPositionCovered(ph.position, offset) && ph.resolution) {
-              activeResolutions.add(ph.resolution);
-            }
-          }
+        console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
+        this.stopGroup(offset);
+      }
+    } else {
+       this.updateVariantCache(offset);
+    }
+  }
 
-          for (const variant of group.values()) {
-            const isActivelyWatched = this.sessionId === 'sync' || activeResolutions.size === 0 || activeResolutions.has(variant.resolution);
-            variant.manageCache(maxPlayheadInGroup, isActivelyWatched);
-          }
-        }
+  private updateVariantCache(offset: number) {
+    const group = this.variantGroups.get(offset);
+    if (!group) return;
+
+    let maxPlayheadInGroup = -1;
+    const activeResolutions = new Set<string>();
+
+    for (const ph of this.playheads.values()) {
+      if (ph.currentOffset === offset) {
+        if (ph.position > maxPlayheadInGroup) maxPlayheadInGroup = ph.position;
+        if (ph.resolution) activeResolutions.add(ph.resolution);
+      }
+    }
+
+    if (maxPlayheadInGroup !== -1) {
+      for (const variant of group.values()) {
+        const isActivelyWatched = this.sessionId === 'sync' || activeResolutions.size === 0 || activeResolutions.has(variant.resolution);
+        variant.manageCache(maxPlayheadInGroup, isActivelyWatched);
       }
     }
   }

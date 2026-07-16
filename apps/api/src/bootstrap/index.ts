@@ -17,7 +17,6 @@ import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
 import { TranscodeSessionManager, TranscodeCache } from '@roomies/transcoding';
 import { getCorsOptions } from '../config/cors';
-import { coordinator } from '../playback/coordinator';
 
 export const bootstrap = async (app: FastifyInstance) => {
   TranscodeCache.cleanGlobalCache();
@@ -50,7 +49,6 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   registerTranscodeEvents(app);
 
-  coordinator.startCacheManager();
   registerChatSocketEvents();
   registerPlaybackSocketEvents();
   registerRoomSocketEvents();
@@ -68,7 +66,6 @@ export const bootstrap = async (app: FastifyInstance) => {
 
   // 7. Graceful shutdown — kill any running FFmpeg processes
   app.addHook('onClose', async () => {
-    coordinator.stopCacheManager();
     TranscodeSessionManager.stopAll();
     await prisma.$disconnect();
     console.log('[system] Graceful shutdown complete.');

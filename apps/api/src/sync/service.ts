@@ -30,6 +30,7 @@ export class SyncService {
       position: payload.position,
       activeResolution: payload.resolution 
     });
+    coordinator.updateAsyncPlayhead(ctx.userId, payload.position, payload.resolution);
   }
 
   private static handleSyncHeartbeat(
@@ -185,6 +186,7 @@ export class SyncService {
       status: payload.status,
       asyncSession: undefined,
     });
+    coordinator.removeAsyncPlayhead(ctx.userId);
 
     // Send the room-scoped media info back to reset their HLS player
     SocketEmitter.sendToClient(ctx.socket, {

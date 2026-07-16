@@ -34,17 +34,7 @@ class TranscodeSessionManagerImpl {
     return this.sessions.get(sessionId) || null;
   }
 
-  manageActiveCaches(sessionPlayheads: Record<string, { activeOffsets: Set<number>, playheads: { position: number, resolution?: string }[] }>): void {
-    for (const [sessionId, session] of this.sessions.entries()) {
-      const data = sessionPlayheads[sessionId];
-      if (data) {
-        session.manageActiveCaches(data.activeOffsets, data.playheads);
-      } else {
-        // If session is no longer active (user left or switched), stop it.
-        this.stopSession(sessionId);
-      }
-    }
-  }
+
 
   stopSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
