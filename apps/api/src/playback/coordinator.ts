@@ -37,6 +37,20 @@ export class SessionPlaybackCoordinator {
     }
   }
 
+  updateSyncPlayhead(userId: string, position: number, resolution?: string) {
+    const session = TranscodeSessionManager.getSession('sync');
+    if (session) {
+      session.updatePlayhead(userId, position, resolution);
+    }
+  }
+
+  removeSyncPlayhead(userId: string) {
+    const session = TranscodeSessionManager.getSession('sync');
+    if (session) {
+      session.removePlayhead(userId);
+    }
+  }
+
   /**
    * Resolve a seek request for the given session.
    *

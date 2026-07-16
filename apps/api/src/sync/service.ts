@@ -62,6 +62,8 @@ export class SyncService {
       position: payload.position,
       activeResolution: payload.resolution 
     });
+
+    coordinator.updateSyncPlayhead(ctx.userId, payload.position, payload.resolution);
   }
 
   private static calculateExpectedPosition(playback: ReturnType<typeof roomStore.getState>['playback']): number {

@@ -45,6 +45,8 @@ export class RoomService {
 
     if (wasAsync) {
       coordinator.removeAsyncPlayhead(ctx.userId);
+    } else {
+      coordinator.removeSyncPlayhead(ctx.userId);
     }
 
     state = roomStore.getState();
