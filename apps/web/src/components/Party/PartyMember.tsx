@@ -66,7 +66,7 @@ export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlay
             toggleMenu(member.userId);
           }
         }}
-        className={`w-full flex items-center justify-between p-2 rounded transition-colors ${member.userId !== user?.id ? 'hover:bg-ash/5 cursor-pointer' : 'cursor-default'
+        className={`w-full flex items-center justify-between py-2 rounded transition-colors ${member.userId !== user?.id ? 'hover:bg-ash/5 cursor-pointer' : 'cursor-default'
           } ${activeMenu === member.userId ? 'bg-black/20 rounded-b-none' : ''}`}
       >
         <div className="flex items-center gap-3">

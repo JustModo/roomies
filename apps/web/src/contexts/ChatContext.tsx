@@ -117,6 +117,7 @@ export function ChatProvider({
   const unreadCountRef = useRef(unreadCount);
   const soundEnabledRef = useRef(soundEnabled);
   const browserNotificationsRef = useRef(browserNotificationsEnabled);
+  const lastSoundTimeRef = useRef(0);
 
   useEffect(() => {
     activeTabRef.current = activeTab;
@@ -144,7 +145,7 @@ export function ChatProvider({
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
+        Notification.requestPermission().catch(() => { });
       }
     }
   }, []);
@@ -164,7 +165,7 @@ export function ChatProvider({
     const isMobile = window.innerWidth < 1024;
     const isVisibleDesktop = isOpen && activeTab === 'chat';
     const isVisibleMobile = isMobile && activeTab === 'chat';
-    
+
     if (isVisibleDesktop || isVisibleMobile) {
       clearUnreadCount();
     }
@@ -193,21 +194,24 @@ export function ChatProvider({
 
     const isMobile = window.innerWidth < 1024;
     const isVisible = (isOpenRef.current && activeTabRef.current === 'chat') || (isMobile && activeTabRef.current === 'chat');
+    const isDocumentHidden = typeof document !== 'undefined' && document.hidden;
+
+    if (msg.eventType === 'chat' && !msg.isSystem && !msg.isMine) {
+      const now = Date.now();
+      if (soundEnabledRef.current && isDocumentHidden && now - lastSoundTimeRef.current >= 3000) {
+        lastSoundTimeRef.current = now;
+        playNotificationSound();
+      }
+    }
 
     if (!isVisible) {
       if (msg.eventType === 'chat' && !msg.isSystem && !msg.isMine) {
         setUnreadCount((prev) => prev + 1);
-        
-        // Limit notification sounds to prevent annoyance when chat is busy
-        if (soundEnabledRef.current && unreadCountRef.current < 3) {
-          playNotificationSound();
-        }
-        
+
         if (browserNotificationsRef.current && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
           try {
             new Notification(msg.username || 'New Message', {
               body: msg.body,
-              icon: '/vite.svg'
             });
           } catch (e) {
             console.error('[chat] Failed to show browser notification', e);
@@ -353,7 +357,7 @@ export function ChatProvider({
   }, [appendMessage]);
 
   return (
-    <ChatContext.Provider value={{ 
+    <ChatContext.Provider value={{
       isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
       soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled
     }}>

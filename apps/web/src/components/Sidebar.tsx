@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { X } from 'lucide-react';
 import { IconButton } from './ui/IconButton';
 import { useChat } from '../contexts/ChatContext';
@@ -6,8 +6,6 @@ import { RoomState } from '../hooks/useRoomSync';
 import { ChatSection } from './Chat/ChatSection';
 import { PartySection } from './Party/PartySection';
 import { SettingsSection } from './Settings/SettingsSection';
-
-type Tab = 'chat' | 'party' | 'settings';
 
 interface SidebarProps {
   roomState: RoomState | null;
@@ -33,7 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, s
     >
       {/* Header Tabs */}
       <div className="shrink-0 flex justify-between items-center px-4 py-2 border-b border-ash/10">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
           <button
             onClick={() => setActiveTab('chat')}
             className={`relative text-12 font-semibold uppercase tracking-widest transition-colors ${
@@ -42,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, s
           >
             CHAT
             {unreadCount > 0 && activeTab !== 'chat' && (
-              <span className="absolute -top-2 -right-2.5 text-red-500 text-[10px] font-bold tracking-normal">
+              <span className="absolute -top-1 -right-3.5 min-w-[12px] h-[12px] px-0.5 rounded-full bg-blue-400 text-[9px] flex items-center justify-center text-white font-bold tracking-normal normal-case">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}

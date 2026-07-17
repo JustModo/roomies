@@ -36,7 +36,7 @@ function useIsPortraitMobile(): boolean {
 }
 
 export const ChatToasts: React.FC = () => {
-  const { isOpen, setIsOpen, toasts } = useChat();
+  const { isOpen, setIsOpen, toasts, activeTab } = useChat();
   const isPortraitMobile = useIsPortraitMobile();
   const [controlsVisible, setControlsVisible] = useState(true);
 
@@ -60,8 +60,9 @@ export const ChatToasts: React.FC = () => {
   // Combine them, keeping original order
   const visible = toasts.filter((t) => activeToasts.includes(t) || exitingToasts.includes(t));
 
-  // Don't render on portrait mobile (chat panel is below the video anyway)
-  if (isPortraitMobile || isOpen || visible.length === 0) return null;
+  // Don't render on portrait mobile (chat panel is below the video anyway) or if the chat tab is active/open
+  const isChatOpen = isOpen && activeTab === 'chat';
+  if (isPortraitMobile || isChatOpen || visible.length === 0) return null;
 
 
   return (
