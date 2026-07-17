@@ -17,8 +17,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, setControlLock, addMessageHandler, sendMessage }) => {
-  const { isOpen, setIsOpen } = useChat();
-  const [activeTab, setActiveTab] = useState<Tab>('chat');
+  const { isOpen, setIsOpen, unreadCount, activeTab, setActiveTab } = useChat();
 
   return (
     <div
@@ -36,11 +35,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, s
         <div className="flex items-center gap-4">
           <button
             onClick={() => setActiveTab('chat')}
-            className={`text-12 font-semibold uppercase tracking-widest transition-colors ${
+            className={`relative text-12 font-semibold uppercase tracking-widest transition-colors ${
               activeTab === 'chat' ? 'text-paper' : 'text-paper/40 hover:text-paper/70'
             }`}
           >
             CHAT
+            {unreadCount > 0 && activeTab !== 'chat' && (
+              <span className="absolute -top-1.5 -right-4 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[10px] flex items-center justify-center text-white font-bold">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('party')}
