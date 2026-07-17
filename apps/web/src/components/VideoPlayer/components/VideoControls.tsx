@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption } from 'lucide-react';
 import { RoomState, MediaInfo } from '../../../hooks/useRoomSync';
 import { Level } from 'hls.js';
+import { useActiveMenu } from '../../../hooks/useActiveMenu';
 
 interface VideoControlsProps {
   isLocked: boolean;
@@ -82,8 +83,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   isAsyncMode,
   onToggleAsync,
 }) => {
-  const [showQualityMenu, setShowQualityMenu] = useState(false);
-  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
+  const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
 
   const isPlaying = roomPlaybackState?.state === 'playing';
 
@@ -153,11 +153,11 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             )}
 
             {/* Media Settings (Rate, Quality, Subtitles) */}
-            <div className="flex items-center gap-0 sm:gap-1">
+            <div className="flex items-center gap-0 sm:gap-1" ref={containerRef}>
               {/* Playback rate */}
               <button
                 disabled={isLocked}
-                onClick={cyclePlaybackRate}
+                onClick={() => { cyclePlaybackRate(); setActiveMenu(null); }}
                 className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
                 title="Playback speed"
               >
@@ -168,7 +168,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               {levels.length > 0 && (
                 <div className="relative">
                   <button
-                    onClick={() => setShowQualityMenu(!showQualityMenu)}
+                    onClick={() => toggleMenu('quality')}
                     className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
                       currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
                     }`}
@@ -177,11 +177,11 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                     {currentLevel === -1 ? 'AUTO' : `${levels[currentLevel]?.height}p`}
                   </button>
 
-                  {showQualityMenu && (
+                  {activeMenu === 'quality' && (
                     <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[110px] overflow-hidden z-50 shadow-2xl">
                       <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Quality</div>
                       <button
-                        onClick={() => { handleQualityChange(-1); setShowQualityMenu(false); }}
+                        onClick={() => { handleQualityChange(-1); setActiveMenu(null); }}
                         className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
                           currentLevel === -1 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
                         }`}
@@ -193,7 +193,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                         return (
                           <button
                             key={originalIndex}
-                            onClick={() => { handleQualityChange(originalIndex); setShowQualityMenu(false); }}
+                            onClick={() => { handleQualityChange(originalIndex); setActiveMenu(null); }}
                             className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
                               currentLevel === originalIndex ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
                             }`}
@@ -211,14 +211,14 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               {setActiveSubtitleId && displaySubtitleLabel && (
                 <div className="relative">
                   <Btn
-                    onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
+                    onClick={() => toggleMenu('subtitle')}
                     active={activeSubtitleId !== null}
                     title="Subtitles"
                   >
                     <ClosedCaption className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
                   </Btn>
 
-                  {showSubtitleMenu && (
+                  {activeMenu === 'subtitle' && (
                     <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[140px] overflow-hidden z-50 shadow-2xl">
                       <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Subtitles</div>
                       {!(mediaInfo?.subtitles?.length) ? (
@@ -228,7 +228,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                       ) : (
                         <>
                           <button
-                            onClick={() => { setActiveSubtitleId(null); setShowSubtitleMenu(false); }}
+                            onClick={() => { setActiveSubtitleId(null); setActiveMenu(null); }}
                             className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
                               activeSubtitleId === null ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
                             }`}
@@ -238,7 +238,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                           {mediaInfo!.subtitles.map((sub) => (
                             <button
                               key={sub.id}
-                              onClick={() => { setActiveSubtitleId(sub.id); setShowSubtitleMenu(false); }}
+                              onClick={() => { setActiveSubtitleId(sub.id); setActiveMenu(null); }}
                               className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
                                 activeSubtitleId === sub.id ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
                               }`}

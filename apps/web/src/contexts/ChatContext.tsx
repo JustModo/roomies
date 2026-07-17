@@ -137,8 +137,9 @@ export function ChatProvider({
         case 'user.joined': {
           const newMsg: Message = {
             id: `system-join-${msg.payload.userId}-${Date.now()}`,
+            username: msg.payload.username,
             timestamp: timestampStr,
-            body: `${msg.payload.username} joined`,
+            body: `joined`,
             isSystem: true,
             eventType: 'join',
           };
@@ -149,8 +150,9 @@ export function ChatProvider({
         case 'user.left': {
           const newMsg: Message = {
             id: `system-leave-${msg.payload.userId}-${Date.now()}`,
+            username: msg.payload.username || msg.payload.userId,
             timestamp: timestampStr,
-            body: `${msg.payload.username || msg.payload.userId} left`,
+            body: `left`,
             isSystem: true,
             eventType: 'leave',
           };
@@ -165,22 +167,23 @@ export function ChatProvider({
           let evtType: Message['eventType'] = undefined;
 
           if (action === 'play') {
-            body = `${actor} resumed`;
+            body = `resumed`;
             evtType = 'play';
           } else if (action === 'pause') {
-            body = `${actor} paused`;
+            body = `paused`;
             evtType = 'pause';
           } else if (action === 'seek') {
-            body = `${actor} seeked ${formatTime(anchorPosition)}`;
+            body = `seeked ${formatTime(anchorPosition)}`;
             evtType = 'seek';
           } else if (action === 'rate') {
-            body = `${actor} playback : ${playbackRate}x`;
+            body = `playback: ${playbackRate}x`;
             evtType = 'rate';
           }
 
           if (body) {
             const newMsg: Message = {
               id: `system-playback-${Date.now()}-${Math.random()}`,
+              username: actor,
               timestamp: timestampStr,
               body,
               isSystem: true,

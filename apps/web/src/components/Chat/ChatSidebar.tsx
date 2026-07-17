@@ -16,7 +16,7 @@ export const ChatSidebar: React.FC = () => {
   const [newMessage, setNewMessage] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevIsOpen = useRef(isOpen);
   const initialScrollDoneRef = useRef(false);
 
@@ -130,6 +130,9 @@ export const ChatSidebar: React.FC = () => {
     if (!newMessage.trim()) return;
     sendMessage(newMessage);
     setNewMessage('');
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
     // Re-focus immediately so the keyboard stays open on mobile.
     // requestAnimationFrame waits for React to flush the state update first.
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -183,30 +186,40 @@ export const ChatSidebar: React.FC = () => {
       </div>
 
       {/* Input — always pinned to bottom */}
-      <div className="shrink-0 px-4 py-3 pt-2 border-t border-ash/20 bg-void">
+      <div className="shrink-0 border-t border-ash/20 bg-ink">
         <form 
           onSubmit={handleSend} 
-          className="flex items-center gap-2 bg-ink border border-ash/45 px-3 py-2 focus-within:border-paper/70 transition-all duration-150"
+          className="flex items-end gap-2 px-4 py-2 transition-all duration-150"
         >
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
             placeholder="Message"
+            spellCheck={false}
             value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); doSend(); } }}
+            rows={1}
+            onChange={(e) => {
+              setNewMessage(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = `${e.target.scrollHeight}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                doSend();
+              }
+            }}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
-            className="flex-1 bg-transparent text-13 text-paper focus:outline-none placeholder:text-fog/70 transition-colors duration-150"
+            className="flex-1 bg-transparent text-13 text-paper/60 focus:outline-none placeholder:text-fog/70 transition-colors duration-150 resize-none overflow-y-auto max-h-[120px] py-1"
             style={{ outline: 'none' }}
           />
           {/* type="button" prevents form submit blur; we call doSend() directly.
               onTouchEnd fires before onBlur on mobile, keeping keyboard open. */}
-          <button
+            <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={doSend}
-            className="p-1 text-fog hover:text-paper transition-colors duration-150"
+            className="p-1 mb-0.5 text-fog hover:text-paper transition-colors duration-150"
           >
             <Send size={15} strokeWidth={1.5} />
           </button>

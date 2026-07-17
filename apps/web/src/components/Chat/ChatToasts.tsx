@@ -104,11 +104,18 @@ export const ChatToasts: React.FC = () => {
           >
             {toast.isSystem ? (
               <span
-                className="text-paper/70 text-[10px] sm:text-[11px] lg:text-[16px] tracking-wide uppercase flex items-center leading-tight"
+                className="text-paper/40 text-[9px] sm:text-[10px] lg:text-[14px] tracking-wide uppercase flex items-center leading-tight"
                 style={halo}
               >
                 <SystemIcon type={toast.eventType} />
-                {toast.body}
+                {toast.username ? (
+                  <span>
+                    <span style={{ color: getUsernameColor(toast.username), opacity: 0.7 }} className="font-bold">{toast.username}</span>
+                    <span className="ml-1">{toast.body}</span>
+                  </span>
+                ) : (
+                  <span>{toast.body}</span>
+                )}
               </span>
             ) : (
               <div className="flex flex-col leading-tight">
@@ -126,7 +133,7 @@ export const ChatToasts: React.FC = () => {
                   {toast.username}
                 </span>
                 <span
-                  className="text-paper/90 text-[11px] sm:text-[13px] lg:text-[20px] leading-snug"
+                  className="text-paper/60 text-[11px] sm:text-[13px] lg:text-[20px] leading-snug"
                   style={halo}
                 >
                   {toast.body}
