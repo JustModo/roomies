@@ -69,30 +69,60 @@ export function useVoiceParty({ userId, roomState, addMessageHandler, sendMessag
     return () => remove();
   }, [addMessageHandler, isJoined]);
 
-  // Sync peers based on party members
-  const prevPartyMembersRef = useRef<string[]>([]);
-  
+  // Reconciliation Engine for Mobile Drops
   useEffect(() => {
-    if (!isJoined || !roomState || !userId) return;
+    const reconcile = () => {
+      if (!isJoined || !roomState || !userId || !managerRef.current) return;
 
-    const currentPartyMembers = roomState.members
-      .filter(m => m.party.isJoined && m.userId !== userId)
-      .map(m => m.userId);
+      // 1. Check if mic was killed by OS backgrounding and revive it
+      managerRef.current.join().catch(e => console.warn('Failed to revive mic', e));
 
-    const newMembers = currentPartyMembers.filter(id => !prevPartyMembersRef.current.includes(id));
-    const leftMembers = prevPartyMembersRef.current.filter(id => !currentPartyMembers.includes(id));
+      // 2. Determine who should be connected
+      const currentPartyMembers = roomState.members
+        .filter(m => m.party.isJoined && m.userId !== userId)
+        .map(m => m.userId);
 
-    newMembers.forEach(peerId => {
-      // Connect to peer (deterministic initiator logic to prevent collision: higher ID initiates)
-      const isInitiator = userId > peerId;
-      managerRef.current?.connectToPeer(peerId, isInitiator);
-    });
+      const connectedPeers = managerRef.current.getConnectedPeers();
 
-    leftMembers.forEach(peerId => {
-      managerRef.current?.removePeer(peerId);
-    });
+      const newMembers = currentPartyMembers.filter(id => !connectedPeers.includes(id));
+      const leftMembers = connectedPeers.filter(id => !currentPartyMembers.includes(id));
 
-    prevPartyMembersRef.current = currentPartyMembers;
+      newMembers.forEach(peerId => {
+        // Connect to peer (deterministic initiator logic to prevent collision: higher ID initiates)
+        const isInitiator = userId > peerId;
+        managerRef.current?.connectToPeer(peerId, isInitiator);
+      });
+
+      leftMembers.forEach(peerId => {
+        managerRef.current?.removePeer(peerId);
+      });
+    };
+
+    // Run reconciliation on every room state change
+    reconcile();
+
+    // Run reconciliation when OS returns app to foreground
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        reconcile();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Run reconciliation if a socket drops unexpectedly
+    if (managerRef.current) {
+        managerRef.current.onPeerDisconnected = () => {
+            // Reconcile on next tick to avoid synchronous loop issues
+            setTimeout(reconcile, 0);
+        };
+    }
+
+    return () => {
+        document.removeEventListener('visibilitychange', handleVisibility);
+        if (managerRef.current) {
+            managerRef.current.onPeerDisconnected = undefined;
+        }
+    };
   }, [roomState?.members, isJoined, userId]);
 
   return {

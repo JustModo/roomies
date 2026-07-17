@@ -1,10 +1,5 @@
-// @ts-ignore
-import rnnoiseWasmPath from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
-// @ts-ignore
-import rnnoiseWasmSimdPath from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
-// @ts-ignore
-import rnnoiseWorkletPath from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
-import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor';
+import { AudioManager } from './audio/AudioManager';
+import { optimizeSDP } from './webrtc/SDPUtils';
 
 export type SignalPayload = {
     targetUserId: string;
@@ -12,98 +7,52 @@ export type SignalPayload = {
 };
 
 export class WebRTCManager {
-    private localStream: MediaStream | null = null;
-    private processedStream: MediaStream | null = null;
-    private audioContext: AudioContext | null = null;
-    private rnnoiseNode: RnnoiseWorkletNode | null = null;
-
+    private audioManager = new AudioManager();
+    
     private connections = new Map<string, RTCPeerConnection>();
+    private iceCandidateQueues = new Map<string, RTCIceCandidateInit[]>();
+    
     public onSignal?: (payload: SignalPayload) => void;
     public onStreamAdded?: (userId: string, stream: MediaStream) => void;
     public onStreamRemoved?: (userId: string) => void;
+    public onPeerDisconnected?: (userId: string) => void;
+
+    public get hasLocalStream(): boolean {
+        return this.audioManager.hasLocalStream;
+    }
+
+    public getConnectedPeers(): string[] {
+        return Array.from(this.connections.keys());
+    }
 
     public async join(): Promise<void> {
-        if (this.localStream) return;
-
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error('Microphone access is not available (requires HTTPS or localhost).');
-        }
-
-        try {
-            this.localStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    noiseSuppression: true,
-                    echoCancellation: true,
-                    autoGainControl: true
-                }, 
-                video: false 
-            });
-
-            // Set up RNNoise AudioWorklet pipeline
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            this.audioContext = new AudioContextClass();
-            
-            const wasmBinary = await loadRnnoise({ 
-                url: rnnoiseWasmPath,
-                simdUrl: rnnoiseWasmSimdPath
-            });
-            await this.audioContext.audioWorklet.addModule(rnnoiseWorkletPath);
-            
-            const source = this.audioContext.createMediaStreamSource(this.localStream);
-            this.rnnoiseNode = new RnnoiseWorkletNode(this.audioContext, { 
-                wasmBinary,
-                maxChannels: 2
-            });
-            const destination = this.audioContext.createMediaStreamDestination();
-            
-            source.connect(this.rnnoiseNode);
-            this.rnnoiseNode.connect(destination);
-            
-            this.processedStream = destination.stream;
-        } catch (e) {
-            console.error('[WebRTC] Failed to get local audio', e);
-            throw e;
-        }
+        await this.audioManager.join();
     }
 
     public toggleMute(muted: boolean) {
-        if (this.localStream) {
-            this.localStream.getAudioTracks().forEach(track => {
-                track.enabled = !muted;
-            });
-        }
+        this.audioManager.toggleMute(muted);
     }
 
-    private optimizeSDP(sdp: string): string {
-        const match = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
-        if (!match) return sdp;
-
-        const payloadType = match[1];
-        const fmtpRegex = new RegExp(`a=fmtp:${payloadType} (.*)`);
-        
-        if (fmtpRegex.test(sdp)) {
-            return sdp.replace(fmtpRegex, `a=fmtp:${payloadType} $1;usedtx=1;useinbandfec=1;stereo=0`);
-        } else {
-            return sdp.replace(
-                new RegExp(`(a=rtpmap:${payloadType} opus\\/48000\\/2\\r\\n)`),
-                `$1a=fmtp:${payloadType} usedtx=1;useinbandfec=1;stereo=0\r\n`
-            );
-        }
-    }
-
-    public connectToPeer(userId: string, isInitiator: boolean) {
-        if (this.connections.has(userId)) return;
-
+    private async createPeerConnection(userId: string): Promise<RTCPeerConnection> {
         const pc = new RTCPeerConnection({
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: [
+                        'turn:openrelay.metered.ca:80',
+                        'turn:openrelay.metered.ca:443',
+                        'turn:openrelay.metered.ca:443?transport=tcp'
+                    ],
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
             ]
         });
 
         this.connections.set(userId, pc);
+        this.iceCandidateQueues.set(userId, []);
 
-        const streamToUse = this.processedStream || this.localStream;
+        const streamToUse = this.audioManager.stream;
         if (streamToUse) {
             streamToUse.getTracks().forEach(track => {
                 pc.addTrack(track, streamToUse);
@@ -128,50 +77,83 @@ export class WebRTCManager {
 
         pc.onconnectionstatechange = () => {
             if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-                this.onStreamRemoved?.(userId);
-                pc.close();
-                this.connections.delete(userId);
+                this.removePeer(userId);
             }
         };
 
+        return pc;
+    }
+
+    public async connectToPeer(userId: string, isInitiator: boolean) {
+        if (this.connections.has(userId)) return;
+
         if (isInitiator) {
-            pc.createOffer()
-                .then(offer => {
-                    if (offer.sdp) offer.sdp = this.optimizeSDP(offer.sdp);
-                    return pc.setLocalDescription(offer);
-                })
-                .then(() => {
-                    this.onSignal?.({
-                        targetUserId: userId,
-                        signal: pc.localDescription
-                    });
-                })
-                .catch(e => console.error('[WebRTC] Create offer failed', e));
+            const pc = await this.createPeerConnection(userId);
+            try {
+                const offer = await pc.createOffer();
+                if (offer.sdp) offer.sdp = optimizeSDP(offer.sdp);
+                await pc.setLocalDescription(offer);
+                
+                this.onSignal?.({
+                    targetUserId: userId,
+                    signal: pc.localDescription
+                });
+            } catch (e) {
+                console.error('[WebRTC] Create offer failed', e);
+            }
         }
     }
 
     public async handleSignal(sourceUserId: string, signal: any) {
         let pc = this.connections.get(sourceUserId);
         
-        if (!pc) {
-            this.connectToPeer(sourceUserId, false);
-            pc = this.connections.get(sourceUserId)!;
+        // If we get a new offer but already have a connection, reset it.
+        if (pc && signal.type === 'offer' && pc.currentRemoteDescription) {
+            this.removePeer(sourceUserId);
+            pc = undefined;
         }
 
         try {
             if (signal.type === 'offer') {
+                if (!pc) pc = await this.createPeerConnection(sourceUserId);
+                
                 await pc.setRemoteDescription(new RTCSessionDescription(signal));
+                
+                // Process any queued ICE candidates that arrived before the offer was set
+                const queue = this.iceCandidateQueues.get(sourceUserId) || [];
+                for (const candidate of queue) {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+                this.iceCandidateQueues.set(sourceUserId, []);
+
                 const answer = await pc.createAnswer();
-                if (answer.sdp) answer.sdp = this.optimizeSDP(answer.sdp);
+                if (answer.sdp) answer.sdp = optimizeSDP(answer.sdp);
                 await pc.setLocalDescription(answer);
+                
                 this.onSignal?.({
                     targetUserId: sourceUserId,
                     signal: pc.localDescription
                 });
             } else if (signal.type === 'answer') {
+                if (!pc) return;
                 await pc.setRemoteDescription(new RTCSessionDescription(signal));
+                
+                // Process any queued ICE candidates that arrived before the answer was set
+                const queue = this.iceCandidateQueues.get(sourceUserId) || [];
+                for (const candidate of queue) {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+                this.iceCandidateQueues.set(sourceUserId, []);
             } else if (signal.type === 'candidate') {
-                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                // If remote description isn't set yet, queue the candidate!
+                // This mimics the webrtc-starter flow of holding candidates until the answer/offer is processed.
+                if (pc && pc.remoteDescription) {
+                    await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                } else {
+                    const queue = this.iceCandidateQueues.get(sourceUserId) || [];
+                    queue.push(signal.candidate);
+                    this.iceCandidateQueues.set(sourceUserId, queue);
+                }
             }
         } catch (e) {
             console.error('[WebRTC] Error handling signal', e);
@@ -183,32 +165,19 @@ export class WebRTCManager {
         if (pc) {
             pc.close();
             this.connections.delete(userId);
+            this.iceCandidateQueues.delete(userId);
             this.onStreamRemoved?.(userId);
+            this.onPeerDisconnected?.(userId);
         }
     }
 
     public leave() {
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => track.stop());
-            this.localStream = null;
-        }
-        if (this.processedStream) {
-            this.processedStream.getTracks().forEach(track => track.stop());
-            this.processedStream = null;
-        }
-        if (this.rnnoiseNode) {
-            this.rnnoiseNode.destroy();
-            this.rnnoiseNode.disconnect();
-            this.rnnoiseNode = null;
-        }
-        if (this.audioContext) {
-            this.audioContext.close();
-            this.audioContext = null;
-        }
+        this.audioManager.leave();
         for (const [userId, pc] of this.connections) {
             pc.close();
             this.onStreamRemoved?.(userId);
         }
         this.connections.clear();
+        this.iceCandidateQueues.clear();
     }
 }
