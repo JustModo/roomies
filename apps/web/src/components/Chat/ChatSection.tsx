@@ -1,18 +1,10 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { X, Send } from 'lucide-react';
-import { IconButton } from '../ui/IconButton';
+import { Send } from 'lucide-react';
 import { useChat } from '../../contexts/ChatContext';
 import { ChatMessage } from './ChatMessage';
 
-/**
- * ChatSidebar — the full chat panel.
- *
- * - On desktop: fixed right panel (360px), toggled via isOpen.
- * - On mobile:  stacks below the video, takes remaining flex space.
- *              Visibility is controlled by isOpen (toggled via the player controls).
- */
-export const ChatSidebar: React.FC = () => {
-  const { isOpen, setIsOpen, messages, sendMessage } = useChat();
+export const ChatSection: React.FC = () => {
+  const { isOpen, messages, sendMessage } = useChat();
   const [newMessage, setNewMessage] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -20,24 +12,18 @@ export const ChatSidebar: React.FC = () => {
   const prevIsOpen = useRef(isOpen);
   const initialScrollDoneRef = useRef(false);
 
-  // Snap to bottom instantly before the first paint — avoids the visible
-  // top-to-bottom scroll animation when messages are loaded from sessionStorage.
   useLayoutEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, []); // mount only
+  }, []);
 
-  // Auto-scroll to bottom only when:
-  //   1. The last message was sent by the current user (isMine), OR
-  //   2. The panel was just opened
   useEffect(() => {
     if (!containerRef.current) return;
     const isJustOpened = isOpen && !prevIsOpen.current;
     const lastMsg = messages[messages.length - 1];
     const justSentByMe = lastMsg?.isMine === true;
     
-    // Check if user is near the bottom (within ~200px)
     const isAtBottom = containerRef.current.scrollHeight - containerRef.current.scrollTop - containerRef.current.clientHeight <= 200;
 
     if (!justSentByMe && !isJustOpened && !isAtBottom) {
@@ -46,7 +32,6 @@ export const ChatSidebar: React.FC = () => {
       return;
     }
 
-    // Avoid visible top-to-bottom scroll on initial load by using 'auto'
     const behavior = (!initialScrollDoneRef.current || isJustOpened) ? 'auto' : 'smooth';
 
     containerRef.current.scrollTo({
@@ -60,7 +45,6 @@ export const ChatSidebar: React.FC = () => {
     prevIsOpen.current = isOpen;
   }, [messages, isOpen]);
 
-  // Lock document/viewport scroll on mobile portrait when the input is focused
   useEffect(() => {
     if (!isInputFocused) return;
 
@@ -82,12 +66,10 @@ export const ChatSidebar: React.FC = () => {
       }
 
       if (!isInsideContainer) {
-        // Block vertical scrolling on the rest of the layout (video, buttons, wrapper)
         e.preventDefault();
         return;
       }
 
-      // Check if container is actually scrollable
       const { scrollTop, scrollHeight, clientHeight } = container;
       const isScrollable = scrollHeight > clientHeight;
       if (!isScrollable) {
@@ -95,7 +77,6 @@ export const ChatSidebar: React.FC = () => {
         return;
       }
 
-      // Prevent iOS rubber-band bleed at boundaries
       const touch = e.touches[0];
       const currentY = touch.clientY;
       const lastY = (container as any)._lastY || currentY;
@@ -133,8 +114,6 @@ export const ChatSidebar: React.FC = () => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
-    // Re-focus immediately so the keyboard stays open on mobile.
-    // requestAnimationFrame waits for React to flush the state update first.
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
@@ -144,28 +123,7 @@ export const ChatSidebar: React.FC = () => {
   };
 
   return (
-    <div
-      className={`
-        relative flex-1 min-h-0
-        lg:fixed lg:top-0 lg:right-0 lg:w-[360px] lg:h-screen
-        bg-void border-t border-ash/10
-        lg:border-t-0 lg:border-l lg:border-ash/10
-        z-45 shadow-2xl w-full flex flex-col
-        ${!isOpen ? 'flex lg:hidden' : 'flex'}
-      `}
-    >
-      {/* Header */}
-      <div className="shrink-0 flex justify-between items-center px-4 py-3 border-b border-ash/10">
-        <p className="text-12 font-semibold uppercase tracking-widest text-paper/80">CHAT BAR</p>
-        {/* Close button — desktop only (mobile has no explicit close, use the player toggle) */}
-        <div className="hidden lg:block">
-          <IconButton icon={<X size={16} strokeWidth={1.5} />} onClick={() => setIsOpen(false)} />
-        </div>
-      </div>
-
-      {/* Messages — touch-action:pan-y lets iOS route vertical swipes into
-          this element even when body is overflow:hidden. overscroll-behavior
-          contains the rubber-band so it doesn't bleed to the parent. */}
+    <>
       <div
         ref={containerRef}
         className="flex-1 min-h-0 overflow-y-auto px-4 pt-2 pb-0 flex flex-col"
@@ -185,7 +143,6 @@ export const ChatSidebar: React.FC = () => {
         })}
       </div>
 
-      {/* Input — always pinned to bottom */}
       <div className="shrink-0 border-t border-ash/20 bg-ink">
         <form 
           onSubmit={handleSend} 
@@ -213,9 +170,7 @@ export const ChatSidebar: React.FC = () => {
             className="flex-1 bg-transparent text-13 text-paper/60 focus:outline-none placeholder:text-fog/70 transition-colors duration-150 resize-none overflow-y-auto max-h-[120px] py-1"
             style={{ outline: 'none' }}
           />
-          {/* type="button" prevents form submit blur; we call doSend() directly.
-              onTouchEnd fires before onBlur on mobile, keeping keyboard open. */}
-            <button
+          <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={doSend}
@@ -225,6 +180,6 @@ export const ChatSidebar: React.FC = () => {
           </button>
         </form>
       </div>
-    </div>
+    </>
   );
 };

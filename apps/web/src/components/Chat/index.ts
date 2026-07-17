@@ -1,4 +1,4 @@
-export { ChatSidebar } from './ChatSidebar';
+export { ChatSection } from './ChatSection';
 export { ChatToasts } from './ChatToasts';
 export { ChatMessage } from './ChatMessage';
 export { SystemIcon } from './SystemIcon';

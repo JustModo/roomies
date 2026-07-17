@@ -5,7 +5,8 @@ import { AdminOverlay } from '../components/AdminOverlay';
 import { useRoomSync, RoomState, MediaInfo } from '../hooks/useRoomSync';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
-import { ChatSidebar, ChatToasts } from '../components/Chat';
+import { ChatToasts } from '../components/Chat';
+import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
 
 /**
@@ -297,7 +298,7 @@ function RoomInner({
         <ChatToasts />
       </div>
 
-      <ChatSidebar />
+      <Sidebar />
 
       {user?.role === 'root' && (
         <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />
