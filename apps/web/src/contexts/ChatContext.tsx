@@ -41,7 +41,16 @@ function formatTime(seconds: number) {
 
 const playNotificationSound = () => {
   try {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const audioCtx = new AudioContextClass();
+
+    // Many browsers suspend new audio contexts until explicitly resumed
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
 
@@ -49,15 +58,17 @@ const playNotificationSound = () => {
     gainNode.connect(audioCtx.destination);
 
     oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-    oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // up to A6
+    // Use a pleasant mid-range tone so it's actually audible but not sharp
+    oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
+    oscillator.frequency.exponentialRampToValueAtTime(349.23, audioCtx.currentTime + 0.2); // F4
 
+    // Volume at 10% (0.1) instead of 2% (0.02) so it can be heard on most speakers
     gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
     gainNode.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.05);
-    gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
 
     oscillator.start(audioCtx.currentTime);
-    oscillator.stop(audioCtx.currentTime + 0.3);
+    oscillator.stop(audioCtx.currentTime + 0.4);
   } catch (e) {
     console.error('[chat] Failed to play notification sound', e);
   }
@@ -83,10 +94,15 @@ export function ChatProvider({
   const storageKey = `chat_history:${window.location.pathname}`;
   const isOpenRef = useRef(isOpen);
   const activeTabRef = useRef(activeTab);
+  const unreadCountRef = useRef(unreadCount);
 
   useEffect(() => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
+
+  useEffect(() => {
+    unreadCountRef.current = unreadCount;
+  }, [unreadCount]);
 
   // Request notification permissions
   useEffect(() => {
@@ -145,7 +161,11 @@ export function ChatProvider({
     if (!isVisible) {
       if (msg.eventType === 'chat' && !msg.isSystem && !msg.isMine) {
         setUnreadCount((prev) => prev + 1);
-        playNotificationSound();
+        
+        // Limit notification sounds to prevent annoyance when chat is busy
+        if (unreadCountRef.current < 3) {
+          playNotificationSound();
+        }
         
         if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
           try {
