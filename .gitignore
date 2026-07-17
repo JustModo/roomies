@@ -12,3 +12,4 @@ config/*
 apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
 *.tsbuildinfo
+vite.config.js.timestamp-*
