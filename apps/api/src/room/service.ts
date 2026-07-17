@@ -10,10 +10,16 @@ type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>[
 export class RoomService {
   static async handleJoin(payload: RoomJoinPayload, ctx: SocketContext) {
     roomStore.addMember({
-      username: ctx.username,
       userId: ctx.userId,
+      username: ctx.username,
       status: 'buffering',
       position: 0,
+      ping: 0,
+      party: {
+        isJoined: false,
+        micMuted: true,
+        videoMuted: true
+      }
     });
 
     const state = roomStore.getState();

@@ -63,3 +63,20 @@
   outline: 1px solid var(--paper);
   outline-offset: 2px;
 }
+
+/* Volume Slider Custom Thumb */
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 6px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+.volume-slider::-moz-range-thumb {
+  width: 6px;
+  height: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}

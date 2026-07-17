@@ -10,9 +10,10 @@ type Tab = 'chat' | 'party';
 
 interface SidebarProps {
   roomState: RoomState | null;
+  updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ roomState }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState }) => {
   const { isOpen, setIsOpen } = useChat();
   const [activeTab, setActiveTab] = useState<Tab>('chat');
 
@@ -56,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState }) => {
 
       {/* Tab Content */}
       {activeTab === 'chat' && <ChatSection />}
-      {activeTab === 'party' && <PartySection roomState={roomState} />}
+      {activeTab === 'party' && <PartySection roomState={roomState} updatePartyState={updatePartyState} />}
     </div>
   );
 };

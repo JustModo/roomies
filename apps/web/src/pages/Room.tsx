@@ -80,7 +80,8 @@ export default function Room() {
     reportLocalTime,
     reportActiveResolution,
     isAsyncMode,
-    toggleAsyncMode
+    toggleAsyncMode,
+    updatePartyState
   } = useRoomSync();
 
   useEffect(() => {
@@ -117,6 +118,7 @@ export default function Room() {
         setShowAdmin={setShowAdmin}
         isAsyncMode={isAsyncMode}
         toggleAsyncMode={toggleAsyncMode}
+        updatePartyState={updatePartyState}
       />
     </ChatProvider>
   );
@@ -143,6 +145,7 @@ interface RoomInnerProps {
   setShowAdmin: (show: boolean) => void;
   isAsyncMode: boolean;
   toggleAsyncMode: () => void;
+  updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
 }
 
 function RoomInner({
@@ -165,7 +168,8 @@ function RoomInner({
   showAdmin,
   setShowAdmin,
   isAsyncMode,
-  toggleAsyncMode
+  toggleAsyncMode,
+  updatePartyState
 }: RoomInnerProps) {
   const { user } = useAuth();
   const vpHeight = useVisualViewportHeight();
@@ -298,7 +302,7 @@ function RoomInner({
         <ChatToasts />
       </div>
 
-      <Sidebar roomState={roomState} />
+      <Sidebar roomState={roomState} updatePartyState={updatePartyState} />
 
       {user?.role === 'root' && (
         <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />

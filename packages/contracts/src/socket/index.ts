@@ -16,6 +16,11 @@ import {
   ServerSyncHeartbeatAckSchema,
 } from './SyncEvents';
 
+import {
+  ClientPartyUpdateSchema,
+  ServerPartyUpdatedSchema,
+} from './PartyEvents';
+
 export {
   ClientSyncHeartbeatSchema,
   ClientSyncStatusSchema,
@@ -23,6 +28,8 @@ export {
   ServerUserStatusChangedSchema,
   ServerSyncHeartbeatAckSchema,
 };
+
+export * from './PartyEvents';
 
 import {
   ClientPlaybackPlaySchema, ClientPlaybackPauseSchema, ClientPlaybackSeekSchema, ClientPlaybackSetRateSchema,
@@ -47,6 +54,8 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientRoomJoinSchema,
   ClientRoomLeaveSchema,
 
+  ClientPartyUpdateSchema,
+
   ClientPlaybackPlaySchema,
   ClientPlaybackPauseSchema,
   ClientPlaybackSeekSchema,
@@ -62,6 +71,8 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerRoomStateSchema,
   ServerUserJoinedSchema,
   ServerUserLeftSchema,
+
+  ServerPartyUpdatedSchema,
 
   ServerPlaybackStateSchema,
   ServerMediaChangedSchema,

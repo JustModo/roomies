@@ -4,6 +4,7 @@ import { OutgoingSocketMessage } from '@roomies/contracts';
 import { useAsyncPlayback } from './useAsyncPlayback';
 
 export type RoomState = Extract<OutgoingSocketMessage, { event: 'room.state' }>['payload']['room'];
+export type MemberState = RoomState['members'][0];
 
 export interface SubtitleTrack {
   id: string;
@@ -180,6 +181,16 @@ export function useRoomSync() {
             members: prev.members.filter(m => m.userId !== msg.payload.userId)
           };
         });
+      } else if (msg.event === 'party.updated') {
+        setRoomState((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            members: prev.members.map(m => 
+              m.userId === msg.payload.userId ? { ...m, party: msg.payload.party } : m
+            )
+          };
+        });
       } else if (msg.event === 'sync.heartbeat_ack') {
         lastPingRef.current = Date.now() - msg.payload.timestamp;
       } else if (msg.event === 'sync.correct') {
@@ -319,6 +330,10 @@ export function useRoomSync() {
     sendMessage({ event: 'playback.set_rate', payload: { rate } });
   }, [sendMessage, asyncPlayback]);
 
+  const updatePartyState = useCallback((updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => {
+    sendMessage({ event: 'party.update', payload: updates });
+  }, [sendMessage]);
+
   const effectiveRoomState = asyncPlayback.isAsyncMode && asyncPlayback.asyncPlaybackState && roomState 
     ? { ...roomState, playback: asyncPlayback.asyncPlaybackState } 
     : roomState;
@@ -343,6 +358,7 @@ export function useRoomSync() {
     reportActiveResolution,
     isAsyncMode: asyncPlayback.isAsyncMode,
     toggleAsyncMode: asyncPlayback.toggleAsyncMode,
-    forceAsyncMode: asyncPlayback.forceAsyncMode
+    forceAsyncMode: asyncPlayback.forceAsyncMode,
+    updatePartyState
   };
 }

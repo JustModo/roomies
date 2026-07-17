@@ -12,7 +12,12 @@ export interface MemberState {
     position: number;
     activeResolution?: Resolution;
     asyncSession?: AsyncSessionState;
-    ping?: number;
+    ping: number;
+    party: {
+        isJoined: boolean;
+        micMuted: boolean;
+        videoMuted: boolean;
+    };
 }
 
 export interface RoomPlaybackState {

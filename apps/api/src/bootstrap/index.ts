@@ -13,6 +13,7 @@ import { initializeConfig } from '../config';
 import { registerChatSocketEvents } from '../chat/socket';
 import { registerPlaybackSocketEvents, registerTranscodeEvents } from '../playback/socket';
 import { registerRoomSocketEvents } from '../room/socket';
+import { registerPartySocketEvents } from '../party/socket';
 import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
 import { TranscodeSessionManager, TranscodeCache } from '@roomies/transcoding';
@@ -52,6 +53,7 @@ export const bootstrap = async (app: FastifyInstance) => {
   registerChatSocketEvents();
   registerPlaybackSocketEvents();
   registerRoomSocketEvents();
+  registerPartySocketEvents();
   registerSyncSocketEvents();
   registerStoreSocketEvents();
 
