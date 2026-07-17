@@ -11,3 +11,4 @@ config/*
 !config/.keep
 apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
+*.tsbuildinfo
