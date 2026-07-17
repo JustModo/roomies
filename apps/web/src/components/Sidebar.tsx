@@ -41,7 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, s
           >
             CHAT
             {unreadCount > 0 && activeTab !== 'chat' && (
-              <span className="absolute -top-1.5 -right-4 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[10px] flex items-center justify-center text-white font-bold">
+              <span className="absolute -top-3 -right-3 text-red-500 text-[11px] font-bold">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
