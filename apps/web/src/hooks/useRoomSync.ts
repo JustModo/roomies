@@ -34,6 +34,7 @@ export function useRoomSync() {
   // NOTE: Explicit seek triggers to prevent seek feedback loops.
   const [syncSeekTrigger, setSyncSeekTrigger] = useState(0);
   const [syncSeekPosition, setSyncSeekPosition] = useState(0);
+  const lastPingRef = useRef<number>();
 
   const asyncPlayback = useAsyncPlayback({
     isConnected,
@@ -167,7 +168,7 @@ export function useRoomSync() {
           return {
             ...prev,
             members: prev.members.map(m => 
-              m.userId === msg.payload.userId ? { ...m, status: msg.payload.status } : m
+              m.userId === msg.payload.userId ? { ...m, status: msg.payload.status, ping: msg.payload.ping ?? m.ping } : m
             )
           };
         });
@@ -179,6 +180,8 @@ export function useRoomSync() {
             members: prev.members.filter(m => m.userId !== msg.payload.userId)
           };
         });
+      } else if (msg.event === 'sync.heartbeat_ack') {
+        lastPingRef.current = Date.now() - msg.payload.timestamp;
       } else if (msg.event === 'sync.correct') {
         if (asyncPlayback.isAsyncModeRef.current) return;
         if (msg.payload.seek) {
@@ -227,7 +230,9 @@ export function useRoomSync() {
             position: localTimeRef.current,
             playing: playbackStateRef.current === 'playing',
             playbackRate: activeRateRef.current,
-            resolution: resolution as any
+            resolution: resolution as any,
+            timestamp: Date.now(),
+            ping: lastPingRef.current
           }
         });
       }
@@ -272,7 +277,9 @@ export function useRoomSync() {
           position: localTimeRef.current,
           playing: playbackStateRef.current === 'playing',
           playbackRate: activeRateRef.current,
-          resolution: activeResolutionRef.current as any
+          resolution: activeResolutionRef.current as any,
+          timestamp: Date.now(),
+          ping: lastPingRef.current
         }
       });
     }, 5000);

@@ -12,6 +12,7 @@ export interface MemberState {
     position: number;
     activeResolution?: Resolution;
     asyncSession?: AsyncSessionState;
+    ping?: number;
 }
 
 export interface RoomPlaybackState {

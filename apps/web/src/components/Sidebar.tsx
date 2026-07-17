@@ -2,12 +2,17 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { IconButton } from './ui/IconButton';
 import { useChat } from '../contexts/ChatContext';
+import { RoomState } from '../hooks/useRoomSync';
 import { ChatSection } from './Chat/ChatSection';
 import { PartySection } from './Party/PartySection';
 
 type Tab = 'chat' | 'party';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  roomState: RoomState | null;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ roomState }) => {
   const { isOpen, setIsOpen } = useChat();
   const [activeTab, setActiveTab] = useState<Tab>('chat');
 
@@ -51,7 +56,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Tab Content */}
       {activeTab === 'chat' && <ChatSection />}
-      {activeTab === 'party' && <PartySection />}
+      {activeTab === 'party' && <PartySection roomState={roomState} />}
     </div>
   );
 };

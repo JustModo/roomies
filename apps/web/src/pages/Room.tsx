@@ -298,7 +298,7 @@ function RoomInner({
         <ChatToasts />
       </div>
 
-      <Sidebar />
+      <Sidebar roomState={roomState} />
 
       {user?.role === 'root' && (
         <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />

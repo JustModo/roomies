@@ -33,6 +33,7 @@ export const ServerRoomStateSchema = z.object({
         status: z.enum(['ready', 'buffering', 'async']),
         position: z.number(),
         asyncTranscodeOffset: z.number().optional(),
+        ping: z.number().optional(),
       })),
     })
   }),

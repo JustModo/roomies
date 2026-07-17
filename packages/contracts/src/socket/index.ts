@@ -13,6 +13,7 @@ import {
   ClientSyncStatusSchema,
   ServerSyncCorrectSchema,
   ServerUserStatusChangedSchema,
+  ServerSyncHeartbeatAckSchema,
 } from './SyncEvents';
 
 export {
@@ -20,6 +21,7 @@ export {
   ClientSyncStatusSchema,
   ServerSyncCorrectSchema,
   ServerUserStatusChangedSchema,
+  ServerSyncHeartbeatAckSchema,
 };
 
 import {
@@ -66,6 +68,7 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
 
   ServerSyncCorrectSchema,
   ServerUserStatusChangedSchema,
+  ServerSyncHeartbeatAckSchema,
 
   ServerChatMessageSchema,
 

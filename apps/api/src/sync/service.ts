@@ -11,8 +11,24 @@ type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['p
 
 export class SyncService {
   static async handleHeartbeat(payload: HeartbeatPayload, ctx: SocketContext) {
+    if (payload.timestamp !== undefined) {
+      SocketEmitter.sendToClient(ctx.socket, {
+        event: 'sync.heartbeat_ack',
+        payload: { timestamp: payload.timestamp }
+      });
+    }
+
     const state = roomStore.getState();
     const member = state.members.find(m => m.userId === ctx.userId);
+
+    if (payload.ping !== undefined) {
+      roomStore.updateMember(ctx.userId, { ping: payload.ping });
+      SocketEmitter.broadcastToRoom(ctx.app, {
+        event: 'user.status_changed',
+        payload: { userId: ctx.userId, status: member?.status || 'buffering', ping: payload.ping }
+      });
+    }
+
     
     if (member && member.status === 'async') {
       this.handleAsyncHeartbeat(payload, ctx, member);
