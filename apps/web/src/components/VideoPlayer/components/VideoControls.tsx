@@ -272,7 +272,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             >
               <MessageSquare className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
               {unreadCount > 0 && !showChat && (
-                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-[9px] flex items-center justify-center text-white font-bold">
+                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-blue-400 text-[9px] flex items-center justify-center text-white font-bold">
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
