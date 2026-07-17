@@ -3,6 +3,7 @@ import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize,
 import { RoomState, MediaInfo } from '../../../hooks/useRoomSync';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
+import { useChat } from '../../../contexts/ChatContext';
 
 interface VideoControlsProps {
   isLocked: boolean;
@@ -84,6 +85,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   onToggleAsync,
 }) => {
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
+  const { unreadCount } = useChat();
 
   const isPlaying = roomPlaybackState?.state === 'playing';
 
@@ -265,10 +267,15 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             <Btn
               onClick={onToggleChat}
               active={showChat}
-              className="hidden lg:flex"
+              className="hidden lg:flex relative"
               title="Toggle chat"
             >
               <MessageSquare className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+              {unreadCount > 0 && !showChat && (
+                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-[9px] flex items-center justify-center text-white font-bold">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </Btn>
           )}
 

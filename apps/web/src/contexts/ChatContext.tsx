@@ -20,6 +20,10 @@ interface ChatContextType {
   sendMessage: (body: string) => void;
   toasts: Message[];
   addLocalSystemMessage: (body: string, type?: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate') => void;
+  unreadCount: number;
+  clearUnreadCount: () => void;
+  activeTab: 'chat' | 'party';
+  setActiveTab: (tab: 'chat' | 'party') => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -35,6 +39,30 @@ function formatTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+const playNotificationSound = () => {
+  try {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+    oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // up to A6
+
+    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.05);
+    gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+
+    oscillator.start(audioCtx.currentTime);
+    oscillator.stop(audioCtx.currentTime + 0.3);
+  } catch (e) {
+    console.error('[chat] Failed to play notification sound', e);
+  }
+};
+
 export function ChatProvider({
   children,
   sendMessage: sendSocketMessage,
@@ -49,17 +77,46 @@ export function ChatProvider({
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [toasts, setToasts] = useState<Message[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [activeTab, setActiveTab] = useState<'chat' | 'party'>('chat');
 
   const storageKey = `chat_history:${window.location.pathname}`;
   const isOpenRef = useRef(isOpen);
+  const activeTabRef = useRef(activeTab);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  // Request notification permissions
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    }
+  }, []);
 
   // Sync isOpen ref
   useEffect(() => {
     isOpenRef.current = isOpen;
-    if (isOpen) {
-      setToasts([]); // Clear toasts if user opens chat
-    }
   }, [isOpen]);
+
+  const clearUnreadCount = useCallback(() => {
+    setUnreadCount(0);
+    setToasts([]);
+  }, []);
+
+  // Clear when chat becomes visible
+  useEffect(() => {
+    const isMobile = window.innerWidth < 1024;
+    const isVisibleDesktop = isOpen && activeTab === 'chat';
+    const isVisibleMobile = isMobile && activeTab === 'chat';
+    
+    if (isVisibleDesktop || isVisibleMobile) {
+      clearUnreadCount();
+    }
+  }, [isOpen, activeTab, clearUnreadCount]);
 
   // Initialize from sessionStorage on mount
   useEffect(() => {
@@ -82,7 +139,26 @@ export function ChatProvider({
       return next;
     });
 
-    if (!isOpenRef.current) {
+    const isMobile = window.innerWidth < 1024;
+    const isVisible = (isOpenRef.current && activeTabRef.current === 'chat') || (isMobile && activeTabRef.current === 'chat');
+
+    if (!isVisible) {
+      if (msg.eventType === 'chat' && !msg.isSystem && !msg.isMine) {
+        setUnreadCount((prev) => prev + 1);
+        playNotificationSound();
+        
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
+          try {
+            new Notification(msg.username || 'New Message', {
+              body: msg.body,
+              icon: '/vite.svg'
+            });
+          } catch (e) {
+            console.error('[chat] Failed to show browser notification', e);
+          }
+        }
+      }
+
       setToasts((prev) => {
         let next = [...prev, msg];
         if (next.length > 10) {
@@ -221,7 +297,9 @@ export function ChatProvider({
   }, [appendMessage]);
 
   return (
-    <ChatContext.Provider value={{ isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage }}>
+    <ChatContext.Provider value={{ 
+      isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab 
+    }}>
       {children}
     </ChatContext.Provider>
   );

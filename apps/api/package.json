@@ -2,7 +2,7 @@
   "name": "@roomies/server",
   "private": true,
   "scripts": {
-    "dev": "DATABASE_URL=file:../../config/roomies.db prisma generate && DATABASE_URL=file:../../config/roomies.db prisma db push --accept-data-loss && tsx watch src/index.ts",
+    "dev": "cross-env DATABASE_URL=file:../../config/roomies.db prisma generate && cross-env DATABASE_URL=file:../../config/roomies.db prisma db push --accept-data-loss && tsx watch src/index.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "start": "tsx src/index.ts"
@@ -29,6 +29,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.1.0",
+    "cross-env": "^10.1.0",
     "tsup": "^8.5.1",
     "tsx": "^4.23.0",
     "typescript": "^5.0.0"
