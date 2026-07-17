@@ -6,6 +6,7 @@ import {
   ServerRoomStateSchema,
   ServerUserJoinedSchema,
   ServerUserLeftSchema,
+  ClientSetControlLockSchema,
 } from './RoomEvents';
 
 import {
@@ -53,6 +54,7 @@ export * from './ErrorEvents';
 export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientRoomJoinSchema,
   ClientRoomLeaveSchema,
+  ClientSetControlLockSchema,
 
   ClientPartyUpdateSchema,
 

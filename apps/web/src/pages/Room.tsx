@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Settings2 } from 'lucide-react';
+import { ChevronLeft, Settings2, Lock } from 'lucide-react';
 import { AdminOverlay } from '../components/AdminOverlay';
 import { useRoomSync, RoomState, MediaInfo } from '../hooks/useRoomSync';
 import { useAuth } from '../contexts/AuthContext';
@@ -81,7 +81,8 @@ export default function Room() {
     reportActiveResolution,
     isAsyncMode,
     toggleAsyncMode,
-    updatePartyState
+    updatePartyState,
+    setControlLock
   } = useRoomSync();
 
   useEffect(() => {
@@ -119,6 +120,7 @@ export default function Room() {
         isAsyncMode={isAsyncMode}
         toggleAsyncMode={toggleAsyncMode}
         updatePartyState={updatePartyState}
+        setControlLock={setControlLock}
       />
     </ChatProvider>
   );
@@ -146,6 +148,7 @@ interface RoomInnerProps {
   isAsyncMode: boolean;
   toggleAsyncMode: () => void;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
+  setControlLock: (userId: string, locked: boolean) => void;
 }
 
 function RoomInner({
@@ -169,7 +172,8 @@ function RoomInner({
   setShowAdmin,
   isAsyncMode,
   toggleAsyncMode,
-  updatePartyState
+  updatePartyState,
+  setControlLock
 }: RoomInnerProps) {
   const { user } = useAuth();
   const vpHeight = useVisualViewportHeight();
@@ -181,6 +185,10 @@ function RoomInner({
     addLocalSystemMessage(newMode ? 'Local Async Mode' : 'Synced with Room', 'play');
   }, [toggleAsyncMode, isAsyncMode, addLocalSystemMessage]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const isLockedByAdmin = roomState?.members.find(m => m.userId === user?.id)?.controlsLocked;
+  const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
+  const isLocked = !mediaInfo || roomState?.playback?.state === 'waiting' || roomState?.playback?.state === 'buffering' || activeLockByAdmin;
 
   // Lock body scroll for the full room session.
   // The fixed-position container prevents most scroll, but iOS Safari
@@ -271,6 +279,7 @@ function RoomInner({
           isAsyncMode={isAsyncMode}
           onToggleAsync={handleToggleAsync}
           userId={user?.id}
+          isLockedByAdmin={isLockedByAdmin}
         >
           <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-gradient-to-b from-ink/80 to-transparent relative">
             <div className="flex-none flex justify-start w-14 sm:w-20 lg:w-24">
@@ -288,7 +297,15 @@ function RoomInner({
               <span className="hidden xs:inline shrink-0">WATCHING</span>
             </div>
 
-            <div className="flex-none flex justify-end w-14 sm:w-20 lg:w-24">
+            <div className="flex-none flex justify-end items-center gap-2 sm:gap-4 w-14 sm:w-20 lg:w-32">
+              {isLocked && (
+                <div 
+                  className={`flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
+                  title={activeLockByAdmin ? 'Controls locked by admin' : 'Controls locked while syncing'}
+                >
+                  <Lock className="w-[14px] h-[14px] lg:w-4 lg:h-4" strokeWidth={1.5} />
+                </div>
+              )}
               {user?.role === 'root' && (
                 <button onClick={() => setShowAdmin(true)} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors">
                   <span className="hidden sm:inline">Manage</span>
@@ -302,7 +319,7 @@ function RoomInner({
         <ChatToasts />
       </div>
 
-      <Sidebar roomState={roomState} updatePartyState={updatePartyState} />
+      <Sidebar roomState={roomState} updatePartyState={updatePartyState} setControlLock={setControlLock} />
 
       {user?.role === 'root' && (
         <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />

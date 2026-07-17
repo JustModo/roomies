@@ -4,6 +4,7 @@ import { IncomingSocketMessage } from '@roomies/contracts';
 
 type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
 type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>['payload'];
+type SetControlLockPayload = Extract<IncomingSocketMessage, { event: 'room.set_control_lock' }>['payload'];
 
 export const registerRoomSocketEvents = () => {
   registerSocketEvent('room.join', async (payload: unknown, ctx: SocketContext) => {
@@ -12,5 +13,9 @@ export const registerRoomSocketEvents = () => {
 
   registerSocketEvent('room.leave', async (payload: unknown, ctx: SocketContext) => {
     await RoomService.handleLeave(payload as RoomLeavePayload, ctx);
+  });
+
+  registerSocketEvent('room.set_control_lock', async (payload: unknown, ctx: SocketContext) => {
+    await RoomService.handleSetControlLock(payload as SetControlLockPayload, ctx);
   });
 };

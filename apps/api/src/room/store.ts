@@ -12,6 +12,7 @@ export interface MemberState {
     position: number;
     activeResolution?: Resolution;
     asyncSession?: AsyncSessionState;
+    controlsLocked: boolean;
     ping: number;
     party: {
         isJoined: boolean;
@@ -46,6 +47,7 @@ export interface RoomState {
 
 export class RoomStore {
     private state: RoomState;
+    private lockedUserIds = new Set<string>();
 
     constructor() {
         this.state = {
@@ -120,6 +122,7 @@ export class RoomStore {
 
     public addMember(member: MemberState): void {
         if (!this.state.members.some(m => m.userId === member.userId)) {
+            member.controlsLocked = this.lockedUserIds.has(member.userId);
             this.state.members.push(member);
         }
     }
@@ -138,6 +141,15 @@ export class RoomStore {
                 ...updates,
             };
         }
+    }
+
+    public setControlLock(userId: string, locked: boolean): void {
+        if (locked) {
+            this.lockedUserIds.add(userId);
+        } else {
+            this.lockedUserIds.delete(userId);
+        }
+        this.updateMember(userId, { controlsLocked: locked });
     }
 }
 

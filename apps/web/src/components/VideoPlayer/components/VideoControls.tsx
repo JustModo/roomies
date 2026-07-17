@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption } from 'lucide-react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Lock } from 'lucide-react';
 import { RoomState, MediaInfo } from '../../../hooks/useRoomSync';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
@@ -27,6 +27,7 @@ interface VideoControlsProps {
   displaySubtitleLabel?: (language: string | null) => string;
   isAsyncMode?: boolean;
   onToggleAsync?: () => void;
+  activeLockByAdmin?: boolean;
 }
 
 // Compact icon button — smaller padding on mobile
@@ -82,6 +83,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   displaySubtitleLabel,
   isAsyncMode,
   onToggleAsync,
+  activeLockByAdmin,
 }) => {
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
 

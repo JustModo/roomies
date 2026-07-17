@@ -1,5 +1,5 @@
 import React from 'react';
-import { MicOff, VideoOff, Mic, Video, Lock, SignalHigh, SignalMedium, SignalLow, PhoneOff } from 'lucide-react';
+import { MicOff, VideoOff, Mic, Video, Lock, Unlock, SignalHigh, SignalMedium, SignalLow, PhoneOff } from 'lucide-react';
 import { getUsernameColor } from '../Chat/utils';
 import { MemberState } from '../../hooks/useRoomSync';
 import { LocalMemberState } from './PartySection';
@@ -14,9 +14,10 @@ interface PartyMemberProps {
   toggleMenu: (id: string) => void;
   localState?: LocalMemberState;
   onUpdateLocalState: (updates: Partial<LocalMemberState>) => void;
+  setControlLock: (userId: string, locked: boolean) => void;
 }
 
-export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlaybackState, activeMenu, toggleMenu, localState, onUpdateLocalState }) => {
+export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlaybackState, activeMenu, toggleMenu, localState, onUpdateLocalState, setControlLock }) => {
   const isLocallyMuted = localState?.audioMuted ?? false;
   const isVideoLocallyMuted = localState?.videoMuted ?? false;
   const volume = localState?.volume ?? 100;
@@ -137,9 +138,19 @@ export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlay
             </div>
           )}
           {user?.role === 'root' && (
-            <button className="w-full px-2 py-1.5 text-left text-12 text-paper/80 hover:text-paper hover:bg-ash/10 rounded transition-colors flex items-center gap-2">
-              <Lock size={14} />
-              Lock controls
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setControlLock(member.userId, !member.controlsLocked);
+              }}
+              className={`w-full px-2 py-1.5 text-left text-12 rounded transition-colors flex items-center gap-2 ${
+                member.controlsLocked 
+                  ? 'text-red-400/90 hover:text-red-400 hover:bg-red-500/10' 
+                  : 'text-paper/80 hover:text-paper hover:bg-ash/10'
+              }`}
+            >
+              {member.controlsLocked ? <Unlock size={14} /> : <Lock size={14} />}
+              {member.controlsLocked ? 'Unlock controls' : 'Lock controls'}
             </button>
           )}
         </div>

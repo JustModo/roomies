@@ -1,6 +1,6 @@
 import { registerSocketEvent, SocketContext } from '../websocket/router';
 import { createDebouncer } from '../websocket/middleware';
-import { withPlaybackLock } from './middleware';
+import { withPlaybackLock, withControlsCheck } from './middleware';
 import { PlaybackService } from './service';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { TranscodeSessionManager } from '@roomies/transcoding';
@@ -15,30 +15,30 @@ type SetRatePayload = Extract<IncomingSocketMessage, { event: 'playback.set_rate
 export const registerPlaybackSocketEvents = () => {
   registerSocketEvent(
     'playback.play',
-    createDebouncer(500)(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+    createDebouncer(500)(withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
       await PlaybackService.handlePlay(payload as PlayPayload, ctx);
-    }))
+    })))
   );
 
   registerSocketEvent(
     'playback.pause',
-    createDebouncer(500)(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+    createDebouncer(500)(withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
       await PlaybackService.handlePause(payload as PausePayload, ctx);
-    }))
+    })))
   );
 
   registerSocketEvent(
     'playback.seek',
-    createDebouncer(500)(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+    createDebouncer(500)(withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
       await PlaybackService.handleSeek(payload as SeekPayload, ctx);
-    }))
+    })))
   );
 
   registerSocketEvent(
     'playback.set_rate',
-    createDebouncer(500)(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+    createDebouncer(500)(withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
       await PlaybackService.handleSetRate(payload as SetRatePayload, ctx);
-    }))
+    })))
   );
 };
 

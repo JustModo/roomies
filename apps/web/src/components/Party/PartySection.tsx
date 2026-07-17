@@ -8,6 +8,7 @@ import { PartyControls } from './PartyControls';
 interface PartySectionProps {
   roomState: RoomState | null;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
+  setControlLock: (userId: string, locked: boolean) => void;
 }
 
 export interface LocalMemberState {
@@ -16,7 +17,7 @@ export interface LocalMemberState {
   volume: number;
 }
 
-export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePartyState }) => {
+export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePartyState, setControlLock }) => {
   const members = roomState?.members || [];
   const roomPlaybackState = roomState?.playback?.state;
   const { user } = useAuth();
@@ -61,6 +62,7 @@ export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePar
             toggleMenu={toggleMenu}
             localState={localStates[member.userId]}
             onUpdateLocalState={(updates) => updateLocalState(member.userId, updates)}
+            setControlLock={setControlLock}
           />
         ))}
       </div>

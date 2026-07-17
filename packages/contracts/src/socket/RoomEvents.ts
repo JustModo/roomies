@@ -33,6 +33,7 @@ export const ServerRoomStateSchema = z.object({
         status: z.enum(['ready', 'buffering', 'async']),
         position: z.number(),
         asyncTranscodeOffset: z.number().optional(),
+        controlsLocked: z.boolean(),
         party: z.object({
           isJoined: z.boolean(),
           micMuted: z.boolean(),
@@ -41,6 +42,14 @@ export const ServerRoomStateSchema = z.object({
         ping: z.number(),
       })),
     })
+  }),
+});
+
+export const ClientSetControlLockSchema = z.object({
+  event: z.literal('room.set_control_lock'),
+  payload: z.object({
+    userId: z.string(),
+    locked: z.boolean(),
   }),
 });
 

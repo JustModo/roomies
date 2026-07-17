@@ -112,6 +112,7 @@ export function usePlayerGestures({
     };
 
     const handlePointerUp = (e: PointerEvent) => {
+      if (isLocked) return;
       // Clear hold timeout if pointer is released before 500ms
       if (holdTimeoutRef.current) {
         clearTimeout(holdTimeoutRef.current);
@@ -202,6 +203,7 @@ export function usePlayerGestures({
     };
 
     const handleWheel = (e: WheelEvent) => {
+      if (isLocked) return;
       // Prevent default scrolling of the page
       e.preventDefault();
 

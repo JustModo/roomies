@@ -3,9 +3,11 @@ import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from './store';
 import { SocketEmitter } from '../websocket/emitter';
 import { coordinator } from '../playback/coordinator';
+import { prisma } from '../database/sqlite';
 
 type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
 type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>['payload'];
+type SetControlLockPayload = Extract<IncomingSocketMessage, { event: 'room.set_control_lock' }>['payload'];
 
 export class RoomService {
   static async handleJoin(payload: RoomJoinPayload, ctx: SocketContext) {
@@ -15,6 +17,7 @@ export class RoomService {
       status: 'buffering',
       position: 0,
       ping: 0,
+      controlsLocked: false,
       party: {
         isJoined: false,
         micMuted: true,
@@ -38,6 +41,21 @@ export class RoomService {
         userId: ctx.userId,
         username: ctx.username,
       }
+    });
+  }
+
+  static async handleSetControlLock(payload: SetControlLockPayload, ctx: SocketContext) {
+    const user = await prisma.user.findUnique({ where: { id: ctx.userId } });
+    if (user?.role !== 'root') {
+      console.warn(`[room] Unauthorized control lock attempt by ${ctx.userId}`);
+      return;
+    }
+
+    roomStore.setControlLock(payload.userId, payload.locked);
+
+    SocketEmitter.broadcastToRoom(ctx.app, {
+      event: 'room.state',
+      payload: { room: roomStore.getState() }
     });
   }
 

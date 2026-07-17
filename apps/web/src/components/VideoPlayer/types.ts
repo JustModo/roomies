@@ -27,5 +27,6 @@ export interface VideoPlayerProps {
   isAsyncMode: boolean;
   onToggleAsync?: () => void;
   userId?: string;
+  isLockedByAdmin?: boolean;
   children?: ReactNode;
 }

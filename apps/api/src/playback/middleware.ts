@@ -24,3 +24,18 @@ export const withPlaybackLock = (handler: SocketEventHandler): SocketEventHandle
     await handler(payload, ctx);
   };
 };
+
+export const withControlsCheck = (handler: SocketEventHandler): SocketEventHandler => {
+  return async (payload: unknown, ctx: SocketContext) => {
+    const state = roomStore.getState();
+    const member = state.members.find(m => m.userId === ctx.userId);
+    
+    // Ignore command if the user's controls are locked by admin
+    if (member?.controlsLocked) {
+      console.warn(`[playback] Blocked locked user ${ctx.userId} from executing action.`);
+      return;
+    }
+    
+    await handler(payload, ctx);
+  };
+};

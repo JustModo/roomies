@@ -25,6 +25,7 @@ export function useRoomSync() {
   const { isConnected, sendMessage, addMessageHandler } = useWebSocket();
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
+  const hasInitializedRef = useRef(false);
   
   const [localTime, setLocalTime] = useState(0);
   const [localCorrectionRate, setLocalCorrectionRate] = useState<number | null>(null);
@@ -71,7 +72,8 @@ export function useRoomSync() {
     const remove = addMessageHandler((msg) => {
       if (msg.event === 'room.state') {
         setRoomState(msg.payload.room);
-        if (!asyncPlayback.isAsyncModeRef.current) {
+        if (!hasInitializedRef.current && !asyncPlayback.isAsyncModeRef.current) {
+          hasInitializedRef.current = true;
           const initialPos = getInitialPosition(msg.payload.room.playback);
           setLocalTime(initialPos);
           localTimeRef.current = initialPos;
@@ -297,6 +299,12 @@ export function useRoomSync() {
     return () => clearInterval(interval);
   }, [isConnected, sendMessage, asyncPlayback.isAsyncModeRef]);
 
+  useEffect(() => {
+    if (!isConnected) {
+      hasInitializedRef.current = false;
+    }
+  }, [isConnected]);
+
   const play = useCallback(() => {
     if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.play();
     sendMessage({ event: 'playback.play', payload: {} });
@@ -334,6 +342,10 @@ export function useRoomSync() {
     sendMessage({ event: 'party.update', payload: updates });
   }, [sendMessage]);
 
+  const setControlLock = useCallback((userId: string, locked: boolean) => {
+    sendMessage({ event: 'room.set_control_lock', payload: { userId, locked } });
+  }, [sendMessage]);
+
   const effectiveRoomState = asyncPlayback.isAsyncMode && asyncPlayback.asyncPlaybackState && roomState 
     ? { ...roomState, playback: asyncPlayback.asyncPlaybackState } 
     : roomState;
@@ -359,6 +371,7 @@ export function useRoomSync() {
     isAsyncMode: asyncPlayback.isAsyncMode,
     toggleAsyncMode: asyncPlayback.toggleAsyncMode,
     forceAsyncMode: asyncPlayback.forceAsyncMode,
-    updatePartyState
+    updatePartyState,
+    setControlLock
   };
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Lock } from 'lucide-react';
 import { VideoPlayerProps, BufferedRange } from './types';
 import { useHlsPlayer } from './hooks/useHlsPlayer';
 import { useVideoEvents } from './hooks/useVideoEvents';
@@ -32,6 +33,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isAsyncMode = false,
   onToggleAsync,
   userId,
+  isLockedByAdmin = false,
   children
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -49,7 +51,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const progressBarRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering';
+  const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
+  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering' || activeLockByAdmin;
 
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
@@ -350,6 +353,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           activeSubtitleId={activeSubtitleId}
           setActiveSubtitleId={setActiveSubtitleId}
           displaySubtitleLabel={displaySubtitleLabel}
+          activeLockByAdmin={activeLockByAdmin}
         />
       </div>
     </div>
