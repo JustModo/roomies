@@ -22,8 +22,12 @@ interface ChatContextType {
   addLocalSystemMessage: (body: string, type?: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate') => void;
   unreadCount: number;
   clearUnreadCount: () => void;
-  activeTab: 'chat' | 'party';
-  setActiveTab: (tab: 'chat' | 'party') => void;
+  activeTab: 'chat' | 'party' | 'settings';
+  setActiveTab: (tab: 'chat' | 'party' | 'settings') => void;
+  soundEnabled: boolean;
+  setSoundEnabled: (enabled: boolean) => void;
+  browserNotificationsEnabled: boolean;
+  setBrowserNotificationsEnabled: (enabled: boolean) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -89,12 +93,30 @@ export function ChatProvider({
   const [messages, setMessages] = useState<Message[]>([]);
   const [toasts, setToasts] = useState<Message[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [activeTab, setActiveTab] = useState<'chat' | 'party'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'party' | 'settings'>('chat');
+
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('chat_sound_enabled');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
+
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('chat_browser_notifications_enabled');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
 
   const storageKey = `chat_history:${window.location.pathname}`;
   const isOpenRef = useRef(isOpen);
   const activeTabRef = useRef(activeTab);
   const unreadCountRef = useRef(unreadCount);
+  const soundEnabledRef = useRef(soundEnabled);
+  const browserNotificationsRef = useRef(browserNotificationsEnabled);
 
   useEffect(() => {
     activeTabRef.current = activeTab;
@@ -103,6 +125,20 @@ export function ChatProvider({
   useEffect(() => {
     unreadCountRef.current = unreadCount;
   }, [unreadCount]);
+
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chat_sound_enabled', String(soundEnabled));
+    }
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    browserNotificationsRef.current = browserNotificationsEnabled;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chat_browser_notifications_enabled', String(browserNotificationsEnabled));
+    }
+  }, [browserNotificationsEnabled]);
 
   // Request notification permissions
   useEffect(() => {
@@ -163,11 +199,11 @@ export function ChatProvider({
         setUnreadCount((prev) => prev + 1);
         
         // Limit notification sounds to prevent annoyance when chat is busy
-        if (unreadCountRef.current < 3) {
+        if (soundEnabledRef.current && unreadCountRef.current < 3) {
           playNotificationSound();
         }
         
-        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        if (browserNotificationsRef.current && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
           try {
             new Notification(msg.username || 'New Message', {
               body: msg.body,
@@ -318,7 +354,8 @@ export function ChatProvider({
 
   return (
     <ChatContext.Provider value={{ 
-      isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab 
+      isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
+      soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled
     }}>
       {children}
     </ChatContext.Provider>

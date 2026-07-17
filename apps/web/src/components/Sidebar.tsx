@@ -5,8 +5,9 @@ import { useChat } from '../contexts/ChatContext';
 import { RoomState } from '../hooks/useRoomSync';
 import { ChatSection } from './Chat/ChatSection';
 import { PartySection } from './Party/PartySection';
+import { SettingsSection } from './Settings/SettingsSection';
 
-type Tab = 'chat' | 'party';
+type Tab = 'chat' | 'party' | 'settings';
 
 interface SidebarProps {
   roomState: RoomState | null;
@@ -54,6 +55,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, s
           >
             PARTY
           </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`text-12 font-semibold uppercase tracking-widest transition-colors ${
+              activeTab === 'settings' ? 'text-paper' : 'text-paper/40 hover:text-paper/70'
+            }`}
+          >
+            SETTINGS
+          </button>
         </div>
 
         {/* Close button — desktop only (mobile has no explicit close, use the player toggle) */}
@@ -71,6 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, s
         addMessageHandler={addMessageHandler}
         sendMessage={sendMessage}
       />}
+      {activeTab === 'settings' && <SettingsSection />}
     </div>
   );
 };
