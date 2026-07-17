@@ -6,14 +6,22 @@ interface PartyControlsProps {
   isMicMuted: boolean;
   isVideoMuted: boolean;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
+  onJoin: () => Promise<void>;
 }
 
-export const PartyControls: React.FC<PartyControlsProps> = ({ isJoined, isMicMuted, isVideoMuted, updatePartyState }) => {
+export const PartyControls: React.FC<PartyControlsProps> = ({ isJoined, isMicMuted, isVideoMuted, updatePartyState, onJoin }) => {
   return (
     <div className="shrink-0 border-t border-ash/10 bg-ink p-2 sm:p-3">
       {!isJoined ? (
         <button
-          onClick={() => updatePartyState({ isJoined: true, micMuted: true, videoMuted: true })}
+          onClick={async () => {
+            try {
+              await onJoin();
+              updatePartyState({ isJoined: true, micMuted: true, videoMuted: true });
+            } catch (err) {
+              alert(err instanceof Error ? err.message : 'Failed to access microphone.');
+            }
+          }}
           className="w-full py-2 bg-ash/5 hover:bg-ash/10 border border-ash/10 text-paper text-12 font-semibold uppercase tracking-widest transition-all"
         >
           Join Party Channel

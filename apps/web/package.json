@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@roomies/contracts": "workspace:*",
+    "@roomies/voice": "workspace:*",
     "hls.js": "^1.5.8",
     "lucide-react": "^1.23.0",
     "react": "^18.3.1",

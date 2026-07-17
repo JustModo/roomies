@@ -93,6 +93,9 @@ importers:
       '@roomies/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@roomies/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       hls.js:
         specifier: ^1.5.8
         version: 1.6.16
@@ -200,6 +203,12 @@ importers:
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.1
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
+  packages/voice:
+    devDependencies:
       typescript:
         specifier: ^5.0.0
         version: 5.9.3

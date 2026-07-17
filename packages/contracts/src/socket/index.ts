@@ -7,6 +7,8 @@ import {
   ServerUserJoinedSchema,
   ServerUserLeftSchema,
   ClientSetControlLockSchema,
+  ClientWebRTCSignalSchema,
+  ServerWebRTCSignalSchema,
 } from './RoomEvents';
 
 import {
@@ -55,6 +57,7 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientRoomJoinSchema,
   ClientRoomLeaveSchema,
   ClientSetControlLockSchema,
+  ClientWebRTCSignalSchema,
 
   ClientPartyUpdateSchema,
 
@@ -73,6 +76,7 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerRoomStateSchema,
   ServerUserJoinedSchema,
   ServerUserLeftSchema,
+  ServerWebRTCSignalSchema,
 
   ServerPartyUpdatedSchema,
 

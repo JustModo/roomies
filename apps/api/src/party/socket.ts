@@ -8,4 +8,8 @@ export const registerPartySocketEvents = () => {
   registerSocketEvent('party.update', async (payload: unknown, ctx: SocketContext) => {
     await PartyService.handlePartyUpdate(payload as PartyUpdatePayload, ctx);
   });
+
+  registerSocketEvent('party.webrtc_signal', async (payload: unknown, ctx: SocketContext) => {
+    await PartyService.handleWebRTCSignal(payload as Extract<IncomingSocketMessage, { event: 'party.webrtc_signal' }>['payload'], ctx);
+  });
 };

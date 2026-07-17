@@ -4,6 +4,7 @@ import { getUsernameColor } from '../Chat/utils';
 import { MemberState } from '../../hooks/useRoomSync';
 import { LocalMemberState } from './PartySection';
 import { UserProfile } from '@roomies/contracts';
+import { useEffect, useRef } from 'react';
 
 
 interface PartyMemberProps {
@@ -15,12 +16,28 @@ interface PartyMemberProps {
   localState?: LocalMemberState;
   onUpdateLocalState: (updates: Partial<LocalMemberState>) => void;
   setControlLock: (userId: string, locked: boolean) => void;
+  stream?: MediaStream;
 }
 
-export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlaybackState, activeMenu, toggleMenu, localState, onUpdateLocalState, setControlLock }) => {
+export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlaybackState, activeMenu, toggleMenu, localState, onUpdateLocalState, setControlLock, stream }) => {
   const isLocallyMuted = localState?.audioMuted ?? false;
   const isVideoLocallyMuted = localState?.videoMuted ?? false;
   const volume = localState?.volume ?? 100;
+  
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      audioRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = Math.min(1, Math.max(0, volume / 100));
+      audioRef.current.muted = isLocallyMuted;
+    }
+  }, [volume, isLocallyMuted]);
   let statusText = '';
   if (roomPlaybackState === 'waiting') {
     statusText = 'Waiting';
@@ -42,6 +59,7 @@ export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlay
 
   return (
     <div className="flex flex-col">
+      <audio ref={audioRef} autoPlay playsInline />
       <button
         onClick={() => {
           if (member.userId !== user?.id) {
@@ -125,12 +143,12 @@ export const PartyMember: React.FC<PartyMemberProps> = ({ member, user, roomPlay
                 <input
                   type="range"
                   min="0"
-                  max="200"
+                  max="100"
                   value={volume}
                   onChange={(e) => onUpdateLocalState({ volume: parseInt(e.target.value) })}
                   className="volume-slider w-full h-1 rounded cursor-pointer appearance-none outline-none opacity-70 hover:opacity-100 transition-opacity"
                   style={{
-                    background: `linear-gradient(to right, rgb(160 160 160) 0%, rgb(160 160 160) ${volume / 2}%, rgb(255 255 255 / 0.1) ${volume / 2}%, rgb(255 255 255 / 0.1) 100%)`
+                    background: `linear-gradient(to right, rgb(160 160 160) 0%, rgb(160 160 160) ${volume}%, rgb(255 255 255 / 0.1) ${volume}%, rgb(255 255 255 / 0.1) 100%)`
                   }}
                 />
                 <span className="text-[10px] font-mono text-paper/50 w-7 text-right select-none leading-none">{volume}%</span>

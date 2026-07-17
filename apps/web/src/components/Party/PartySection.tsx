@@ -5,10 +5,14 @@ import { RoomState } from '../../hooks/useRoomSync';
 import { PartyMember } from './PartyMember';
 import { PartyControls } from './PartyControls';
 
+import { useVoiceParty } from '../../hooks/useVoiceParty';
+
 interface PartySectionProps {
   roomState: RoomState | null;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
   setControlLock: (userId: string, locked: boolean) => void;
+  addMessageHandler: (handler: (msg: any) => void) => () => void;
+  sendMessage: (msg: any) => void;
 }
 
 export interface LocalMemberState {
@@ -17,7 +21,7 @@ export interface LocalMemberState {
   volume: number;
 }
 
-export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePartyState, setControlLock }) => {
+export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePartyState, setControlLock, addMessageHandler, sendMessage }) => {
   const members = roomState?.members || [];
   const roomPlaybackState = roomState?.playback?.state;
   const { user } = useAuth();
@@ -39,6 +43,15 @@ export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePar
   const isJoined = currentUserMember?.party.isJoined ?? false;
   const isMicMuted = currentUserMember?.party.micMuted ?? true;
   const isVideoMuted = currentUserMember?.party.videoMuted ?? true;
+
+  const { joinVoice, activeStreams } = useVoiceParty({
+    userId: user?.id,
+    roomState,
+    addMessageHandler,
+    sendMessage,
+    isJoined,
+    isMicMuted
+  });
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-void">
@@ -63,6 +76,7 @@ export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePar
             localState={localStates[member.userId]}
             onUpdateLocalState={(updates) => updateLocalState(member.userId, updates)}
             setControlLock={setControlLock}
+            stream={activeStreams[member.userId]}
           />
         ))}
       </div>
@@ -72,6 +86,7 @@ export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePar
         isMicMuted={isMicMuted}
         isVideoMuted={isVideoMuted}
         updatePartyState={updatePartyState}
+        onJoin={joinVoice}
       />
     </div>
   );

@@ -121,6 +121,8 @@ export default function Room() {
         toggleAsyncMode={toggleAsyncMode}
         updatePartyState={updatePartyState}
         setControlLock={setControlLock}
+        addMessageHandler={addMessageHandler}
+        sendMessage={sendMessage}
       />
     </ChatProvider>
   );
@@ -149,6 +151,8 @@ interface RoomInnerProps {
   toggleAsyncMode: () => void;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
   setControlLock: (userId: string, locked: boolean) => void;
+  addMessageHandler: (handler: (msg: any) => void) => () => void;
+  sendMessage: (msg: any) => void;
 }
 
 function RoomInner({
@@ -173,7 +177,9 @@ function RoomInner({
   isAsyncMode,
   toggleAsyncMode,
   updatePartyState,
-  setControlLock
+  setControlLock,
+  addMessageHandler,
+  sendMessage
 }: RoomInnerProps) {
   const { user } = useAuth();
   const vpHeight = useVisualViewportHeight();
@@ -319,7 +325,13 @@ function RoomInner({
         <ChatToasts />
       </div>
 
-      <Sidebar roomState={roomState} updatePartyState={updatePartyState} setControlLock={setControlLock} />
+      <Sidebar 
+        roomState={roomState} 
+        updatePartyState={updatePartyState} 
+        setControlLock={setControlLock} 
+        addMessageHandler={addMessageHandler}
+        sendMessage={sendMessage}
+      />
 
       {user?.role === 'root' && (
         <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />

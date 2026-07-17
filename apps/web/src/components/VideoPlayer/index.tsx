@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Lock } from 'lucide-react';
+
 import { VideoPlayerProps, BufferedRange } from './types';
 import { useHlsPlayer } from './hooks/useHlsPlayer';
 import { useVideoEvents } from './hooks/useVideoEvents';
@@ -353,7 +353,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           activeSubtitleId={activeSubtitleId}
           setActiveSubtitleId={setActiveSubtitleId}
           displaySubtitleLabel={displaySubtitleLabel}
-          activeLockByAdmin={activeLockByAdmin}
         />
       </div>
     </div>

@@ -19,5 +19,17 @@ export const SocketEmitter = {
     if (socket.readyState === 1) {
       socket.send(JSON.stringify(message));
     }
+  },
+
+  sendToUser(app: FastifyInstance, userId: string, message: OutgoingSocketMessage) {
+    const room = app.room;
+    if (!room) return;
+    
+    const serialized = JSON.stringify(message);
+    for (const socket of room) {
+      if ((socket as any).userId === userId && socket.readyState === 1) {
+        socket.send(serialized);
+      }
+    }
   }
 };
