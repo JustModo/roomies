@@ -1,3 +1,11 @@
+// @ts-ignore
+import rnnoiseWasmPath from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
+// @ts-ignore
+import rnnoiseWasmSimdPath from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
+// @ts-ignore
+import rnnoiseWorkletPath from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
+import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor';
+
 export type SignalPayload = {
     targetUserId: string;
     signal: any;
@@ -5,6 +13,10 @@ export type SignalPayload = {
 
 export class WebRTCManager {
     private localStream: MediaStream | null = null;
+    private processedStream: MediaStream | null = null;
+    private audioContext: AudioContext | null = null;
+    private rnnoiseNode: RnnoiseWorkletNode | null = null;
+
     private connections = new Map<string, RTCPeerConnection>();
     public onSignal?: (payload: SignalPayload) => void;
     public onStreamAdded?: (userId: string, stream: MediaStream) => void;
@@ -26,6 +38,28 @@ export class WebRTCManager {
                 }, 
                 video: false 
             });
+
+            // Set up RNNoise AudioWorklet pipeline
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            this.audioContext = new AudioContextClass();
+            
+            const wasmBinary = await loadRnnoise({ 
+                url: rnnoiseWasmPath,
+                simdUrl: rnnoiseWasmSimdPath
+            });
+            await this.audioContext.audioWorklet.addModule(rnnoiseWorkletPath);
+            
+            const source = this.audioContext.createMediaStreamSource(this.localStream);
+            this.rnnoiseNode = new RnnoiseWorkletNode(this.audioContext, { 
+                wasmBinary,
+                maxChannels: 2
+            });
+            const destination = this.audioContext.createMediaStreamDestination();
+            
+            source.connect(this.rnnoiseNode);
+            this.rnnoiseNode.connect(destination);
+            
+            this.processedStream = destination.stream;
         } catch (e) {
             console.error('[WebRTC] Failed to get local audio', e);
             throw e;
@@ -69,9 +103,10 @@ export class WebRTCManager {
 
         this.connections.set(userId, pc);
 
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => {
-                pc.addTrack(track, this.localStream!);
+        const streamToUse = this.processedStream || this.localStream;
+        if (streamToUse) {
+            streamToUse.getTracks().forEach(track => {
+                pc.addTrack(track, streamToUse);
             });
         }
 
@@ -156,6 +191,19 @@ export class WebRTCManager {
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => track.stop());
             this.localStream = null;
+        }
+        if (this.processedStream) {
+            this.processedStream.getTracks().forEach(track => track.stop());
+            this.processedStream = null;
+        }
+        if (this.rnnoiseNode) {
+            this.rnnoiseNode.destroy();
+            this.rnnoiseNode.disconnect();
+            this.rnnoiseNode = null;
+        }
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
         }
         for (const [userId, pc] of this.connections) {
             pc.close();
