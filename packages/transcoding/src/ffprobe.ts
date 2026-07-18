@@ -1,7 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-// @ts-ignore
-import ffprobeStatic from 'ffprobe-static';
+import { FFPROBE_PATH } from '@roomies/config';
 
 const execFileAsync = promisify(execFile);
 
@@ -17,7 +16,7 @@ const parseFrameRate = (value: string): number => {
 /** Probes the average frame rate of the first video stream, used to align GOP size with segment duration. */
 export const getSourceFrameRate = async (filePath: string): Promise<number> => {
   try {
-    const { stdout } = await execFileAsync(ffprobeStatic.path, [
+    const { stdout } = await execFileAsync(FFPROBE_PATH, [
       '-v', 'error',
       '-select_streams', 'v:0',
       '-show_entries', 'stream=r_frame_rate',

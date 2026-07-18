@@ -1,12 +1,11 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-// @ts-ignore
-import ffprobeStatic from 'ffprobe-static';
+import { FFPROBE_PATH } from '@roomies/config';
 
 const execFileAsync = promisify(execFile);
 
 export const getMediaDuration = async (filePath: string): Promise<number> => {
-  const { stdout } = await execFileAsync(ffprobeStatic.path, [
+  const { stdout } = await execFileAsync(FFPROBE_PATH, [
     '-v', 'error',
     '-show_entries', 'format=duration',
     '-of', 'default=noprint_wrappers=1:nokey=1',

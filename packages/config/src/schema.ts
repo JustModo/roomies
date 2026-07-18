@@ -23,6 +23,7 @@ export const ConfigSchema = z.object({
   CACHE_DIR: z.string(),
   DATABASE_URL: z.string(),
   FFMPEG_PATH: z.string(),
+  FFPROBE_PATH: z.string(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

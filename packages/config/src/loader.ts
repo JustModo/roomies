@@ -24,12 +24,14 @@ export function loadConfig(): Config {
     MEDIA_ROOT: path.resolve(projectRoot, 'media'),
     CACHE_DIR: path.resolve(projectRoot, 'cache'),
     FFMPEG_PATH: 'ffmpeg',
+    FFPROBE_PATH: 'ffprobe',
   };
 
   const prodDefaults = {
     MEDIA_ROOT: '/media',
     CACHE_DIR: '/cache',
     FFMPEG_PATH: '/usr/lib/jellyfin-ffmpeg/ffmpeg',
+    FFPROBE_PATH: '/usr/lib/jellyfin-ffmpeg/ffprobe',
   };
 
   const defaults = isDev ? devDefaults : prodDefaults;
@@ -45,6 +47,7 @@ export function loadConfig(): Config {
     CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
     DATABASE_URL: process.env.DATABASE_URL || `file:${path.resolve(configDir, 'roomies.db')}`,
     FFMPEG_PATH: process.env.FFMPEG_PATH || defaults.FFMPEG_PATH,
+    FFPROBE_PATH: process.env.FFPROBE_PATH || defaults.FFPROBE_PATH,
   };
 
   const parsed = ConfigSchema.safeParse(rawConfig);

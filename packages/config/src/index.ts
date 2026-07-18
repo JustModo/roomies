@@ -14,6 +14,7 @@ export const {
   CACHE_DIR,
   DATABASE_URL,
   FFMPEG_PATH,
+  FFPROBE_PATH,
 } = config;
 
 export const VIDEO_CODEC = config.FFMPEG_VIDEO_CODEC;

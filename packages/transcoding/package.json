@@ -12,8 +12,7 @@
   },
   "dependencies": {
     "@roomies/contracts": "workspace:*",
-    "@roomies/config": "workspace:*",
-    "ffprobe-static": "^3.1.0"
+    "@roomies/config": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
