@@ -28,6 +28,8 @@ interface ChatContextType {
   setSoundEnabled: (enabled: boolean) => void;
   browserNotificationsEnabled: boolean;
   setBrowserNotificationsEnabled: (enabled: boolean) => void;
+  focusChatInput: () => void;
+  registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -118,6 +120,15 @@ export function ChatProvider({
   const soundEnabledRef = useRef(soundEnabled);
   const browserNotificationsRef = useRef(browserNotificationsEnabled);
   const lastSoundTimeRef = useRef(0);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const registerChatInputRef = useCallback((el: HTMLTextAreaElement | null) => {
+    chatInputRef.current = el;
+  }, []);
+
+  const focusChatInput = useCallback(() => {
+    chatInputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     activeTabRef.current = activeTab;
@@ -359,7 +370,8 @@ export function ChatProvider({
   return (
     <ChatContext.Provider value={{
       isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
-      soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled
+      soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled,
+      focusChatInput, registerChatInputRef,
     }}>
       {children}
     </ChatContext.Provider>

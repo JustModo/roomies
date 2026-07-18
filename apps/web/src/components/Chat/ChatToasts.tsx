@@ -35,9 +35,23 @@ function useIsPortraitMobile(): boolean {
   return isPortraitMobile;
 }
 
+/** Returns true when the browser is in fullscreen mode. */
+function useIsFullscreen(): boolean {
+  const [isFs, setIsFs] = useState(() => !!document.fullscreenElement);
+
+  useEffect(() => {
+    const update = () => setIsFs(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', update);
+    return () => document.removeEventListener('fullscreenchange', update);
+  }, []);
+
+  return isFs;
+}
+
 export const ChatToasts: React.FC = () => {
   const { isOpen, setIsOpen, toasts, activeTab } = useChat();
   const isPortraitMobile = useIsPortraitMobile();
+  const isFullscreen = useIsFullscreen();
   const [controlsVisible, setControlsVisible] = useState(true);
 
   useEffect(() => {
@@ -60,9 +74,24 @@ export const ChatToasts: React.FC = () => {
   // Combine them, keeping original order
   const visible = toasts.filter((t) => activeToasts.includes(t) || exitingToasts.includes(t));
 
-  // Don't render on portrait mobile (chat panel is below the video anyway) or if the chat tab is active/open
-  const isChatOpen = isOpen && activeTab === 'chat';
-  if (isPortraitMobile || isChatOpen || visible.length === 0) return null;
+  // Determine whether the chat panel is actually visible to the user right now.
+  //
+  // Mobile portrait: the sidebar is always rendered below the video (no isOpen gate),
+  // so we only suppress the overlay when the chat tab is the one being shown.
+  // Any other tab (Party, Settings) means chat messages are NOT visible → show overlay.
+  //
+  // Fullscreen: the sidebar is entirely off-screen regardless of state → always show overlay.
+  //
+  // Desktop: sidebar is behind an isOpen gate → suppress only when open on chat tab.
+  const chatPanelVisible =
+    isFullscreen
+      ? false
+      : isPortraitMobile
+        ? activeTab === 'chat'
+        : isOpen && activeTab === 'chat';
+
+  if (chatPanelVisible || visible.length === 0) return null;
+
 
 
   return (

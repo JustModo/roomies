@@ -4,7 +4,7 @@ import { useChat } from '../../contexts/ChatContext';
 import { ChatMessage } from './ChatMessage';
 
 export const ChatSection: React.FC = () => {
-  const { isOpen, messages, sendMessage } = useChat();
+  const { isOpen, messages, sendMessage, registerChatInputRef } = useChat();
   const [newMessage, setNewMessage] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -16,6 +16,12 @@ export const ChatSection: React.FC = () => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
+  }, []);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (el) registerChatInputRef(el);
+    return () => registerChatInputRef(null);
   }, []);
 
   useEffect(() => {
@@ -126,7 +132,7 @@ export const ChatSection: React.FC = () => {
     <>
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 overflow-y-auto px-4 pt-2 pb-0 flex flex-col"
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-2 flex flex-col"
         style={{ touchAction: 'pan-y', overscrollBehavior: 'contain' }}
       >
         {messages.map((msg, index) => {
@@ -161,6 +167,7 @@ export const ChatSection: React.FC = () => {
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 e.preventDefault();
                 doSend();
               }

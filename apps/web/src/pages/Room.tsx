@@ -8,6 +8,7 @@ import { ChatProvider, useChat } from '../contexts/ChatContext';
 import { ChatToasts } from '../components/Chat';
 import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
+import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
 
 /**
  * Tracks window.visualViewport height so the layout correctly shrinks when
@@ -183,7 +184,7 @@ function RoomInner({
 }: RoomInnerProps) {
   const { user } = useAuth();
   const vpHeight = useVisualViewportHeight();
-  const { isOpen, setIsOpen, addLocalSystemMessage } = useChat();
+  const { isOpen, setIsOpen, addLocalSystemMessage, setActiveTab, focusChatInput } = useChat();
 
   const handleToggleAsync = useCallback(() => {
     toggleAsyncMode();
@@ -256,6 +257,12 @@ function RoomInner({
       }
     }
   }, [isOpen]);
+
+  useKeyboardShortcut('t', () => {
+    setIsOpen(true);
+    setActiveTab('chat');
+    requestAnimationFrame(() => focusChatInput());
+  }, { disabled: isOpen });
 
   return (
     <div

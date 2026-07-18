@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { IconButton } from './ui/IconButton';
 import { useChat } from '../contexts/ChatContext';
@@ -17,9 +17,28 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, setControlLock, addMessageHandler, sendMessage }) => {
   const { isOpen, setIsOpen, unreadCount, activeTab, setActiveTab } = useChat();
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleOutsideInteraction = (e: MouseEvent | TouchEvent) => {
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideInteraction);
+    document.addEventListener('touchstart', handleOutsideInteraction);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideInteraction);
+      document.removeEventListener('touchstart', handleOutsideInteraction);
+    };
+  }, [isOpen, setIsOpen]);
 
   return (
     <div
+      ref={sidebarRef}
       className={`
         relative flex-1 min-h-0
         lg:fixed lg:top-0 lg:right-0 lg:w-[360px] lg:h-screen
