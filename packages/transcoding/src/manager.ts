@@ -12,8 +12,10 @@ class TranscodeSessionManagerImpl {
   startSession(sessionId: string, mediaFileId: string, inputPath: string): TranscodeSession {
     this.stopSession(sessionId);
 
-    // Isolate cache directory per session and media
-    const outputDir = path.join(CACHE_DIR, sessionId, mediaFileId);
+    // Isolate cache directory per session, media, and run (uniqueId)
+    // to prevent race conditions where a stopping session deletes the directory of a new session.
+    const uniqueRunId = Math.random().toString(36).substring(2, 10);
+    const outputDir = path.join(CACHE_DIR, sessionId, mediaFileId, uniqueRunId);
     TranscodeCache.cleanDirectory(outputDir);
 
     const session = new TranscodeSession(sessionId, mediaFileId, inputPath, outputDir);

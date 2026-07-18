@@ -230,17 +230,26 @@ export class TranscodeSession {
     const group = this.variantGroups.get(offset);
     if (!group) return;
 
-    console.log(`[transcode] Stopping all variants for offset ${offset}`);
-    const promises: Promise<void>[] = [];
-    for (const variant of group.values()) {
-      promises.push(variant.stop());
-    }
-    await Promise.all(promises);
+    // NOTE: Immediately remove the group so new requests create a fresh group
+    // instead of latching onto this dying one.
     this.variantGroups.delete(offset);
     this.groupCreatedAt.delete(offset);
 
-    const groupDir = path.join(this.outputBaseDir, offset.toString());
-    TranscodeCache.cleanDirectory(groupDir);
+    console.log(`[transcode] Stopping all variants for offset ${offset}`);
+    const promises: Promise<void>[] = [];
+    for (const variant of group.values()) {
+      promises.push(variant.stop().then(() => {
+        TranscodeCache.cleanDirectory(variant.outputDir);
+      }));
+    }
+    await Promise.all(promises);
+
+    // NOTE: Only clean the entire offset directory if a new group hasn't
+    // been created for this offset in the meantime.
+    if (!this.variantGroups.has(offset)) {
+      const groupDir = path.join(this.outputBaseDir, offset.toString());
+      TranscodeCache.cleanDirectory(groupDir);
+    }
   }
 
   async stop(): Promise<void> {
