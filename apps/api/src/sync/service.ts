@@ -21,19 +21,52 @@ export class SyncService {
     const state = roomStore.getState();
     const member = state.members.find(m => m.userId === ctx.userId);
 
-    if (payload.ping !== undefined) {
-      roomStore.updateMember(ctx.userId, { ping: payload.ping });
+    let shouldBroadcastStatus = false;
+    const updates: Partial<Parameters<typeof roomStore.updateMember>[1]> = {};
+
+    if (payload.pingQuality !== undefined && payload.pingQuality !== member?.pingQuality) {
+      updates.pingQuality = payload.pingQuality;
+      shouldBroadcastStatus = true;
+    }
+
+    if (payload.status !== undefined && payload.status !== member?.status) {
+      updates.status = payload.status;
+      shouldBroadcastStatus = true;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      roomStore.updateMember(ctx.userId, updates);
+    }
+
+    if (shouldBroadcastStatus) {
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'user.status_changed',
-        payload: { userId: ctx.userId, status: member?.status || 'buffering', ping: payload.ping }
+        payload: { 
+          userId: ctx.userId, 
+          status: payload.status ?? member?.status ?? 'buffering', 
+          pingQuality: payload.pingQuality ?? member?.pingQuality 
+        }
       });
     }
 
-    
-    if (member && member.status === 'async') {
-      this.handleAsyncHeartbeat(payload, ctx, member);
+    // Call status handlers if status changed
+    if (payload.status !== undefined && payload.status !== member?.status) {
+      const isNowAsync = payload.status === 'async';
+      const wasAsync = member?.status === 'async';
+      
+      if (isNowAsync && !wasAsync) {
+        await this.handleEnterAsyncMode(ctx, payload as any, state, member);
+      } else if (!isNowAsync && wasAsync) {
+        this.handleExitAsyncMode(ctx, payload as any, state);
+      }
+      this.reconcileRoomBufferingState(ctx);
+    }
+
+    const updatedMember = roomStore.getState().members.find(m => m.userId === ctx.userId);
+    if (updatedMember && updatedMember.status === 'async') {
+      this.handleAsyncHeartbeat(payload, ctx, updatedMember);
     } else {
-      this.handleSyncHeartbeat(payload, ctx, state);
+      this.handleSyncHeartbeat(payload, ctx, roomStore.getState());
     }
   }
 

@@ -16,7 +16,7 @@ export class RoomService {
       username: ctx.username,
       status: 'buffering',
       position: 0,
-      ping: 0,
+      pingQuality: 0,
       controlsLocked: false,
       party: {
         isJoined: false,

@@ -38,14 +38,13 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
     statusText = 'Syncing';
   }
 
-  const getPingIcon = (ping?: number) => {
-    if (ping === undefined || ping < 150) {
+  const getPingIcon = (pingQuality?: number) => {
+    if (pingQuality === undefined || pingQuality === 0) {
       return <SignalHigh size={14} className="text-green-500" />;
-    } else if (ping < 300) {
+    } else if (pingQuality === 1) {
       return <SignalMedium size={14} className="text-yellow-500" />;
-    } else {
-      return <SignalLow size={14} className="text-red-500" />;
     }
+    return <SignalLow size={14} className="text-red-500" />;
   };
 
   return (
@@ -95,12 +94,12 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
               ) : (
                 <Video size={14} className="text-green-400" />
               )}
-              {getPingIcon(member.ping)}
+              {getPingIcon(member.pingQuality)}
             </>
           ) : (
             <>
               <PhoneOff size={14} className="text-paper/30" />
-              {getPingIcon(member.ping)}
+              {getPingIcon(member.pingQuality)}
             </>
           )}
         </div>

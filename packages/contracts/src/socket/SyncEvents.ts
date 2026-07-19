@@ -8,7 +8,8 @@ export const ClientSyncHeartbeatSchema = z.object({
     playbackRate: z.number(),
     resolution: z.enum(['360p', '720p', '1080p']).optional(),
     timestamp: z.number().optional(),
-    ping: z.number().optional(),
+    pingQuality: z.number().optional(),
+    status: z.enum(['ready', 'buffering', 'async']).optional(),
   }),
 });
 
@@ -41,6 +42,6 @@ export const ServerUserStatusChangedSchema = z.object({
   payload: z.object({
     userId: z.string(),
     status: z.enum(['ready', 'buffering', 'async']),
-    ping: z.number().optional(),
+    pingQuality: z.number().optional(),
   }),
 });

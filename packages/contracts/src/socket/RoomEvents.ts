@@ -39,7 +39,7 @@ export const ServerRoomStateSchema = z.object({
           micMuted: z.boolean(),
           videoMuted: z.boolean(),
         }),
-        ping: z.number(),
+        pingQuality: z.number(),
       })),
     })
   }),

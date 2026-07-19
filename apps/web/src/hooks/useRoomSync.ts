@@ -36,7 +36,9 @@ export function useRoomSync() {
   // NOTE: Explicit seek triggers to prevent seek feedback loops.
   const [syncSeekTrigger, setSyncSeekTrigger] = useState(0);
   const [syncSeekPosition, setSyncSeekPosition] = useState(0);
-  const lastPingRef = useRef<number>();
+  const smoothedPingRef = useRef<number>();
+  const pingQualityRef = useRef<number>(0);
+  const consecutivePingRef = useRef<{ tier: number, count: number }>({ tier: 0, count: 0 });
   const activeResolutionRef = useRef<string | undefined>();
   const localStatusRef = useRef<SyncStatus>('ready');
 
@@ -197,7 +199,7 @@ export function useRoomSync() {
           return {
             ...prev,
             members: prev.members.map(m => 
-              m.userId === msg.payload.userId ? { ...m, status: msg.payload.status, ping: msg.payload.ping ?? m.ping } : m
+              m.userId === msg.payload.userId ? { ...m, status: msg.payload.status, pingQuality: msg.payload.pingQuality ?? m.pingQuality } : m
             )
           };
         });
@@ -220,7 +222,23 @@ export function useRoomSync() {
           };
         });
       } else if (msg.event === 'sync.heartbeat_ack') {
-        lastPingRef.current = Date.now() - msg.payload.timestamp;
+        const rawPing = Date.now() - msg.payload.timestamp;
+        const currentSmoothed = smoothedPingRef.current;
+        smoothedPingRef.current = currentSmoothed === undefined ? rawPing : (currentSmoothed * 0.7 + rawPing * 0.3);
+        
+        let newTier = 0;
+        if (smoothedPingRef.current >= 300) newTier = 2;
+        else if (smoothedPingRef.current >= 150) newTier = 1;
+
+        if (consecutivePingRef.current.tier !== newTier) {
+          consecutivePingRef.current = { tier: newTier, count: 1 };
+        } else {
+          consecutivePingRef.current.count += 1;
+        }
+
+        if (consecutivePingRef.current.count >= 3 && pingQualityRef.current !== newTier) {
+          pingQualityRef.current = newTier;
+        }
       } else if (msg.event === 'sync.correct') {
         if (asyncPlayback.isAsyncModeRef.current) return;
         if (msg.payload.seek) {
@@ -271,7 +289,8 @@ export function useRoomSync() {
             playbackRate: activeRateRef.current,
             resolution: resolution as any,
             timestamp: Date.now(),
-            ping: lastPingRef.current
+            pingQuality: pingQualityRef.current,
+            status: localStatusRef.current
           }
         });
       }
@@ -318,15 +337,10 @@ export function useRoomSync() {
           playbackRate: activeRateRef.current,
           resolution: activeResolutionRef.current as any,
           timestamp: Date.now(),
-          ping: lastPingRef.current
+          pingQuality: pingQualityRef.current,
+          status: localStatusRef.current
         }
       });
-      if (playbackStateRef.current === 'buffering') {
-        sendMessage({
-          event: 'sync.status',
-          payload: { status: localStatusRef.current as any }
-        });
-      }
     }, 5000);
     return () => clearInterval(interval);
   }, [isConnected, sendMessage, asyncPlayback.isAsyncModeRef]);

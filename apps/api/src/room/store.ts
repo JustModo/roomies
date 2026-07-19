@@ -13,7 +13,7 @@ export interface MemberState {
     activeResolution?: Resolution;
     asyncSession?: AsyncSessionState;
     controlsLocked: boolean;
-    ping: number;
+    pingQuality: number;
     party: {
         isJoined: boolean;
         micMuted: boolean;
