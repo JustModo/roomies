@@ -1,5 +1,5 @@
 import { useEffect, MutableRefObject, useRef } from 'react';
-import { RoomState } from '../../../hooks/useRoomSync';
+import { RoomState, SyncStatus } from '../../../hooks/useRoomSync';
 import { BufferedRange } from '../types';
 
 interface UseVideoEventsParams {
@@ -8,7 +8,7 @@ interface UseVideoEventsParams {
   localCorrectionRate?: number | null;
   syncSeekTrigger?: number;
   syncSeekPosition?: number;
-  reportStatus: (status: 'ready' | 'buffering') => void;
+  reportStatus: (status: SyncStatus) => void;
   isDragging: boolean;
   isPlaying: boolean;
   setIsPlaying: (playing: boolean) => void;
@@ -93,7 +93,24 @@ export function useVideoEvents({
     const transOffset = activeOffsetRef.current;
     console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
 
-    videoRef.current.currentTime = Math.max(0, syncSeekPosition - transOffset);
+    const targetRelative = Math.max(0, syncSeekPosition - transOffset);
+    
+    // Check if the target position is already in memory
+    let isBuffered = false;
+    const buffered = videoRef.current.buffered;
+    for (let i = 0; i < buffered.length; i++) {
+      // Require at least 1 second of buffer ahead of the seek point to consider it "cached"
+      if (targetRelative >= buffered.start(i) && targetRelative <= buffered.end(i) - 1.0) {
+        isBuffered = true;
+        break;
+      }
+    }
+
+    if (!isBuffered) {
+      reportStatus('buffering');
+    }
+
+    videoRef.current.currentTime = targetRelative;
     setCurrentTime(syncSeekPosition);
   }, [syncSeekTrigger, syncSeekPosition, isDragging, reportStatus, setCurrentTime]);
 

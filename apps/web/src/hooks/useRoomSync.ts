@@ -5,6 +5,7 @@ import { useAsyncPlayback } from './useAsyncPlayback';
 
 export type RoomState = Extract<OutgoingSocketMessage, { event: 'room.state' }>['payload']['room'];
 export type MemberState = RoomState['members'][0];
+export type SyncStatus = MemberState['status'];
 
 export interface SubtitleTrack {
   id: string;
@@ -30,13 +31,14 @@ export function useRoomSync() {
   const [localTime, setLocalTime] = useState(0);
   const [localCorrectionRate, setLocalCorrectionRate] = useState<number | null>(null);
   const localTimeRef = useRef(0);
-  const activeResolutionRef = useRef<string | undefined>();
   const correctionTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // NOTE: Explicit seek triggers to prevent seek feedback loops.
   const [syncSeekTrigger, setSyncSeekTrigger] = useState(0);
   const [syncSeekPosition, setSyncSeekPosition] = useState(0);
   const lastPingRef = useRef<number>();
+  const activeResolutionRef = useRef<string | undefined>();
+  const localStatusRef = useRef<SyncStatus>('ready');
 
   const asyncPlayback = useAsyncPlayback({
     isConnected,
@@ -319,6 +321,12 @@ export function useRoomSync() {
           ping: lastPingRef.current
         }
       });
+      if (playbackStateRef.current === 'buffering') {
+        sendMessage({
+          event: 'sync.status',
+          payload: { status: localStatusRef.current as any }
+        });
+      }
     }, 5000);
     return () => clearInterval(interval);
   }, [isConnected, sendMessage, asyncPlayback.isAsyncModeRef]);
@@ -352,9 +360,10 @@ export function useRoomSync() {
     sendMessage({ event: 'playback.seek', payload: { position, forceNewOffset } });
   }, [sendMessage, asyncPlayback]);
 
-  const setStatus = useCallback((status: 'ready' | 'buffering') => {
-    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.setStatus(status);
-    sendMessage({ event: 'sync.status', payload: { status } });
+  const setStatus = useCallback((status: SyncStatus) => {
+    localStatusRef.current = status;
+    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.setStatus(status as any);
+    sendMessage({ event: 'sync.status', payload: { status: status as 'ready' | 'buffering' | 'async' } });
   }, [sendMessage, asyncPlayback]);
 
   const setRate = useCallback((rate: number) => {
