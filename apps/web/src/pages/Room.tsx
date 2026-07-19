@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2, Lock } from 'lucide-react';
 import { AdminOverlay } from '../components/AdminOverlay';
@@ -203,6 +203,20 @@ function RoomInner({
   const isLockedByAdmin = roomState?.members.find(m => m.userId === user?.id)?.controlsLocked;
   const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
   const isLocked = !mediaInfo || roomState?.playback?.state === 'waiting' || roomState?.playback?.state === 'buffering' || activeLockByAdmin;
+
+  const prevMediaFileIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const currentMediaId = mediaInfo?.mediaFileId || null;
+    if (currentMediaId !== prevMediaFileIdRef.current) {
+      if (currentMediaId && mediaInfo) {
+        addLocalSystemMessage(`Now playing: ${mediaInfo.title}`, 'play');
+      } else if (!currentMediaId && prevMediaFileIdRef.current) {
+        addLocalSystemMessage('Playback ended', 'pause');
+      }
+      prevMediaFileIdRef.current = currentMediaId;
+    }
+  }, [mediaInfo, addLocalSystemMessage]);
 
   // Lock body scroll for the full room session.
   // The fixed-position container prevents most scroll, but iOS Safari

@@ -149,6 +149,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const { activeSubtitleId, setActiveSubtitleId, activeCueHtml } = useSubtitles({ mediaInfo, currentTime });
 
+  const handleEnded = useCallback(() => {
+    if (isLocked) return;
+    if (roomPlaybackState?.state === 'playing') {
+      onPause();
+    }
+  }, [roomPlaybackState?.state, isLocked, onPause]);
+
   useVideoEvents({
     videoRef,
     roomPlaybackState,
@@ -164,6 +171,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setBufferedRanges,
     onReportTime,
     activeOffsetRef,
+    onEnded: handleEnded,
   });
 
   const handlePlayPause = useCallback(() => {

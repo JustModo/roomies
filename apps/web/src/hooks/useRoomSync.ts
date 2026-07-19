@@ -71,7 +71,11 @@ export function useRoomSync() {
   useEffect(() => {
     const remove = addMessageHandler((msg) => {
       if (msg.event === 'room.state') {
-        setRoomState(msg.payload.room);
+        const room = msg.payload.room;
+        if (!room.mediaId) {
+          room.playback.state = 'waiting';
+        }
+        setRoomState(room);
         if (!hasInitializedRef.current && !asyncPlayback.isAsyncModeRef.current) {
           hasInitializedRef.current = true;
           const initialPos = getInitialPosition(msg.payload.room.playback);
@@ -115,7 +119,11 @@ export function useRoomSync() {
       } else if (msg.event === 'playback.state') {
         setRoomState((prev) => {
           if (!prev) return prev;
-          return { ...prev, playback: msg.payload };
+          const playback = { ...msg.payload };
+          if (!prev.mediaId) {
+            playback.state = 'waiting';
+          }
+          return { ...prev, playback };
         });
         if (!asyncPlayback.isAsyncModeRef.current) {
           const initialPos = getInitialPosition(msg.payload);
@@ -164,6 +172,22 @@ export function useRoomSync() {
           });
         } else {
           setMediaInfo(null);
+          setRoomState((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              mediaId: undefined,
+              mediaTitle: undefined,
+              hlsUrl: undefined,
+              duration: undefined,
+              transcodeOffset: undefined,
+              subtitles: undefined,
+              playback: {
+                ...prev.playback,
+                state: 'waiting'
+              }
+            };
+          });
         }
       } else if (msg.event === 'user.status_changed') {
         setRoomState((prev) => {

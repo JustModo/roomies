@@ -17,6 +17,7 @@ interface UseVideoEventsParams {
   setBufferedRanges: (ranges: BufferedRange[]) => void;
   onReportTime: (time: number) => void;
   activeOffsetRef: MutableRefObject<number>;
+  onEnded?: () => void;
 }
 
 const getBufferedAhead = (vid: HTMLVideoElement) => {
@@ -47,6 +48,7 @@ export function useVideoEvents({
   setBufferedRanges,
   onReportTime,
   activeOffsetRef,
+  onEnded,
 }: UseVideoEventsParams) {
   const lastProcessedTriggerRef = useRef(0);
   const targetRateRef = useRef(1);
@@ -90,8 +92,6 @@ export function useVideoEvents({
 
     const transOffset = activeOffsetRef.current;
     console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
-
-    reportStatus('buffering');
 
     videoRef.current.currentTime = Math.max(0, syncSeekPosition - transOffset);
     setCurrentTime(syncSeekPosition);
@@ -138,12 +138,19 @@ export function useVideoEvents({
       }
     };
 
+    const handleEnded = () => {
+      clearTimeout(bufferingTimeout);
+      reportStatus('ready');
+      onEnded?.();
+    };
+
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handleReady);
     video.addEventListener('canplay', handleReady);
     video.addEventListener('progress', handleProgress);
     video.addEventListener('seeked', handleReady);
     video.addEventListener('ratechange', handleRateChange);
+    video.addEventListener('ended', handleEnded);
 
     return () => {
       clearTimeout(bufferingTimeout);
@@ -153,8 +160,9 @@ export function useVideoEvents({
       video.removeEventListener('progress', handleProgress);
       video.removeEventListener('seeked', handleReady);
       video.removeEventListener('ratechange', handleRateChange);
+      video.removeEventListener('ended', handleEnded);
     };
-  }, [reportStatus]);
+  }, [reportStatus, onEnded]);
 
   useEffect(() => {
     const video = videoRef.current;
