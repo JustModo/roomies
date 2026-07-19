@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useActiveMenu } from '../../hooks/useActiveMenu';
 import { RoomState } from '../../hooks/useRoomSync';
 import { PartyMember } from './PartyMember';
 import { PartyControls } from './PartyControls';
-import { useVoiceParty } from '../../hooks/useVoiceParty';
+import { useVoice } from '../../contexts/VoiceContext';
 
 interface PartySectionProps {
   roomState: RoomState | null;
@@ -29,33 +29,12 @@ export const PartySection: React.FC<PartySectionProps> = ({
   const { user } = useAuth();
   const { activeMenu, toggleMenu, containerRef } = useActiveMenu<string>();
 
-  const [localStates, setLocalStates] = useState<Record<string, LocalMemberState>>({});
-
-  const updateLocalState = (userId: string, updates: Partial<LocalMemberState>) => {
-    setLocalStates(prev => ({
-      ...prev,
-      [userId]: {
-        ...(prev[userId] || { audioMuted: false, volume: 100 }),
-        ...updates,
-      }
-    }));
-  };
-
   const currentUserMember = members.find(m => m.userId === user?.id);
   const isJoined = currentUserMember?.party.isJoined ?? false;
   const isMicMuted = currentUserMember?.party.micMuted ?? true;
   const isVideoMuted = currentUserMember?.party.videoMuted ?? true;
 
-  const { joinVoice, setVolume, setPeerMuted } = useVoiceParty({
-    isJoined,
-    isMicMuted,
-  });
-
-  const handleLocalStateUpdate = (userId: string, updates: Partial<LocalMemberState>) => {
-    updateLocalState(userId, updates);
-    if (updates.volume !== undefined) setVolume(userId, updates.volume);
-    if (updates.audioMuted !== undefined) setPeerMuted(userId, updates.audioMuted);
-  };
+  const { joinVoice, localStates, updateLocalState } = useVoice();
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-void">
@@ -78,7 +57,7 @@ export const PartySection: React.FC<PartySectionProps> = ({
             activeMenu={activeMenu}
             toggleMenu={toggleMenu}
             localState={localStates[member.userId]}
-            onUpdateLocalState={(updates) => handleLocalStateUpdate(member.userId, updates)}
+            onUpdateLocalState={(updates) => updateLocalState(member.userId, updates)}
             setControlLock={setControlLock}
           />
         ))}

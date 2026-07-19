@@ -20,7 +20,7 @@ export class VoiceManager {
 
     const client: VoiceClient = { userId, socket, sessionId };
     this.clients.set(userId, client);
-    console.log("[Voice][Server] client joined room", {
+    console.log("[voice] client joined room", {
       userId,
       sessionId,
       totalClients: this.clients.size,
@@ -32,7 +32,7 @@ export class VoiceManager {
   public leaveRoom(userId: string) {
     const removed = this.clients.delete(userId);
     if (removed) {
-      console.log("[Voice][Server] client left room", {
+      console.log("[voice] client left room", {
         userId,
         totalClients: this.clients.size,
       });

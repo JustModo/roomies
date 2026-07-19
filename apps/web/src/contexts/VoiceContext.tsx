@@ -1,8 +1,21 @@
-import { useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useCallback, useState } from 'react';
 import { AudioRelay } from '@roomies/voice';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from './AuthContext';
+import { LocalMemberState } from '../components/Party/PartySection';
 
-interface UseVoicePartyParams {
+interface VoiceContextValue {
+  joinVoice: () => Promise<void>;
+  setVolume: (userId: string, volume: number) => void;
+  setPeerMuted: (userId: string, muted: boolean) => void;
+  removePeer: (userId: string) => void;
+  localStates: Record<string, LocalMemberState>;
+  updateLocalState: (userId: string, updates: Partial<LocalMemberState>) => void;
+}
+
+const VoiceContext = createContext<VoiceContextValue | null>(null);
+
+interface VoiceProviderProps {
+  children: React.ReactNode;
   isJoined: boolean;
   isMicMuted: boolean;
 }
@@ -49,12 +62,12 @@ const parseVoiceControlMessage = (raw: string): VoiceControlMessage | null => {
         typeof parsed.payload.userId === 'string' &&
         typeof parsed.payload.sessionId === 'number'
         ? {
-            event: parsed.event,
-            payload: {
-              userId: parsed.payload.userId,
-              sessionId: parsed.payload.sessionId,
-            },
-          }
+          event: parsed.event,
+          payload: {
+            userId: parsed.payload.userId,
+            sessionId: parsed.payload.sessionId,
+          },
+        }
         : null;
     case 'peer_left':
       return isRecord(parsed.payload) && typeof parsed.payload.userId === 'string'
@@ -72,20 +85,7 @@ const parseVoiceControlMessage = (raw: string): VoiceControlMessage | null => {
   }
 };
 
-/**
- * useVoiceParty — manages the voice relay lifecycle.
- *
- * - Opens a dedicated WebSocket to /ws/voice for audio data
- * - Sends JSON "join" on connect, maps UUIDs <-> 16-bit session IDs
- * - On join: acquires mic, starts Opus encoding, sends raw binary chunks
- * - On receive: decodes incoming binary chunks and plays them back
- * - On mute change: pauses encoding (no chunks sent = no bandwidth used)
- * - On leave: mic released, all peer players destroyed, close socket
- */
-export function useVoiceParty({
-  isJoined,
-  isMicMuted,
-}: UseVoicePartyParams) {
+export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderProps) {
   const { token } = useAuth();
   const relayRef = useRef<AudioRelay | null>(null);
   const voiceWsRef = useRef<WebSocket | null>(null);
@@ -101,6 +101,25 @@ export function useVoiceParty({
   useEffect(() => {
     stateRef.current = { isJoined, isMicMuted };
   }, [isJoined, isMicMuted]);
+
+  // Local state for peers (volume, mute)
+  const [localStates, setLocalStates] = useState<Record<string, LocalMemberState>>({});
+
+  const updateLocalState = useCallback((userId: string, updates: Partial<LocalMemberState>) => {
+    setLocalStates(prev => {
+      const current = prev[userId] || { audioMuted: false, volume: 100 };
+      const next = { ...current, ...updates };
+
+      if (updates.volume !== undefined) {
+        relayRef.current?.setVolume(userId, updates.volume);
+      }
+      if (updates.audioMuted !== undefined) {
+        relayRef.current?.setPeerMuted(userId, updates.audioMuted);
+      }
+
+      return { ...prev, [userId]: next };
+    });
+  }, []);
 
   // Create the AudioRelay once on mount
   useEffect(() => {
@@ -161,6 +180,7 @@ export function useVoiceParty({
         const msg = parseVoiceControlMessage(event.data);
         if (!msg) return;
 
+
         switch (msg.event) {
           case 'session_map':
             userToSessionRef.current.clear();
@@ -191,7 +211,6 @@ export function useVoiceParty({
           case 'joined':
             break;
           case 'error':
-            console.warn('[voice] Server error:', msg.payload);
             break;
         }
       }
@@ -202,14 +221,12 @@ export function useVoiceParty({
     ws.onclose = () => {
       if (!isComponentMounted.current) return;
       voiceWsRef.current = null;
-      console.log('[voice] WS closed, scheduling reconnect...');
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
       }, 2000);
     };
 
     ws.onerror = (e) => {
-      console.warn('[voice] WebSocket error:', e);
     };
   }, [token, isJoined]);
 
@@ -286,5 +303,22 @@ export function useVoiceParty({
     }
   }, []);
 
-  return { joinVoice, setVolume, setPeerMuted, removePeer };
+  const value = {
+    joinVoice,
+    setVolume,
+    setPeerMuted,
+    removePeer,
+    localStates,
+    updateLocalState
+  };
+
+  return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
+}
+
+export function useVoice() {
+  const context = useContext(VoiceContext);
+  if (!context) {
+    throw new Error('useVoice must be used within a VoiceProvider');
+  }
+  return context;
 }

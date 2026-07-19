@@ -5,6 +5,7 @@ import { AdminOverlay } from '../components/AdminOverlay';
 import { useRoomSync, RoomState, MediaInfo } from '../hooks/useRoomSync';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
+import { VoiceProvider } from '../contexts/VoiceContext';
 import { ChatToasts } from '../components/Chat';
 import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
@@ -97,34 +98,40 @@ export default function Room() {
     setTimeout(() => navigate('/'), 100);
   };
 
+  const currentUserMember = roomState?.members.find(m => m.userId === user?.id);
+  const isJoined = currentUserMember?.party.isJoined ?? false;
+  const isMicMuted = currentUserMember?.party.micMuted ?? true;
+
   return (
     <ChatProvider sendMessage={sendMessage} addMessageHandler={addMessageHandler} currentUserId={user?.id}>
-      <RoomInner
-        roomState={roomState}
-        mediaInfo={mediaInfo}
-        seekKey={seekKey}
-        localTime={localTime}
-        localCorrectionRate={localCorrectionRate}
-        syncSeekTrigger={syncSeekTrigger}
-        syncSeekPosition={syncSeekPosition}
-        play={play}
-        pause={pause}
-        seek={seek}
-        setRate={setRate}
-        setStatus={setStatus}
-        reportLocalTime={reportLocalTime}
-        reportActiveResolution={reportActiveResolution}
-        viewersCount={viewersCount}
-        handleExit={handleExit}
-        showAdmin={showAdmin}
-        setShowAdmin={setShowAdmin}
-        isAsyncMode={isAsyncMode}
-        toggleAsyncMode={toggleAsyncMode}
-        updatePartyState={updatePartyState}
-        setControlLock={setControlLock}
-        addMessageHandler={addMessageHandler}
-        sendMessage={sendMessage}
-      />
+      <VoiceProvider isJoined={isJoined} isMicMuted={isMicMuted}>
+        <RoomInner
+          roomState={roomState}
+          mediaInfo={mediaInfo}
+          seekKey={seekKey}
+          localTime={localTime}
+          localCorrectionRate={localCorrectionRate}
+          syncSeekTrigger={syncSeekTrigger}
+          syncSeekPosition={syncSeekPosition}
+          play={play}
+          pause={pause}
+          seek={seek}
+          setRate={setRate}
+          setStatus={setStatus}
+          reportLocalTime={reportLocalTime}
+          reportActiveResolution={reportActiveResolution}
+          viewersCount={viewersCount}
+          handleExit={handleExit}
+          showAdmin={showAdmin}
+          setShowAdmin={setShowAdmin}
+          isAsyncMode={isAsyncMode}
+          toggleAsyncMode={toggleAsyncMode}
+          updatePartyState={updatePartyState}
+          setControlLock={setControlLock}
+          addMessageHandler={addMessageHandler}
+          sendMessage={sendMessage}
+        />
+      </VoiceProvider>
     </ChatProvider>
   );
 }

@@ -27,7 +27,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
       const userPayload = authenticateWebSocket(req);
 
       if (!userPayload) {
-        console.warn("[Voice][Server] WebSocket unauthorized");
+        console.warn("[voice] WebSocket unauthorized");
         connection.send(
           JSON.stringify({ event: "error", payload: "Unauthorized" }),
         );
@@ -51,7 +51,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
         connection.close(VOICE_PROTOCOL.closeCodePolicyViolation, payload);
       };
 
-      console.log(`[Voice][Server] user connected: ${userId}`);
+      console.log(`[voice] user connected: ${userId}`);
 
       const cleanup = (reason: "leave" | "disconnect") => {
         if (!isInVoiceSession) return;
@@ -76,7 +76,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
           }
         }
         console.log(
-          `[Voice][Server] session closed for ${userId} (reason: ${reason})`,
+          `[voice] session closed for ${userId} (reason: ${reason})`,
         );
       };
 
@@ -116,7 +116,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
                 const sessionId = voiceManager.joinRoom(userId, connection);
                 isInVoiceSession = true;
 
-                console.log(`[Voice][Server] client joined room: ${userId}`);
+                console.log(`[voice] client joined room: ${userId}`);
 
                 const map: Record<string, number> = {};
                 for (const client of voiceManager.getRoomClients()) {
@@ -191,7 +191,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
 
           if (!isInVoiceSession) {
             console.warn(
-              `[Voice][Server] ignoring pre-join audio from ${userId}`,
+              `[voice] ignoring pre-join audio from ${userId}`,
             );
             return;
           }
