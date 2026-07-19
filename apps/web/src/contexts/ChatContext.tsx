@@ -229,7 +229,12 @@ export function ChatProvider({
           }
         }
       }
+    }
 
+    const isFullscreen = typeof document !== 'undefined' && !!document.fullscreenElement;
+    const showToast = isFullscreen || (isMobile ? activeTabRef.current !== 'chat' : (!isOpenRef.current || activeTabRef.current !== 'chat'));
+
+    if (showToast) {
       setToasts((prev) => {
         let next = [...prev, msg];
         if (next.length > 10) {

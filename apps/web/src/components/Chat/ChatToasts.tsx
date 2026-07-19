@@ -17,22 +17,22 @@ import { getUsernameColor } from './utils';
 // How many toasts to show at most — keeps the overlay tiny
 const MAX_VISIBLE = 5;
 
-/** Returns true when the device is portrait AND narrower than 1024px (mobile/tablet portrait) */
-function useIsPortraitMobile(): boolean {
-  const [isPortraitMobile, setIsPortraitMobile] = useState(() =>
+/** Returns true when the device is narrower than 1024px (mobile/tablet) */
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined'
-      ? window.matchMedia('(orientation: portrait) and (max-width: 1023px)').matches
+      ? window.matchMedia('(max-width: 1023px)').matches
       : false
   );
 
   useEffect(() => {
-    const mq = window.matchMedia('(orientation: portrait) and (max-width: 1023px)');
-    const update = () => setIsPortraitMobile(mq.matches);
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const update = () => setIsMobile(mq.matches);
     mq.addEventListener('change', update);
     return () => mq.removeEventListener('change', update);
   }, []);
 
-  return isPortraitMobile;
+  return isMobile;
 }
 
 /** Returns true when the browser is in fullscreen mode. */
@@ -50,7 +50,7 @@ function useIsFullscreen(): boolean {
 
 export const ChatToasts: React.FC = () => {
   const { isOpen, setIsOpen, toasts, activeTab } = useChat();
-  const isPortraitMobile = useIsPortraitMobile();
+  const isMobile = useIsMobile();
   const isFullscreen = useIsFullscreen();
   const [controlsVisible, setControlsVisible] = useState(true);
 
@@ -76,17 +76,15 @@ export const ChatToasts: React.FC = () => {
 
   // Determine whether the chat panel is actually visible to the user right now.
   //
-  // Mobile portrait: the sidebar is always rendered below the video (no isOpen gate),
-  // so we only suppress the overlay when the chat tab is the one being shown.
-  // Any other tab (Party, Settings) means chat messages are NOT visible → show overlay.
-  //
   // Fullscreen: the sidebar is entirely off-screen regardless of state → always show overlay.
   //
-  // Desktop: sidebar is behind an isOpen gate → suppress only when open on chat tab.
+  // Mobile: the sidebar is always rendered. Hide the overlay when the chat tab is shown.
+  //
+  // Desktop: sidebar is behind an isOpen gate → hide the overlay only when open on chat tab.
   const chatPanelVisible =
     isFullscreen
       ? false
-      : isPortraitMobile
+      : isMobile
         ? activeTab === 'chat'
         : isOpen && activeTab === 'chat';
 
