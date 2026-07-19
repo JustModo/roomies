@@ -4,7 +4,6 @@ import { AudioManager } from './audio/AudioManager';
 import { AudioPreprocessor } from './audio/AudioPreprocessor';
 import { FrameBuffer } from './audio/FrameBuffer';
 import { PeerPlayer } from './audio/PeerPlayer';
-import { VoiceActivityDetector } from './audio/VoiceActivityDetector';
 import { DEFAULT_VOICE_CONFIG } from './config';
 import type { VoiceConfig } from './config';
 // @ts-ignore - Vite URL import for AudioWorklet asset.
@@ -27,7 +26,6 @@ export type ChunkCallback = (chunk: Uint8Array) => void;
 export class AudioRelay {
     private readonly config: VoiceConfig;
     private readonly preprocessor: AudioPreprocessor;
-    private readonly vad: VoiceActivityDetector;
     private readonly audioManager: AudioManager;
     private encoder: OpusEncoderHandle | null = null;
     private audioCtx: AudioContext | null = null;
@@ -45,10 +43,6 @@ export class AudioRelay {
         this.config = config;
         this.audioManager = new AudioManager(config);
         this.preprocessor = new AudioPreprocessor(config.preprocessor.dcBlockerR);
-        this.vad = new VoiceActivityDetector({
-            ...config.vad,
-            warmupFrames: config.captureWarmupFrames,
-        });
     }
 
     /**
@@ -73,13 +67,10 @@ export class AudioRelay {
         });
 
         this.preprocessor.reset();
-        this.vad.reset();
 
         this.frameBuffer = new FrameBuffer(this.config.frameSize, (frame) => {
             if (this.selfMuted || !this.encoder) return;
             const processedFrame = this.preprocessor.process(frame);
-            if (!this.vad.shouldTransmit(processedFrame)) return;
-
             try {
                 const packet = this.encoder.encodeFloat(processedFrame);
                 if (!packet || packet.length === 0) return;
@@ -160,20 +151,24 @@ export class AudioRelay {
             this.captureSource.disconnect();
             this.captureSource = null;
         }
+
         if (this.workletNode) {
             this.workletNode.disconnect();
             this.workletNode = null;
         }
+
         if (this.captureSink) {
             this.captureSink.disconnect();
             this.captureSink = null;
         }
+
         this.frameBuffer = null;
 
         if (this.encoder) {
             this.encoder.free();
             this.encoder = null;
         }
+
         if (this.audioCtx) {
             this.audioCtx.close();
             this.audioCtx = null;
@@ -184,6 +179,7 @@ export class AudioRelay {
         for (const peer of this.peers.values()) {
             peer.destroy();
         }
+
         this.peers.clear();
         this.selfMuted = false;
     }
