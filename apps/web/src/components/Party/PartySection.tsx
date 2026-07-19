@@ -4,7 +4,6 @@ import { useActiveMenu } from '../../hooks/useActiveMenu';
 import { RoomState } from '../../hooks/useRoomSync';
 import { PartyMember } from './PartyMember';
 import { PartyControls } from './PartyControls';
-
 import { useVoiceParty } from '../../hooks/useVoiceParty';
 
 interface PartySectionProps {
@@ -17,24 +16,28 @@ interface PartySectionProps {
 
 export interface LocalMemberState {
   audioMuted: boolean;
-  videoMuted: boolean;
   volume: number;
 }
 
-export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePartyState, setControlLock, addMessageHandler, sendMessage }) => {
+export const PartySection: React.FC<PartySectionProps> = ({
+  roomState,
+  updatePartyState,
+  setControlLock,
+  addMessageHandler,
+}) => {
   const members = roomState?.members || [];
   const roomPlaybackState = roomState?.playback?.state;
   const { user } = useAuth();
   const { activeMenu, toggleMenu, containerRef } = useActiveMenu<string>();
-  
+
   const [localStates, setLocalStates] = useState<Record<string, LocalMemberState>>({});
-  
+
   const updateLocalState = (userId: string, updates: Partial<LocalMemberState>) => {
     setLocalStates(prev => ({
       ...prev,
       [userId]: {
-        ...(prev[userId] || { audioMuted: false, videoMuted: false, volume: 100 }),
-        ...updates
+        ...(prev[userId] || { audioMuted: false, volume: 100 }),
+        ...updates,
       }
     }));
   };
@@ -44,14 +47,17 @@ export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePar
   const isMicMuted = currentUserMember?.party.micMuted ?? true;
   const isVideoMuted = currentUserMember?.party.videoMuted ?? true;
 
-  const { joinVoice, activeStreams } = useVoiceParty({
-    userId: user?.id,
-    roomState,
+  const { joinVoice, setVolume, setPeerMuted } = useVoiceParty({
     addMessageHandler,
-    sendMessage,
     isJoined,
-    isMicMuted
+    isMicMuted,
   });
+
+  const handleLocalStateUpdate = (userId: string, updates: Partial<LocalMemberState>) => {
+    updateLocalState(userId, updates);
+    if (updates.volume !== undefined) setVolume(userId, updates.volume);
+    if (updates.audioMuted !== undefined) setPeerMuted(userId, updates.audioMuted);
+  };
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-void">
@@ -60,13 +66,13 @@ export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePar
         <h3 className="text-12 font-semibold uppercase tracking-widest text-paper/80 mb-4">
           IN ROOM ({members.length})
         </h3>
-        
+
         {[...members].sort((a, b) => {
           if (a.userId === user?.id) return -1;
           if (b.userId === user?.id) return 1;
           return 0;
         }).map((member) => (
-          <PartyMember 
+          <PartyMember
             key={member.userId}
             member={member}
             user={user}
@@ -74,14 +80,13 @@ export const PartySection: React.FC<PartySectionProps> = ({ roomState, updatePar
             activeMenu={activeMenu}
             toggleMenu={toggleMenu}
             localState={localStates[member.userId]}
-            onUpdateLocalState={(updates) => updateLocalState(member.userId, updates)}
+            onUpdateLocalState={(updates) => handleLocalStateUpdate(member.userId, updates)}
             setControlLock={setControlLock}
-            stream={activeStreams[member.userId]}
           />
         ))}
       </div>
 
-      <PartyControls 
+      <PartyControls
         isJoined={isJoined}
         isMicMuted={isMicMuted}
         isVideoMuted={isVideoMuted}

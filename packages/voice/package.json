@@ -8,7 +8,8 @@
     "clean": "rm -rf .turbo node_modules"
   },
   "dependencies": {
-    "@sapphi-red/web-noise-suppressor": "^0.3.5"
+    "@sapphi-red/web-noise-suppressor": "^0.3.5",
+    "libopus-wasm": "^0.2.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0"

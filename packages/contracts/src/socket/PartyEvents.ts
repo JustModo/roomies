@@ -20,3 +20,22 @@ export const ServerPartyUpdatedSchema = z.object({
     }),
   }),
 });
+
+/** Client → Server: one encoded audio chunk (base64, mimeType-tagged). */
+export const ClientAudioChunkSchema = z.object({
+  event: z.literal('party.audio_chunk'),
+  payload: z.object({
+    mimeType: z.string(),
+    chunk: z.string(), // base64-encoded Ogg/Opus frame sequence
+  }),
+});
+
+/** Server → Client: relayed audio chunk from another party member. */
+export const ServerAudioChunkSchema = z.object({
+  event: z.literal('party.audio_chunk'),
+  payload: z.object({
+    sourceUserId: z.string(),
+    mimeType: z.string(),
+    chunk: z.string(), // base64-encoded Ogg/Opus frame sequence
+  }),
+});

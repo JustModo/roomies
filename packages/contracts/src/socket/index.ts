@@ -7,8 +7,6 @@ import {
   ServerUserJoinedSchema,
   ServerUserLeftSchema,
   ClientSetControlLockSchema,
-  ClientWebRTCSignalSchema,
-  ServerWebRTCSignalSchema,
 } from './RoomEvents';
 
 import {
@@ -22,6 +20,8 @@ import {
 import {
   ClientPartyUpdateSchema,
   ServerPartyUpdatedSchema,
+  ClientAudioChunkSchema,
+  ServerAudioChunkSchema,
 } from './PartyEvents';
 
 export {
@@ -57,9 +57,9 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientRoomJoinSchema,
   ClientRoomLeaveSchema,
   ClientSetControlLockSchema,
-  ClientWebRTCSignalSchema,
 
   ClientPartyUpdateSchema,
+  ClientAudioChunkSchema,
 
   ClientPlaybackPlaySchema,
   ClientPlaybackPauseSchema,
@@ -76,9 +76,9 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerRoomStateSchema,
   ServerUserJoinedSchema,
   ServerUserLeftSchema,
-  ServerWebRTCSignalSchema,
 
   ServerPartyUpdatedSchema,
+  ServerAudioChunkSchema,
 
   ServerPlaybackStateSchema,
   ServerMediaChangedSchema,

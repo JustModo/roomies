@@ -27,14 +27,4 @@ export class PartyService {
       }
     });
   }
-
-  static async handleWebRTCSignal(payload: Extract<IncomingSocketMessage, { event: 'party.webrtc_signal' }>['payload'], ctx: SocketContext) {
-    SocketEmitter.sendToUser(ctx.app, payload.targetUserId, {
-      event: 'party.webrtc_signal',
-      payload: {
-        sourceUserId: ctx.userId,
-        signal: payload.signal,
-      }
-    });
-  }
 }

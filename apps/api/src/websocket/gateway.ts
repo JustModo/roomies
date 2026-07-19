@@ -38,6 +38,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
       console.log(`[sync] User connected via WebSocket: ${userId}`);
 
       (connection as any).userId = userId;
+      (connection as any).socketId = socketId;
       app.room.add(connection);
 
       await dispatchSocketEvent('system.connect', null, ctx);
