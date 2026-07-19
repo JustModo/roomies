@@ -2,6 +2,10 @@ import React, { createContext, useContext, useEffect, useRef, useCallback, useSt
 import { AudioRelay } from '@roomies/voice';
 import { useAuth } from './AuthContext';
 import { LocalMemberState } from '../components/Party/PartySection';
+import { useAudioDevices, AudioDeviceInfo } from '../hooks/useAudioDevices';
+
+const INPUT_DEVICE_STORAGE_KEY = 'roomies_voice_input_device';
+const OUTPUT_DEVICE_STORAGE_KEY = 'roomies_voice_output_device';
 
 interface VoiceContextValue {
   joinVoice: () => Promise<void>;
@@ -10,6 +14,15 @@ interface VoiceContextValue {
   removePeer: (userId: string) => void;
   localStates: Record<string, LocalMemberState>;
   updateLocalState: (userId: string, updates: Partial<LocalMemberState>) => void;
+  inputDevices: AudioDeviceInfo[];
+  outputDevices: AudioDeviceInfo[];
+  selectedInputId: string | undefined;
+  selectedOutputId: string | undefined;
+  setInputDevice: (deviceId: string | undefined) => Promise<void>;
+  setOutputDevice: (deviceId: string | undefined) => Promise<void>;
+  outputSelectionSupported: boolean;
+  notice: string | null;
+  dismissNotice: () => void;
 }
 
 const VoiceContext = createContext<VoiceContextValue | null>(null);
@@ -85,6 +98,25 @@ const parseVoiceControlMessage = (raw: string): VoiceControlMessage | null => {
   }
 };
 
+/** Maps a getUserMedia rejection to a friendly, actionable message. */
+const describeMicError = (e: unknown): Error => {
+  if (e instanceof DOMException) {
+    switch (e.name) {
+      case 'NotAllowedError':
+        return new Error('Microphone access was denied. Allow microphone access for this site in your browser settings and try again.');
+      case 'NotFoundError':
+        return new Error('No microphone was found. Connect a microphone and try again.');
+      case 'NotReadableError':
+        return new Error('Your microphone is already in use by another application.');
+      case 'OverconstrainedError':
+        return new Error('The selected microphone is no longer available.');
+      default:
+        return new Error(e.message || 'Failed to access microphone.');
+    }
+  }
+  return e instanceof Error ? e : new Error('Failed to access microphone.');
+};
+
 export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderProps) {
   const { token } = useAuth();
   const relayRef = useRef<AudioRelay | null>(null);
@@ -105,6 +137,84 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   // Local state for peers (volume, mute)
   const [localStates, setLocalStates] = useState<Record<string, LocalMemberState>>({});
 
+  // Device selection (input/output mic+speaker picker) + fallback handling
+  const { inputs, outputs, refresh: refreshDevices, outputSelectionSupported } = useAudioDevices();
+  const [selectedInputId, setSelectedInputId] = useState<string | undefined>(
+    () => localStorage.getItem(INPUT_DEVICE_STORAGE_KEY) ?? undefined,
+  );
+  const [selectedOutputId, setSelectedOutputId] = useState<string | undefined>(
+    () => localStorage.getItem(OUTPUT_DEVICE_STORAGE_KEY) ?? undefined,
+  );
+  const [notice, setNotice] = useState<string | null>(null);
+  const dismissNotice = useCallback(() => setNotice(null), []);
+
+  const selectionRef = useRef({ selectedInputId, selectedOutputId });
+  useEffect(() => {
+    selectionRef.current = { selectedInputId, selectedOutputId };
+  }, [selectedInputId, selectedOutputId]);
+
+  /** Clears the selected input and reverts the live mic to the system default. */
+  const fallbackToDefaultInput = useCallback((message: string) => {
+    setSelectedInputId(undefined);
+    localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
+    setNotice(message);
+    if (stateRef.current.isJoined) {
+      relayRef.current?.switchMic(undefined).catch(() => {});
+    }
+    void refreshDevices();
+  }, [refreshDevices]);
+
+  const fallbackToDefaultOutput = useCallback((message: string) => {
+    setSelectedOutputId(undefined);
+    localStorage.removeItem(OUTPUT_DEVICE_STORAGE_KEY);
+    setNotice(message);
+    void relayRef.current?.setOutputDevice(undefined);
+  }, []);
+
+  // If the currently selected device disappears from the enumerated list
+  // (unplugged, disabled, etc.), fall back to the system default.
+  useEffect(() => {
+    if (selectedInputId && inputs.length > 0 && !inputs.some((d) => d.deviceId === selectedInputId)) {
+      fallbackToDefaultInput('Your microphone was disconnected — switched to the default device.');
+    }
+  }, [inputs, selectedInputId, fallbackToDefaultInput]);
+
+  useEffect(() => {
+    if (selectedOutputId && outputs.length > 0 && !outputs.some((d) => d.deviceId === selectedOutputId)) {
+      fallbackToDefaultOutput('Your speaker was disconnected — switched to the default device.');
+    }
+  }, [outputs, selectedOutputId, fallbackToDefaultOutput]);
+
+  const setInputDevice = useCallback(async (deviceId: string | undefined) => {
+    setSelectedInputId(deviceId);
+    if (deviceId) {
+      localStorage.setItem(INPUT_DEVICE_STORAGE_KEY, deviceId);
+    } else {
+      localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
+    }
+
+    if (!stateRef.current.isJoined || !relayRef.current) return;
+
+    try {
+      const { usedFallback } = await relayRef.current.switchMic(deviceId);
+      if (usedFallback) {
+        fallbackToDefaultInput('The selected microphone was unavailable — switched to the default device.');
+      }
+    } catch (e) {
+      setNotice(describeMicError(e).message);
+    }
+  }, [fallbackToDefaultInput]);
+
+  const setOutputDevice = useCallback(async (deviceId: string | undefined) => {
+    setSelectedOutputId(deviceId);
+    if (deviceId) {
+      localStorage.setItem(OUTPUT_DEVICE_STORAGE_KEY, deviceId);
+    } else {
+      localStorage.removeItem(OUTPUT_DEVICE_STORAGE_KEY);
+    }
+    await relayRef.current?.setOutputDevice(deviceId);
+  }, []);
+
   const updateLocalState = useCallback((userId: string, updates: Partial<LocalMemberState>) => {
     setLocalStates(prev => {
       const current = prev[userId] || { audioMuted: false, volume: 100 };
@@ -123,7 +233,11 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
 
   // Create the AudioRelay once on mount
   useEffect(() => {
-    relayRef.current = new AudioRelay();
+    const relay = new AudioRelay();
+    relay.onInputDeviceEnded = () => {
+      fallbackToDefaultInput('Your microphone was disconnected — switched to the default device.');
+    };
+    relayRef.current = relay;
     isComponentMounted.current = true;
     return () => {
       isComponentMounted.current = false;
@@ -131,6 +245,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
       relayRef.current?.leave();
       relayRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const connect = useCallback(() => {
@@ -279,9 +394,21 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
       }
     };
 
-    await relay.join();
-    relay.setMuted(stateRef.current.isMicMuted);
-  }, []);
+    try {
+      const { usedFallback } = await relay.join(selectionRef.current.selectedInputId);
+      if (selectionRef.current.selectedOutputId) {
+        await relay.setOutputDevice(selectionRef.current.selectedOutputId);
+      }
+      relay.setMuted(stateRef.current.isMicMuted);
+
+      if (usedFallback) {
+        fallbackToDefaultInput('Your selected microphone was unavailable — switched to the default device.');
+      }
+      void refreshDevices();
+    } catch (e) {
+      throw describeMicError(e);
+    }
+  }, [fallbackToDefaultInput, refreshDevices]);
 
   /** Sets playback volume (0–100) for a specific peer. */
   const setVolume = useCallback((userId: string, volume: number) => {
@@ -303,13 +430,22 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     }
   }, []);
 
-  const value = {
+  const value: VoiceContextValue = {
     joinVoice,
     setVolume,
     setPeerMuted,
     removePeer,
     localStates,
-    updateLocalState
+    updateLocalState,
+    inputDevices: inputs,
+    outputDevices: outputs,
+    selectedInputId,
+    selectedOutputId,
+    setInputDevice,
+    setOutputDevice,
+    outputSelectionSupported,
+    notice,
+    dismissNotice,
   };
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
