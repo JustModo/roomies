@@ -13,7 +13,7 @@ interface ChatMessageProps {
 export const ChatMessage: React.FC<ChatMessageProps> = ({ msg, isGrouped, isNextGrouped }) => {
   if (msg.isSystem) {
     return (
-      <div className="flex items-center justify-center py-1.5 my-0.5 text-[8px] sm:text-[9px] font-medium tracking-wide text-paper/40 uppercase border-b border-ash/5 last:border-b-0">
+      <div className="flex items-center justify-center pt-2 pb-1 text-[8px] sm:text-[9px] font-medium tracking-wide text-paper/40 uppercase border-b border-ash/5 last:border-b-0">
         <SystemIcon type={msg.eventType} />
         {msg.username ? (
           <span>

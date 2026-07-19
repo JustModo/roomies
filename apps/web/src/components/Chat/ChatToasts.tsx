@@ -131,20 +131,22 @@ export const ChatToasts: React.FC = () => {
             }}
           >
             {toast.isSystem ? (
-              <span
-                className="text-paper/40 text-[9px] sm:text-[10px] lg:text-[14px] tracking-wide uppercase flex items-center leading-tight"
-                style={halo}
-              >
-                <SystemIcon type={toast.eventType} />
-                {toast.username ? (
-                  <span>
-                    <span style={{ color: getUsernameColor(toast.username), opacity: 0.7 }} className="font-bold">{toast.username}</span>
-                    <span className="ml-1">{toast.body}</span>
-                  </span>
-                ) : (
-                  <span>{toast.body}</span>
-                )}
-              </span>
+              <div className="flex flex-col leading-tight">
+                <span
+                  className="text-paper/60 font-medium text-[9px] sm:text-[10px] lg:text-[14px] flex items-center wrap-break-word uppercase"
+                  style={halo}
+                >
+                  <SystemIcon type={toast.eventType} />
+                  {toast.username ? (
+                    <span>
+                      <span style={{ color: getUsernameColor(toast.username) }} className="font-bold ml-1 opacity-60">{toast.username}</span>
+                      <span className="ml-1">{toast.body}</span>
+                    </span>
+                  ) : (
+                    <span>{toast.body}</span>
+                  )}
+                </span>
+              </div>
             ) : (
               <div className="flex flex-col leading-tight">
                 <span
@@ -153,7 +155,7 @@ export const ChatToasts: React.FC = () => {
                     color: getUsernameColor(toast.username || 'unknown'),
                     opacity: isGrouped ? 0 : 1,
                     maxHeight: isGrouped ? '0px' : '20px',
-                    marginBottom: isGrouped ? '0px' : '2px',
+                    marginBottom: isGrouped ? '0px' : '1px',
                     overflow: 'hidden',
                     ...halo,
                   }}
