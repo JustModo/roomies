@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { MediaInfo, RoomState } from '../../hooks/useRoomSync';
+import { MediaInfo, RoomState, SyncStatus } from '../../hooks/useRoomSync';
 
 export interface BufferedRange {
   start: number;
@@ -18,7 +18,7 @@ export interface VideoPlayerProps {
   onPause: () => void;
   onSeek: (position: number, forceNewOffset?: boolean) => void;
   onSetRate: (rate: number) => void;
-  onStatusChange: (status: 'ready' | 'buffering') => void;
+  onStatusChange: (status: SyncStatus) => void;
   onReportTime: (time: number) => void;
   onReportResolution?: (resolution: string) => void;
   showChat?: boolean;

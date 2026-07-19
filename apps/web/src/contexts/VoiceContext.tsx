@@ -226,7 +226,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
       }, 2000);
     };
 
-    ws.onerror = (e) => {
+    ws.onerror = () => {
     };
   }, [token, isJoined]);
 

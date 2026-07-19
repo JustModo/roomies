@@ -12,6 +12,8 @@ import { SubtitleOverlay } from './components/SubtitleOverlay';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
 
 
+import { SyncStatus } from '../../hooks/useRoomSync';
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   mediaInfo,
   seekKey,
@@ -59,8 +61,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onStatusChangeRef.current = onStatusChange;
   }, [onStatusChange]);
 
-  const lastReportedStatusRef = useRef<'ready' | 'buffering'>('ready');
-  const reportStatus = useCallback((status: 'ready' | 'buffering') => {
+  const lastReportedStatusRef = useRef<SyncStatus>('ready');
+  const reportStatus = useCallback((status: SyncStatus) => {
     if (lastReportedStatusRef.current !== status) {
       lastReportedStatusRef.current = status;
       onStatusChangeRef.current(status);
@@ -84,7 +86,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const showControls = useCallback(() => {
     // Prevent synthetic events from waking it up right after hiding
     if (Date.now() - manuallyHiddenTimeRef.current < 500) return;
-    
+
     setIdle((prevIdle) => {
       if (prevIdle) {
         lastShowTimeRef.current = Date.now();
@@ -297,10 +299,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     window.dispatchEvent(new CustomEvent('player-controls-toggle', { detail: { visible: uiVisible } }));
   }, [uiVisible]);
 
+
   return (
-    <div 
-      ref={containerRef} 
-      className="relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none"
+    <div
+      ref={containerRef}
+      className={`relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none`}
       onMouseMove={showControls}
     >
       <video

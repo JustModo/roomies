@@ -161,9 +161,18 @@ export const ChatSection: React.FC = () => {
             value={newMessage}
             rows={1}
             onChange={(e) => {
+              const container = containerRef.current;
+              const wasAtBottom = container 
+                ? container.scrollHeight - container.scrollTop - container.clientHeight <= 20
+                : false;
+
               setNewMessage(e.target.value);
               e.target.style.height = 'auto';
               e.target.style.height = `${e.target.scrollHeight}px`;
+
+              if (wasAtBottom && container) {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
+              }
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

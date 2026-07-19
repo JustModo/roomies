@@ -78,7 +78,7 @@ export class SyncService {
 
     if (driftMs > HARD_THRESHOLD_MS && !isSeekingCooldown) {
       this.applyHardCorrection(ctx, expectedPosition, driftMs, now);
-    } else if (driftMs > SOFT_THRESHOLD_MS) {
+    } else if (driftMs > SOFT_THRESHOLD_MS && playback.state === 'playing') {
       this.applySoftCorrection(ctx, payload, playback, expectedPosition, driftMs);
     } else {
       this.clearSoftCorrection(ctx, payload, playback, expectedPosition);

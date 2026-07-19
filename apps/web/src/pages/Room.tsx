@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2, Lock } from 'lucide-react';
 import { AdminOverlay } from '../components/AdminOverlay';
-import { useRoomSync, RoomState, MediaInfo } from '../hooks/useRoomSync';
+import { useRoomSync, RoomState, MediaInfo, SyncStatus } from '../hooks/useRoomSync';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
 import { VoiceProvider } from '../contexts/VoiceContext';
@@ -148,7 +148,7 @@ interface RoomInnerProps {
   pause: () => void;
   seek: (pos: number) => void;
   setRate: (rate: number) => void;
-  setStatus: (status: 'ready' | 'buffering') => void;
+  setStatus: (status: SyncStatus) => void;
   reportLocalTime: (time: number) => void;
   reportActiveResolution: (resolution: string) => void;
   viewersCount: number;

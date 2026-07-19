@@ -80,3 +80,26 @@
   background: rgba(255, 255, 255, 0.8);
   cursor: pointer;
 }
+
+/* Thin sleek dark mode scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ash) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--ash);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fog);
+}
