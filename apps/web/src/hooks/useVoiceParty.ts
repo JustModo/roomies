@@ -3,10 +3,74 @@ import { AudioRelay } from '@roomies/voice';
 import { useAuth } from '../contexts/AuthContext';
 
 interface UseVoicePartyParams {
-  addMessageHandler: (handler: (msg: any) => void) => () => void;
   isJoined: boolean;
   isMicMuted: boolean;
 }
+
+type VoiceControlMessage =
+  | { event: 'session_map'; payload: Record<string, number> }
+  | { event: 'peer_joined'; payload: { userId: string; sessionId: number } }
+  | { event: 'peer_left'; payload: { userId: string } }
+  | { event: 'ping' }
+  | { event: 'joined' }
+  | { event: 'error'; payload: string };
+
+const VOICE_CONTROL = {
+  join: 'join',
+  leave: 'leave',
+  pong: 'pong',
+} as const;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isSessionMap = (payload: unknown): payload is Record<string, number> => {
+  if (!isRecord(payload)) return false;
+  return Object.values(payload).every((value) => typeof value === 'number');
+};
+
+const parseVoiceControlMessage = (raw: string): VoiceControlMessage | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed) || typeof parsed.event !== 'string') return null;
+
+  switch (parsed.event) {
+    case 'session_map':
+      return isSessionMap(parsed.payload)
+        ? { event: parsed.event, payload: parsed.payload }
+        : null;
+    case 'peer_joined':
+      return isRecord(parsed.payload) &&
+        typeof parsed.payload.userId === 'string' &&
+        typeof parsed.payload.sessionId === 'number'
+        ? {
+            event: parsed.event,
+            payload: {
+              userId: parsed.payload.userId,
+              sessionId: parsed.payload.sessionId,
+            },
+          }
+        : null;
+    case 'peer_left':
+      return isRecord(parsed.payload) && typeof parsed.payload.userId === 'string'
+        ? { event: parsed.event, payload: { userId: parsed.payload.userId } }
+        : null;
+    case 'ping':
+    case 'joined':
+      return { event: parsed.event };
+    case 'error':
+      return typeof parsed.payload === 'string'
+        ? { event: parsed.event, payload: parsed.payload }
+        : null;
+    default:
+      return null;
+  }
+};
 
 /**
  * useVoiceParty — manages the voice relay lifecycle.
@@ -71,7 +135,7 @@ export function useVoiceParty({
 
     ws.onopen = () => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ event: 'join' }));
+        ws.send(JSON.stringify({ event: VOICE_CONTROL.join }));
       }
     };
 
@@ -94,34 +158,42 @@ export function useVoiceParty({
 
       // Control Channel is text JSON
       if (typeof event.data === 'string') {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.event === 'session_map') {
+        const msg = parseVoiceControlMessage(event.data);
+        if (!msg) return;
+
+        switch (msg.event) {
+          case 'session_map':
             userToSessionRef.current.clear();
             sessionToUserRef.current.clear();
-            for (const [uid, sid] of Object.entries(msg.payload || {})) {
-              const sessionId = sid as number;
+            for (const [uid, sessionId] of Object.entries(msg.payload)) {
               userToSessionRef.current.set(uid, sessionId);
               sessionToUserRef.current.set(sessionId, uid);
             }
-          } else if (msg.event === 'peer_joined') {
-            const { userId, sessionId } = msg.payload;
-            userToSessionRef.current.set(userId, sessionId);
-            sessionToUserRef.current.set(sessionId, userId);
-          } else if (msg.event === 'peer_left') {
-            const { userId } = msg.payload;
-            const sessionId = userToSessionRef.current.get(userId);
+            break;
+          case 'peer_joined':
+            userToSessionRef.current.set(msg.payload.userId, msg.payload.sessionId);
+            sessionToUserRef.current.set(msg.payload.sessionId, msg.payload.userId);
+            break;
+          case 'peer_left': {
+            const sessionId = userToSessionRef.current.get(msg.payload.userId);
             if (sessionId !== undefined) {
-              relayRef.current?.removePeer(userId);
-              userToSessionRef.current.delete(userId);
+              relayRef.current?.removePeer(msg.payload.userId);
+              userToSessionRef.current.delete(msg.payload.userId);
               sessionToUserRef.current.delete(sessionId);
             }
-          } else if (msg.event === 'ping') {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ event: 'pong' }));
-            }
+            break;
           }
-        } catch { /* ignore parse errors */ }
+          case 'ping':
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ event: VOICE_CONTROL.pong }));
+            }
+            break;
+          case 'joined':
+            break;
+          case 'error':
+            console.warn('[voice] Server error:', msg.payload);
+            break;
+        }
       }
     };
 
@@ -154,7 +226,7 @@ export function useVoiceParty({
       if (voiceWsRef.current) {
         if (voiceWsRef.current.readyState === WebSocket.OPEN) {
           try {
-            voiceWsRef.current.send(JSON.stringify({ event: 'leave' }));
+            voiceWsRef.current.send(JSON.stringify({ event: VOICE_CONTROL.leave }));
           } catch { /* ignore */ }
         }
         voiceWsRef.current.onclose = null;

@@ -5,6 +5,8 @@ import rnnoiseWasmSimdPath from '@sapphi-red/web-noise-suppressor/rnnoise_simd.w
 // @ts-ignore
 import rnnoiseWorkletPath from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
 import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor';
+import { DEFAULT_VOICE_CONFIG } from '../config';
+import type { VoiceConfig } from '../config';
 
 /**
  * Manages the local microphone capture pipeline:
@@ -14,10 +16,15 @@ import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppresso
  * disabling the source track so no audio data enters the worklet graph.
  */
 export class AudioManager {
+    private readonly config: VoiceConfig;
     private localStream: MediaStream | null = null;
     private processedStream: MediaStream | null = null;
     private audioContext: AudioContext | null = null;
     private rnnoiseNode: RnnoiseWorkletNode | null = null;
+
+    constructor(config: VoiceConfig = DEFAULT_VOICE_CONFIG) {
+        this.config = config;
+    }
 
     public get hasLocalStream(): boolean {
         return this.localStream !== null;
@@ -47,18 +54,21 @@ export class AudioManager {
 
         this.localStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                sampleRate: 48000,
+                channelCount: { ideal: 1 },
+                echoCancellation: { ideal: true },
+                noiseSuppression: { ideal: false },
+                autoGainControl: { ideal: false },
+                sampleRate: this.config.sampleRate,
+                // Chromium-only today; ignored by browsers that do not support it.
+                suppressLocalAudioPlayback: { ideal: true },
             },
             video: false,
-        });
+        } as MediaStreamConstraints);
 
         // Attempt to wire up the RNNoise AudioWorklet for ML-based noise suppression.
         // Falls back to raw localStream if WASM/worklet fails.
         try {
-            this.audioContext = new AudioContext({ sampleRate: 48000 });
+            this.audioContext = new AudioContext({ sampleRate: this.config.sampleRate });
 
             const wasmBinary = await loadRnnoise({
                 url: rnnoiseWasmPath,

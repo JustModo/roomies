@@ -1,6 +1,12 @@
-import { FastifyInstance } from 'fastify';
-import { authenticateWebSocket } from '../auth';
-import { voiceManager } from './manager';
+import { FastifyInstance } from "fastify";
+import { authenticateWebSocket } from "../auth";
+import { voiceManager } from "./manager";
+import { VOICE_PROTOCOL, VoiceServerControlMessage } from "./config";
+import {
+  VoicePacketRateLimiter,
+  isValidOpusPacket,
+  parseVoiceClientControlMessage,
+} from "./protocol";
 
 /**
  * Dedicated WebSocket gateway for voice chat at /ws/voice.
@@ -12,17 +18,19 @@ import { voiceManager } from './manager';
  */
 export const setupVoiceGateway = (app: FastifyInstance) => {
   app.route({
-    method: 'GET',
-    url: '/ws/voice',
+    method: "GET",
+    url: "/ws/voice",
     handler: (_req, reply) => {
-      reply.status(400).send({ error: 'WebSocket upgrade required' });
+      reply.status(400).send({ error: "WebSocket upgrade required" });
     },
     wsHandler: async (connection, req) => {
       const userPayload = authenticateWebSocket(req);
 
       if (!userPayload) {
-        console.warn('[Voice][Server] WebSocket unauthorized');
-        connection.send(JSON.stringify({ event: 'error', payload: 'Unauthorized' }));
+        console.warn("[Voice][Server] WebSocket unauthorized");
+        connection.send(
+          JSON.stringify({ event: "error", payload: "Unauthorized" }),
+        );
         connection.close();
         return;
       }
@@ -30,10 +38,22 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
       const { userId } = userPayload;
       let pingInterval: NodeJS.Timeout | null = null;
       let isInVoiceSession = false;
+      const rateLimiter = new VoicePacketRateLimiter();
+
+      const sendControl = (message: VoiceServerControlMessage) => {
+        if (connection.readyState === 1) {
+          connection.send(JSON.stringify(message));
+        }
+      };
+
+      const closeWithPolicyViolation = (payload: string) => {
+        sendControl({ event: "error", payload });
+        connection.close(VOICE_PROTOCOL.closeCodePolicyViolation, payload);
+      };
 
       console.log(`[Voice][Server] user connected: ${userId}`);
 
-      const cleanup = (reason: 'leave' | 'disconnect') => {
+      const cleanup = (reason: "leave" | "disconnect") => {
         if (!isInVoiceSession) return;
         isInVoiceSession = false;
 
@@ -46,95 +66,164 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
 
         // Notify other clients about the user leaving
         for (const client of voiceManager.getRoomClients()) {
-          client.socket.send(
-            JSON.stringify({
-              event: 'peer_left',
-              payload: { userId },
-            })
-          );
+          if (client.socket.readyState === 1) {
+            client.socket.send(
+              JSON.stringify({
+                event: "peer_left",
+                payload: { userId },
+              } satisfies VoiceServerControlMessage),
+            );
+          }
         }
-        console.log(`[Voice][Server] session closed for ${userId} (reason: ${reason})`);
+        console.log(
+          `[Voice][Server] session closed for ${userId} (reason: ${reason})`,
+        );
       };
 
-      connection.on('message', (message: Buffer | string) => {
-        // Control channel messages are JSON strings
-        const rawText = typeof message === 'string' ? message : message.toString('utf8');
+      connection.on(
+        "message",
+        (message: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+          //
+          // Control messages (JSON)
+          //
+          if (!isBinary) {
+            let rawText: string;
 
-        if (rawText.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(rawText);
-
-            if (parsed.event === 'join') {
-              if (isInVoiceSession) return;
-
-              const sessionId = voiceManager.joinRoom(userId, connection);
-              isInVoiceSession = true;
-
-              // Send the current session map of all active room members to the joining client
-              const map: Record<string, number> = {};
-              for (const client of voiceManager.getRoomClients()) {
-                map[client.userId] = client.sessionId;
-              }
-              connection.send(JSON.stringify({ event: 'session_map', payload: map }));
-
-              // Acknowledge join
-              connection.send(JSON.stringify({ event: 'joined' }));
-
-              // Broadcast the new peer join to all other room members
-              for (const client of voiceManager.getRoomClients()) {
-                if (client.userId !== userId) {
-                  client.socket.send(
-                    JSON.stringify({
-                      event: 'peer_joined',
-                      payload: { userId, sessionId },
-                    })
-                  );
-                }
-              }
-
-              // Heartbeat check to prevent timeout
-              pingInterval = setInterval(() => {
-                if (isInVoiceSession && connection.readyState === 1) {
-                  connection.send(JSON.stringify({ event: 'ping' }));
-                }
-              }, 5000);
+            if (typeof message === "string") {
+              rawText = message;
+            } else if (Buffer.isBuffer(message)) {
+              rawText = message.toString("utf8");
+            } else if (message instanceof ArrayBuffer) {
+              rawText = Buffer.from(message).toString("utf8");
+            } else if (Array.isArray(message)) {
+              rawText = Buffer.concat(message).toString("utf8");
+            } else {
+              closeWithPolicyViolation("Unsupported voice control frame");
               return;
             }
 
-            if (parsed.event === 'leave') {
-              cleanup('leave');
-              connection.close();
+            const parsed = parseVoiceClientControlMessage(rawText);
+
+            if (!parsed) {
+              closeWithPolicyViolation("Invalid voice control message");
               return;
             }
 
-            if (parsed.event === 'pong') {
-              return; // Ping ack, ignore
+            switch (parsed.event) {
+              case "join": {
+                if (isInVoiceSession) return;
+
+                const sessionId = voiceManager.joinRoom(userId, connection);
+                isInVoiceSession = true;
+
+                console.log(`[Voice][Server] client joined room: ${userId}`);
+
+                const map: Record<string, number> = {};
+                for (const client of voiceManager.getRoomClients()) {
+                  map[client.userId] = client.sessionId;
+                }
+
+                sendControl({
+                  event: "session_map",
+                  payload: map,
+                });
+
+                sendControl({
+                  event: "joined",
+                });
+
+                for (const client of voiceManager.getRoomClients()) {
+                  if (
+                    client.userId !== userId &&
+                    client.socket.readyState === 1
+                  ) {
+                    client.socket.send(
+                      JSON.stringify({
+                        event: "peer_joined",
+                        payload: {
+                          userId,
+                          sessionId,
+                        },
+                      } satisfies VoiceServerControlMessage),
+                    );
+                  }
+                }
+
+                pingInterval = setInterval(() => {
+                  if (isInVoiceSession) {
+                    sendControl({ event: "ping" });
+                  }
+                }, VOICE_PROTOCOL.heartbeatIntervalMs);
+
+                return;
+              }
+
+              case "leave": {
+                cleanup("leave");
+                connection.close();
+                return;
+              }
+
+              case "pong":
+                // Optional heartbeat handling.
+                return;
+
+              default:
+                return;
             }
-          } catch (e) {
-            console.warn('[Voice][Server] failed to parse control frame:', e);
           }
-          return;
-        }
 
-        // Audio channel is raw binary
-        if (Buffer.isBuffer(message)) {
-          if (!isInVoiceSession) return;
+          //
+          // Binary audio packets
+          //
+          const packet = Buffer.isBuffer(message)
+            ? message
+            : message instanceof ArrayBuffer
+              ? Buffer.from(message)
+              : Array.isArray(message)
+                ? Buffer.concat(message)
+                : null;
+
+          if (!packet) {
+            closeWithPolicyViolation("Unsupported binary frame");
+            return;
+          }
+
+          if (!isInVoiceSession) {
+            console.warn(
+              `[Voice][Server] ignoring pre-join audio from ${userId}`,
+            );
+            return;
+          }
+
+          if (!isValidOpusPacket(packet)) {
+            closeWithPolicyViolation("Invalid voice packet size");
+            return;
+          }
+
+          if (!rateLimiter.allow()) {
+            closeWithPolicyViolation("Voice packet rate limit exceeded");
+            return;
+          }
 
           const sessionId = voiceManager.getClientSessionId(userId);
-          if (sessionId === undefined) return;
 
-          // Frame format: [ 2 bytes: sessionId (big-endian) ] [ raw Opus payload ]
-          const framedMessage = Buffer.allocUnsafe(message.length + 2);
+          if (sessionId === undefined) {
+            return;
+          }
+
+          // Frame format:
+          // [2-byte sessionId][raw Opus]
+          const framedMessage = Buffer.allocUnsafe(packet.length + 2);
           framedMessage.writeUInt16BE(sessionId, 0);
-          message.copy(framedMessage, 2);
+          packet.copy(framedMessage, 2);
 
-          // Relay binary message
           voiceManager.broadcastBinary(userId, framedMessage);
-        }
-      });
+        },
+      );
 
-      connection.on('close', () => cleanup('disconnect'));
-      connection.on('error', () => cleanup('disconnect'));
+      connection.on("close", () => cleanup("disconnect"));
+      connection.on("error", () => cleanup("disconnect"));
     },
   });
 };

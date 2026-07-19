@@ -23,7 +23,6 @@ export const PartySection: React.FC<PartySectionProps> = ({
   roomState,
   updatePartyState,
   setControlLock,
-  addMessageHandler,
 }) => {
   const members = roomState?.members || [];
   const roomPlaybackState = roomState?.playback?.state;
@@ -48,7 +47,6 @@ export const PartySection: React.FC<PartySectionProps> = ({
   const isVideoMuted = currentUserMember?.party.videoMuted ?? true;
 
   const { joinVoice, setVolume, setPeerMuted } = useVoiceParty({
-    addMessageHandler,
     isJoined,
     isMicMuted,
   });

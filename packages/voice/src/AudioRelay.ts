@@ -1,132 +1,55 @@
-import { createEncoder, createDecoder, Application, Signal } from 'libopus-wasm';
-import type { OpusEncoderHandle, OpusDecoderHandle } from 'libopus-wasm';
+import { createEncoder } from 'libopus-wasm';
+import type { OpusEncoderHandle } from 'libopus-wasm';
 import { AudioManager } from './audio/AudioManager';
+import { AudioPreprocessor } from './audio/AudioPreprocessor';
+import { FrameBuffer } from './audio/FrameBuffer';
+import { PeerPlayer } from './audio/PeerPlayer';
+import { VoiceActivityDetector } from './audio/VoiceActivityDetector';
+import { DEFAULT_VOICE_CONFIG } from './config';
+import type { VoiceConfig } from './config';
+// @ts-ignore - Vite URL import for AudioWorklet asset.
+import pcmCaptureWorkletUrl from './worklets/pcmCaptureWorklet.js?url';
 
 /** Called when the local encoder has a chunk ready to send. */
 export type ChunkCallback = (chunk: Uint8Array) => void;
-
-// Opus frame duration: 20ms @ 48kHz = 960 samples/channel
-const FRAME_SIZE = 960;
-const SAMPLE_RATE = 48000;
-const CHANNELS = 1;
-
-/**
- * Buffers incoming Float32 samples and emits 20ms frames to the encoder.
- * The AudioWorklet fires irregularly sized buffers (typically 128 samples),
- * so we accumulate until we have a full 960-sample frame.
- */
-class FrameBuffer {
-    private buf = new Float32Array(FRAME_SIZE);
-    private pos = 0;
-    private readonly onFrame: (frame: Float32Array) => void;
-
-    constructor(onFrame: (frame: Float32Array) => void) {
-        this.onFrame = onFrame;
-    }
-
-    push(samples: Float32Array): void {
-        let offset = 0;
-        while (offset < samples.length) {
-            const space = FRAME_SIZE - this.pos;
-            const toCopy = Math.min(space, samples.length - offset);
-            this.buf.set(samples.subarray(offset, offset + toCopy), this.pos);
-            this.pos += toCopy;
-            offset += toCopy;
-
-            if (this.pos === FRAME_SIZE) {
-                this.onFrame(this.buf);
-                this.buf = new Float32Array(FRAME_SIZE);
-                this.pos = 0;
-            }
-        }
-    }
-}
-
-/**
- * Schedules decoded audio frames for a single peer using a running
- * nextPlayTime pointer, maintaining seamless gapless playback.
- */
-class PeerPlayer {
-    private readonly ctx: AudioContext;
-    private readonly gainNode: GainNode;
-    private nextPlayTime = 0;
-    private readonly decoder: Promise<OpusDecoderHandle>;
-
-    constructor(ctx: AudioContext) {
-        this.ctx = ctx;
-        this.gainNode = ctx.createGain();
-        this.gainNode.connect(ctx.destination);
-        this.decoder = createDecoder({ channels: CHANNELS, sampleRate: SAMPLE_RATE });
-    }
-
-    setVolume(volume: number): void {
-        this.gainNode.gain.setTargetAtTime(
-            Math.max(0, Math.min(1, volume / 100)),
-            this.ctx.currentTime,
-            0.01
-        );
-    }
-
-    setMuted(muted: boolean): void {
-        // Preserve the previous volume when unmuting via a stored value
-        this.gainNode.gain.setTargetAtTime(muted ? 0 : 1, this.ctx.currentTime, 0.01);
-    }
-
-    async scheduleChunk(packet: Uint8Array): Promise<void> {
-        const dec = await this.decoder;
-        try {
-            // Decode directly to Float32 — no base64 conversion needed
-            const rawFloats = dec.decodeFloat(packet);
-            if (!rawFloats || rawFloats.length === 0) return;
-            // Wrap in a concrete Float32Array<ArrayBuffer> for Web Audio compatibility
-            const floats = new Float32Array(rawFloats);
-
-            const buffer = this.ctx.createBuffer(CHANNELS, floats.length, SAMPLE_RATE);
-            buffer.copyToChannel(floats, 0);
-
-            const src = this.ctx.createBufferSource();
-            src.buffer = buffer;
-            src.connect(this.gainNode);
-
-            // 80ms lookahead: avoids glitches on network jitter
-            const now = this.ctx.currentTime;
-            const scheduleAt = Math.max(now + 0.08, this.nextPlayTime);
-            src.start(scheduleAt);
-            this.nextPlayTime = scheduleAt + buffer.duration;
-        } catch (e) {
-            console.warn('[PeerPlayer] Decode/schedule error:', e);
-        }
-    }
-
-    async destroy(): Promise<void> {
-        const dec = await this.decoder;
-        dec.free();
-        this.gainNode.disconnect();
-    }
-}
 
 /**
  * AudioRelay — server-relay voice chat engine.
  *
  * Local:  mic → AudioManager (RNNoise) → AudioWorklet → FrameBuffer →
- *         OpusEncoder (libopus-wasm) → base64 → onChunk()
+ *         voice gate → OpusEncoder (libopus-wasm) → binary onChunk()
  *
- * Remote: base64 → OpusDecoder (libopus-wasm) → AudioBufferSourceNode
+ * Remote: binary Opus → OpusDecoder (libopus-wasm) → AudioBufferSourceNode
  *         (scheduled per peer via GainNode for volume/mute)
  *
  * No WebRTC. No ICE. No SDP. The server is the relay.
  */
 export class AudioRelay {
-    private audioManager = new AudioManager();
+    private readonly config: VoiceConfig;
+    private readonly preprocessor: AudioPreprocessor;
+    private readonly vad: VoiceActivityDetector;
+    private readonly audioManager: AudioManager;
     private encoder: OpusEncoderHandle | null = null;
     private audioCtx: AudioContext | null = null;
+    private captureSource: MediaStreamAudioSourceNode | null = null;
     private workletNode: AudioWorkletNode | null = null;
+    private captureSink: GainNode | null = null;
     private frameBuffer: FrameBuffer | null = null;
     private peers = new Map<string, PeerPlayer>();
     private selfMuted = false;
 
     /** Called with each encoded Opus chunk that should be sent to the server. */
     public onChunk?: ChunkCallback;
+
+    constructor(config: VoiceConfig = DEFAULT_VOICE_CONFIG) {
+        this.config = config;
+        this.audioManager = new AudioManager(config);
+        this.preprocessor = new AudioPreprocessor(config.preprocessor.dcBlockerR);
+        this.vad = new VoiceActivityDetector({
+            ...config.vad,
+            warmupFrames: config.captureWarmupFrames,
+        });
+    }
 
     /**
      * Acquires the mic, builds the RNNoise pipeline, initialises the
@@ -141,24 +64,24 @@ export class AudioRelay {
         const stream = this.audioManager.stream;
         if (!stream) throw new Error('[AudioRelay] No microphone stream available.');
 
-        this.audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+        this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
 
-        // Create Opus encoder: mono, 48kHz, VBR, 16kbps target, VOIP application
         this.encoder = await createEncoder({
-            channels: CHANNELS,
-            sampleRate: SAMPLE_RATE,
-            application: Application.Voip,
-            bitrate: 16000,
-            vbr: true,
-            fec: true,
-            packetLossPercent: 5,
-            signal: Signal.Voice,
+            channels: this.config.channels,
+            sampleRate: this.config.sampleRate,
+            ...this.config.opus,
         });
 
-        this.frameBuffer = new FrameBuffer((frame) => {
+        this.preprocessor.reset();
+        this.vad.reset();
+
+        this.frameBuffer = new FrameBuffer(this.config.frameSize, (frame) => {
             if (this.selfMuted || !this.encoder) return;
+            const processedFrame = this.preprocessor.process(frame);
+            if (!this.vad.shouldTransmit(processedFrame)) return;
+
             try {
-                const packet = this.encoder.encodeFloat(frame);
+                const packet = this.encoder.encodeFloat(processedFrame);
                 if (!packet || packet.length === 0) return;
 
                 this.onChunk?.(packet);
@@ -167,31 +90,22 @@ export class AudioRelay {
             }
         });
 
-        // Inline AudioWorklet: captures Float32 PCM from the processed stream
-        // and posts it to the main thread without blocking audio playback.
-        const workletCode = `
-            class PcmCapture extends AudioWorkletProcessor {
-                process(inputs) {
-                    const ch = inputs[0]?.[0];
-                    if (ch?.length) this.port.postMessage(ch, [ch.buffer]);
-                    return true;
-                }
-            }
-            registerProcessor('roomies-pcm-capture', PcmCapture);
-        `;
-        const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
-        const workletUrl = URL.createObjectURL(workletBlob);
-        await this.audioCtx.audioWorklet.addModule(workletUrl);
-        URL.revokeObjectURL(workletUrl);
+        await this.audioCtx.audioWorklet.addModule(pcmCaptureWorkletUrl);
 
         const source = this.audioCtx.createMediaStreamSource(stream);
+        this.captureSource = source;
         this.workletNode = new AudioWorkletNode(this.audioCtx, 'roomies-pcm-capture');
         this.workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
             this.frameBuffer?.push(new Float32Array(e.data));
         };
 
-        // Connect: stream source → worklet (sink only, not to audio output)
+        this.captureSink = this.audioCtx.createGain();
+        this.captureSink.gain.value = 0;
+
+        // Keep the capture worklet pulled by the graph without audible local monitor output.
         source.connect(this.workletNode);
+        this.workletNode.connect(this.captureSink);
+        this.captureSink.connect(this.audioCtx.destination);
     }
 
     /** Mutes or unmutes the local mic. When muted, no chunks are sent upstream. */
@@ -207,7 +121,7 @@ export class AudioRelay {
     public scheduleChunk(userId: string, packet: Uint8Array): void {
         // Ensure we have an AudioContext even for receive-only (non-joined) users
         if (!this.audioCtx) {
-            this.audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+            this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
         }
         if (this.audioCtx.state === 'suspended') {
             this.audioCtx.resume().catch(() => {});
@@ -215,7 +129,7 @@ export class AudioRelay {
 
         let peer = this.peers.get(userId);
         if (!peer) {
-            peer = new PeerPlayer(this.audioCtx);
+            peer = new PeerPlayer(this.audioCtx, this.config);
             this.peers.set(userId, peer);
         }
         peer.scheduleChunk(packet);
@@ -242,9 +156,17 @@ export class AudioRelay {
 
     /** Stops encoding, releases the mic, and destroys all peer players. */
     public leave(): void {
+        if (this.captureSource) {
+            this.captureSource.disconnect();
+            this.captureSource = null;
+        }
         if (this.workletNode) {
             this.workletNode.disconnect();
             this.workletNode = null;
+        }
+        if (this.captureSink) {
+            this.captureSink.disconnect();
+            this.captureSink = null;
         }
         this.frameBuffer = null;
 
