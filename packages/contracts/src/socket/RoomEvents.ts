@@ -10,14 +10,6 @@ export const ClientRoomLeaveSchema = z.object({
   payload: z.object({}),
 });
 
-export const ClientWebRTCSignalSchema = z.object({
-  event: z.literal('party.webrtc_signal'),
-  payload: z.object({
-    targetUserId: z.string(),
-    signal: z.any(),
-  }),
-});
-
 export const ServerRoomStateSchema = z.object({
   event: z.literal('room.state'),
   payload: z.object({
@@ -74,13 +66,5 @@ export const ServerUserLeftSchema = z.object({
   payload: z.object({
     userId: z.string(),
     username: z.string(),
-  }),
-});
-
-export const ServerWebRTCSignalSchema = z.object({
-  event: z.literal('party.webrtc_signal'),
-  payload: z.object({
-    sourceUserId: z.string(),
-    signal: z.any(),
   }),
 });

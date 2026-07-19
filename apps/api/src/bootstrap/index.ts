@@ -3,6 +3,7 @@ import fastifyCors from '@fastify/cors';
 import fastifyWebsocket from '@fastify/websocket';
 import { prisma } from '../database/sqlite';
 import { setupWebsocketGateway } from '../websocket/gateway';
+import { setupVoiceGateway } from '../voice/gateway';
 import { authRoutes } from '../auth';
 import { userRoutes } from '../users';
 import { libraryRoutes } from '../library';
@@ -58,6 +59,7 @@ export const bootstrap = async (app: FastifyInstance) => {
   registerStoreSocketEvents();
 
   setupWebsocketGateway(app);
+  setupVoiceGateway(app);
 
   // 6. Register Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
