@@ -1,6 +1,7 @@
 import { createEncoder } from 'libopus-wasm';
 import type { OpusEncoderHandle } from 'libopus-wasm';
 import { AudioManager } from './audio/AudioManager';
+import type { AcquireResult } from './audio/AudioManager';
 import { AudioPreprocessor } from './audio/AudioPreprocessor';
 import { FrameBuffer } from './audio/FrameBuffer';
 import { PeerPlayer } from './audio/PeerPlayer';
@@ -11,6 +12,9 @@ import pcmCaptureWorkletUrl from './worklets/pcmCaptureWorklet.js?url';
 
 /** Called when the local encoder has a chunk ready to send. */
 export type ChunkCallback = (chunk: Uint8Array) => void;
+
+/** AudioContext.setSinkId is still experimental and missing from some lib.dom versions. */
+type SinkCapableContext = AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
 
 /**
  * AudioRelay — server-relay voice chat engine.
@@ -35,14 +39,46 @@ export class AudioRelay {
     private frameBuffer: FrameBuffer | null = null;
     private peers = new Map<string, PeerPlayer>();
     private selfMuted = false;
+    private desiredSinkId: string | undefined;
 
     /** Called with each encoded Opus chunk that should be sent to the server. */
     public onChunk?: ChunkCallback;
+    /** Called when the active input device ends unexpectedly (e.g. unplugged). */
+    public onInputDeviceEnded?: () => void;
 
     constructor(config: VoiceConfig = DEFAULT_VOICE_CONFIG) {
         this.config = config;
         this.audioManager = new AudioManager(config);
+        this.audioManager.onTrackEnded = () => this.onInputDeviceEnded?.();
         this.preprocessor = new AudioPreprocessor(config.preprocessor.dcBlockerR);
+    }
+
+    /** Whether the currently supported browser can redirect audio output to a chosen device. */
+    public static get outputSelectionSupported(): boolean {
+        return typeof window !== 'undefined' &&
+            typeof (AudioContext.prototype as SinkCapableContext).setSinkId === 'function';
+    }
+
+    private async applyDesiredSinkId(ctx: AudioContext): Promise<void> {
+        const sinkCapableCtx = ctx as SinkCapableContext;
+        if (!this.desiredSinkId || typeof sinkCapableCtx.setSinkId !== 'function') return;
+        try {
+            await sinkCapableCtx.setSinkId(this.desiredSinkId);
+        } catch (e) {
+            console.warn('[AudioRelay] Failed to set output device:', e);
+        }
+    }
+
+    /**
+     * Sets the preferred audio output device. Applies immediately to the live
+     * AudioContext (if any) and to any AudioContext created afterwards.
+     * No-ops silently on browsers that don't support output selection.
+     */
+    public async setOutputDevice(deviceId?: string): Promise<void> {
+        this.desiredSinkId = deviceId;
+        if (this.audioCtx) {
+            await this.applyDesiredSinkId(this.audioCtx);
+        }
     }
 
     /**
@@ -50,53 +86,108 @@ export class AudioRelay {
      * Opus encoder, and begins streaming 20ms frames. Safe to call
      * multiple times — no-ops if already active.
      */
-    public async join(): Promise<void> {
-        if (this.encoder) return;
+    public async join(deviceId?: string): Promise<AcquireResult> {
+        if (this.encoder) return { usedFallback: false };
 
-        await this.audioManager.join();
+        const acquireResult = await this.audioManager.join(deviceId);
 
-        const stream = this.audioManager.stream;
-        if (!stream) throw new Error('[AudioRelay] No microphone stream available.');
+        try {
+            const stream = this.audioManager.stream;
+            if (!stream) throw new Error('[AudioRelay] No microphone stream available.');
 
-        this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+            this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+            await this.applyDesiredSinkId(this.audioCtx);
 
-        this.encoder = await createEncoder({
-            channels: this.config.channels,
-            sampleRate: this.config.sampleRate,
-            ...this.config.opus,
-        });
+            this.encoder = await createEncoder({
+                channels: this.config.channels,
+                sampleRate: this.config.sampleRate,
+                ...this.config.opus,
+            });
 
-        this.preprocessor.reset();
+            this.preprocessor.reset();
 
-        this.frameBuffer = new FrameBuffer(this.config.frameSize, (frame) => {
-            if (this.selfMuted || !this.encoder) return;
-            const processedFrame = this.preprocessor.process(frame);
-            try {
-                const packet = this.encoder.encodeFloat(processedFrame);
-                if (!packet || packet.length === 0) return;
+            this.frameBuffer = new FrameBuffer(this.config.frameSize, (frame) => {
+                if (this.selfMuted || !this.encoder) return;
+                const processedFrame = this.preprocessor.process(frame);
+                try {
+                    const packet = this.encoder.encodeFloat(processedFrame);
+                    if (!packet || packet.length === 0) return;
 
-                this.onChunk?.(packet);
-            } catch (e) {
-                console.warn('[AudioRelay] Encode error:', e);
+                    this.onChunk?.(packet);
+                } catch (e) {
+                    console.warn('[AudioRelay] Encode error:', e);
+                }
+            });
+
+            await this.audioCtx.audioWorklet.addModule(pcmCaptureWorkletUrl);
+
+            const source = this.audioCtx.createMediaStreamSource(stream);
+            this.captureSource = source;
+            this.workletNode = new AudioWorkletNode(this.audioCtx, 'roomies-pcm-capture');
+            this.workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+                this.frameBuffer?.push(new Float32Array(e.data));
+            };
+
+            this.captureSink = this.audioCtx.createGain();
+            this.captureSink.gain.value = 0;
+
+            // Keep the capture worklet pulled by the graph without audible local monitor output.
+            source.connect(this.workletNode);
+            this.workletNode.connect(this.captureSink);
+            this.captureSink.connect(this.audioCtx.destination);
+
+            return acquireResult;
+        } catch (e) {
+            // A failure here must not leave the mic captured (browser mic
+            // indicator staying on) or a half-built AudioContext dangling.
+            if (this.captureSource) {
+                this.captureSource.disconnect();
+                this.captureSource = null;
             }
-        });
+            if (this.workletNode) {
+                this.workletNode.disconnect();
+                this.workletNode = null;
+            }
+            if (this.captureSink) {
+                this.captureSink.disconnect();
+                this.captureSink = null;
+            }
+            this.frameBuffer = null;
+            if (this.encoder) {
+                this.encoder.free();
+                this.encoder = null;
+            }
+            if (this.audioCtx) {
+                this.audioCtx.close().catch(() => {});
+                this.audioCtx = null;
+            }
+            this.audioManager.leave();
+            throw e;
+        }
+    }
 
-        await this.audioCtx.audioWorklet.addModule(pcmCaptureWorkletUrl);
+    /**
+     * Switches the active microphone while joined, without dropping the
+     * encoder/connection to peers — only the capture source is rewired.
+     * Falls back to the system default device if the requested one is
+     * unavailable. Safe to call before joining (just re-acquires for next join).
+     */
+    public async switchMic(deviceId?: string): Promise<AcquireResult> {
+        const result = await this.audioManager.switchInput(deviceId);
 
-        const source = this.audioCtx.createMediaStreamSource(stream);
-        this.captureSource = source;
-        this.workletNode = new AudioWorkletNode(this.audioCtx, 'roomies-pcm-capture');
-        this.workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
-            this.frameBuffer?.push(new Float32Array(e.data));
-        };
+        if (this.encoder && this.audioCtx && this.workletNode) {
+            const stream = this.audioManager.stream;
+            if (stream) {
+                if (this.captureSource) {
+                    this.captureSource.disconnect();
+                }
+                const source = this.audioCtx.createMediaStreamSource(stream);
+                source.connect(this.workletNode);
+                this.captureSource = source;
+            }
+        }
 
-        this.captureSink = this.audioCtx.createGain();
-        this.captureSink.gain.value = 0;
-
-        // Keep the capture worklet pulled by the graph without audible local monitor output.
-        source.connect(this.workletNode);
-        this.workletNode.connect(this.captureSink);
-        this.captureSink.connect(this.audioCtx.destination);
+        return result;
     }
 
     /** Mutes or unmutes the local mic. When muted, no chunks are sent upstream. */
@@ -113,6 +204,7 @@ export class AudioRelay {
         // Ensure we have an AudioContext even for receive-only (non-joined) users
         if (!this.audioCtx) {
             this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+            void this.applyDesiredSinkId(this.audioCtx);
         }
         if (this.audioCtx.state === 'suspended') {
             this.audioCtx.resume().catch(() => {});
@@ -176,9 +268,7 @@ export class AudioRelay {
 
         this.audioManager.leave();
 
-        for (const peer of this.peers.values()) {
-            peer.destroy();
-        }
+        void Promise.all([...this.peers.values()].map((peer) => peer.destroy()));
 
         this.peers.clear();
         this.selfMuted = false;
