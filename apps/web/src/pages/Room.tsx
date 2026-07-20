@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Settings2, Lock } from 'lucide-react';
+import { ChevronLeft, Settings2, Lock, Mic, MicOff } from 'lucide-react';
 import { AdminOverlay } from '../components/AdminOverlay';
 import { useRoomSync, RoomState, MediaInfo, SyncStatus } from '../hooks/useRoomSync';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
-import { VoiceProvider } from '../contexts/VoiceContext';
+import { VoiceProvider, useVoice } from '../contexts/VoiceContext';
 import { ChatToasts } from '../components/Chat';
 import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
@@ -190,6 +190,7 @@ function RoomInner({
   sendMessage
 }: RoomInnerProps) {
   const { user } = useAuth();
+  const { activeSpeakers } = useVoice();
   const vpHeight = useVisualViewportHeight();
   const { isOpen, setIsOpen, addLocalSystemMessage, setActiveTab, focusChatInput } = useChat();
 
@@ -199,10 +200,25 @@ function RoomInner({
     addLocalSystemMessage(newMode ? 'Local Async Mode' : 'Synced with Room', 'play');
   }, [toggleAsyncMode, isAsyncMode, addLocalSystemMessage]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+
+  useEffect(() => {
+    const handleToggle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ visible: boolean }>;
+      setControlsVisible(customEvent.detail.visible);
+    };
+    window.addEventListener('player-controls-toggle', handleToggle);
+    return () => window.removeEventListener('player-controls-toggle', handleToggle);
+  }, []);
 
   const isLockedByAdmin = roomState?.members.find(m => m.userId === user?.id)?.controlsLocked;
   const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
   const isLocked = !mediaInfo || roomState?.playback?.state === 'waiting' || roomState?.playback?.state === 'buffering' || activeLockByAdmin;
+  
+  const currentUserMember = roomState?.members.find(m => m.userId === user?.id);
+  const isJoined = currentUserMember?.party.isJoined ?? false;
+  const isMicMuted = currentUserMember?.party.micMuted ?? true;
+  const isActiveSpeaker = activeSpeakers.has('local');
 
   const prevMediaFileIdRef = useRef<string | null>(null);
 
@@ -285,13 +301,19 @@ function RoomInner({
     requestAnimationFrame(() => focusChatInput());
   }, { disabled: isOpen });
 
+  useKeyboardShortcut('m', () => {
+    if (isJoined) {
+      updatePartyState({ micMuted: !isMicMuted });
+    }
+  }, { disabled: !isJoined });
+
   return (
     <div
       className="fixed top-0 left-0 w-full bg-ink overflow-hidden text-paper flex flex-col lg:flex-row"
       style={{ height: vpHeight }}
     >
       {/* Video area: on mobile it's aspect-video unless fullscreen; on desktop fills height */}
-      <div className={`relative flex-none w-full ${isFullscreen ? 'h-full' : 'aspect-video'} lg:aspect-auto lg:h-full ${isOpen ? 'lg:flex-1 lg:mr-[360px]' : 'lg:flex-1'} transition-all duration-300`}>
+      <div className={`relative flex-none w-full ${isFullscreen ? 'h-full' : 'aspect-video'} lg:aspect-auto lg:h-full ${isOpen ? 'lg:flex-1 lg:mr-90' : 'lg:flex-1'} transition-all duration-300`}>
         <VideoPlayer
           mediaInfo={mediaInfo}
           seekKey={seekKey}
@@ -315,17 +337,17 @@ function RoomInner({
           userId={user?.id}
           isLockedByAdmin={isLockedByAdmin}
         >
-          <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-gradient-to-b from-ink/80 to-transparent relative">
+          <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative">
             <div className="flex-none flex justify-start w-14 sm:w-20 lg:w-24">
               {!isFullscreen && (
                 <button onClick={handleExit} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors whitespace-nowrap">
-                  <ChevronLeft className="mr-0.5 lg:mr-1 w-[14px] h-[14px] lg:w-4 lg:h-4" /> Exit
+                  <ChevronLeft className="mr-0.5 lg:mr-1 w-3.5 h-3.5 lg:w-4 lg:h-4" /> Exit
                 </button>
               )}
             </div>
 
             <div className="flex-1 flex justify-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] items-center gap-1 sm:gap-2 lg:gap-3 drop-shadow-md min-w-0">
-              <span className="truncate max-w-[120px] sm:max-w-[200px] lg:max-w-[500px]">{mediaInfo?.title || 'ROOM'}</span>
+              <span className="truncate max-w-30 sm:max-w-50 lg:max-w-125">{mediaInfo?.title || 'ROOM'}</span>
               <span className="shrink-0">·</span>
               <span className="font-mono text-blue-400 shrink-0">{viewersCount}</span>
               <span className="hidden xs:inline shrink-0">WATCHING</span>
@@ -337,13 +359,13 @@ function RoomInner({
                   className={`flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
                   title={activeLockByAdmin ? 'Controls locked by admin' : 'Controls locked while syncing'}
                 >
-                  <Lock className="w-[14px] h-[14px] lg:w-4 lg:h-4" strokeWidth={1.5} />
+                  <Lock className="w-3.5 h-3.5 lg:w-4 lg:h-4" strokeWidth={1.5} />
                 </div>
               )}
               {user?.role === 'root' && (
                 <button onClick={() => setShowAdmin(true)} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors">
                   <span className="hidden sm:inline">Manage</span>
-                  <Settings2 className="sm:ml-1 lg:ml-2 w-[14px] h-[14px] lg:w-4 lg:h-4" />
+                  <Settings2 className="sm:ml-1 lg:ml-2 w-3.5 h-3.5 lg:w-4 lg:h-4" />
                 </button>
               )}
             </div>
@@ -351,6 +373,17 @@ function RoomInner({
         </VideoPlayer>
         {/* Chat toasts: absolute overlay on the video, works on mobile + desktop */}
         <ChatToasts />
+
+        {/* Mic status overlay */}
+        {isJoined && (
+          <div className={`absolute right-6 z-60 pointer-events-none opacity-30 drop-shadow-md transition-all duration-300 ${controlsVisible ? 'bottom-20 lg:bottom-24' : 'bottom-8'}`}>
+            {isMicMuted ? (
+              <MicOff size={28} className="text-red-400" strokeWidth={1.5} />
+            ) : (
+              <Mic size={28} className={`transition-colors duration-200 ${isActiveSpeaker ? 'text-green-400' : 'text-paper'}`} strokeWidth={1.5} />
+            )}
+          </div>
+        )}
       </div>
 
       <Sidebar 

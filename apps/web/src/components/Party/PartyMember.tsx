@@ -1,5 +1,5 @@
 import React from 'react';
-import { MicOff, VideoOff, Mic, Video, Lock, Unlock, SignalHigh, SignalMedium, SignalLow, PhoneOff } from 'lucide-react';
+import { MicOff, Mic, Lock, Unlock, SignalHigh, SignalMedium, SignalLow, PhoneOff } from 'lucide-react';
 import { getUsernameColor } from '../Chat/utils';
 import { MemberState } from '../../hooks/useRoomSync';
 import { LocalMemberState } from './PartySection';
@@ -14,6 +14,7 @@ interface PartyMemberProps {
   localState?: LocalMemberState;
   onUpdateLocalState: (updates: Partial<LocalMemberState>) => void;
   setControlLock: (userId: string, locked: boolean) => void;
+  isActiveSpeaker: boolean;
 }
 
 export const PartyMember: React.FC<PartyMemberProps> = ({
@@ -25,6 +26,7 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
   localState,
   onUpdateLocalState,
   setControlLock,
+  isActiveSpeaker,
 }) => {
   const isLocallyMuted = localState?.audioMuted ?? false;
   const volume = localState?.volume ?? 100;
@@ -87,13 +89,9 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
               ) : member.party.micMuted ? (
                 <MicOff size={14} className="text-paper/40" />
               ) : (
-                <Mic size={14} className="text-green-400" />
+                <Mic size={14} className={`transition-colors duration-500 ${isActiveSpeaker ? "text-green-400" : "text-paper/60"}`} />
               )}
-              {member.party.videoMuted ? (
-                <VideoOff size={14} className="text-paper/40" />
-              ) : (
-                <Video size={14} className="text-green-400" />
-              )}
+
               {getPingIcon(member.pingQuality)}
             </>
           ) : (

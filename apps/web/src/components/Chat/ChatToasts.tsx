@@ -95,7 +95,7 @@ export const ChatToasts: React.FC = () => {
   return (
     <div
       className={`absolute left-4 z-40 pointer-events-none flex flex-col gap-0.5 max-w-[200px] sm:max-w-[260px] lg:max-w-[500px] transition-all duration-300 ${
-        controlsVisible ? 'bottom-16 lg:bottom-20' : 'bottom-8'
+        controlsVisible ? 'bottom-20 lg:bottom-24' : 'bottom-8'
       }`}
       aria-live="polite"
     >

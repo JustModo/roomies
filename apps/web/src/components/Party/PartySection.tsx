@@ -32,9 +32,8 @@ export const PartySection: React.FC<PartySectionProps> = ({
   const currentUserMember = members.find(m => m.userId === user?.id);
   const isJoined = currentUserMember?.party.isJoined ?? false;
   const isMicMuted = currentUserMember?.party.micMuted ?? true;
-  const isVideoMuted = currentUserMember?.party.videoMuted ?? true;
 
-  const { joinVoice, localStates, updateLocalState } = useVoice();
+  const { joinVoice, localStates, updateLocalState, activeSpeakers } = useVoice();
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-void">
@@ -48,25 +47,30 @@ export const PartySection: React.FC<PartySectionProps> = ({
           if (a.userId === user?.id) return -1;
           if (b.userId === user?.id) return 1;
           return 0;
-        }).map((member) => (
-          <PartyMember
-            key={member.userId}
-            member={member}
-            user={user}
-            roomPlaybackState={roomPlaybackState}
-            activeMenu={activeMenu}
-            toggleMenu={toggleMenu}
-            localState={localStates[member.userId]}
-            onUpdateLocalState={(updates) => updateLocalState(member.userId, updates)}
-            setControlLock={setControlLock}
-          />
-        ))}
+        }).map((member) => {
+          const isLocalUser = member.userId === user?.id;
+          const isActiveSpeaker = isLocalUser ? activeSpeakers.has('local') : activeSpeakers.has(member.userId);
+
+          return (
+            <PartyMember
+              key={member.userId}
+              member={member}
+              user={user}
+              roomPlaybackState={roomPlaybackState}
+              activeMenu={activeMenu}
+              toggleMenu={toggleMenu}
+              localState={localStates[member.userId]}
+              onUpdateLocalState={(updates) => updateLocalState(member.userId, updates)}
+              setControlLock={setControlLock}
+              isActiveSpeaker={isActiveSpeaker}
+            />
+          );
+        })}
       </div>
 
       <PartyControls
         isJoined={isJoined}
         isMicMuted={isMicMuted}
-        isVideoMuted={isVideoMuted}
         updatePartyState={updatePartyState}
         onJoin={joinVoice}
       />

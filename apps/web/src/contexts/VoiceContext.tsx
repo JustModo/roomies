@@ -23,6 +23,7 @@ interface VoiceContextValue {
   outputSelectionSupported: boolean;
   notice: string | null;
   dismissNotice: () => void;
+  activeSpeakers: Set<string>;
 }
 
 const VoiceContext = createContext<VoiceContextValue | null>(null);
@@ -147,6 +148,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   );
   const [notice, setNotice] = useState<string | null>(null);
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const [activeSpeakers, setActiveSpeakers] = useState<Set<string>>(new Set());
 
   const selectionRef = useRef({ selectedInputId, selectedOutputId });
   useEffect(() => {
@@ -234,6 +236,9 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     const relay = new AudioRelay();
     relay.onInputDeviceEnded = () => {
       fallbackToDefaultInput();
+    };
+    relay.onActiveSpeakersChanged = (speakers) => {
+      setActiveSpeakers(speakers);
     };
     relayRef.current = relay;
     isComponentMounted.current = true;
@@ -444,6 +449,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     outputSelectionSupported,
     notice,
     dismissNotice,
+    activeSpeakers,
   };
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;

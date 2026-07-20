@@ -40,11 +40,15 @@ export class AudioRelay {
     private peers = new Map<string, PeerPlayer>();
     private selfMuted = false;
     private desiredSinkId: string | undefined;
+    private analyserNode: AnalyserNode | null = null;
+    private vadInterval: number | ReturnType<typeof setInterval> | null = null;
 
     /** Called with each encoded Opus chunk that should be sent to the server. */
     public onChunk?: ChunkCallback;
     /** Called when the active input device ends unexpectedly (e.g. unplugged). */
     public onInputDeviceEnded?: () => void;
+    /** Called when the set of currently speaking users changes. Local user is 'local'. */
+    public onActiveSpeakersChanged?: (activeSpeakers: Set<string>) => void;
 
     constructor(config: VoiceConfig = DEFAULT_VOICE_CONFIG) {
         this.config = config;
@@ -131,10 +135,16 @@ export class AudioRelay {
             this.captureSink = this.audioCtx.createGain();
             this.captureSink.gain.value = 0;
 
+            this.analyserNode = this.audioCtx.createAnalyser();
+            this.analyserNode.fftSize = 256;
+
             // Keep the capture worklet pulled by the graph without audible local monitor output.
-            source.connect(this.workletNode);
+            source.connect(this.analyserNode);
+            this.analyserNode.connect(this.workletNode);
             this.workletNode.connect(this.captureSink);
             this.captureSink.connect(this.audioCtx.destination);
+
+            this.startVadPolling();
 
             return acquireResult;
         } catch (e) {
@@ -151,6 +161,10 @@ export class AudioRelay {
             if (this.captureSink) {
                 this.captureSink.disconnect();
                 this.captureSink = null;
+            }
+            if (this.analyserNode) {
+                this.analyserNode.disconnect();
+                this.analyserNode = null;
             }
             this.frameBuffer = null;
             if (this.encoder) {
@@ -182,7 +196,13 @@ export class AudioRelay {
                     this.captureSource.disconnect();
                 }
                 const source = this.audioCtx.createMediaStreamSource(stream);
-                source.connect(this.workletNode);
+                
+                if (this.analyserNode) {
+                    source.connect(this.analyserNode);
+                } else {
+                    source.connect(this.workletNode);
+                }
+                
                 this.captureSource = source;
             }
         }
@@ -237,8 +257,57 @@ export class AudioRelay {
         }
     }
 
+    private startVadPolling(): void {
+        if (this.vadInterval) return;
+        const THRESHOLD = 0.001;
+        
+        let lastActiveSpeakers = new Set<string>();
+
+        this.vadInterval = setInterval(() => {
+            const activeSpeakers = new Set<string>();
+
+            // Check local mic
+            if (this.analyserNode && !this.selfMuted) {
+                const data = new Float32Array(this.analyserNode.fftSize);
+                this.analyserNode.getFloatTimeDomainData(data);
+                let sumSquares = 0;
+                for (let i = 0; i < data.length; i++) {
+                    sumSquares += data[i] * data[i];
+                }
+                const vol = Math.sqrt(sumSquares / data.length);
+                if (vol > THRESHOLD) {
+                    activeSpeakers.add('local');
+                }
+            }
+
+            // Check remote peers
+            for (const [userId, peer] of this.peers.entries()) {
+                if (peer.getVolume() > THRESHOLD) {
+                    activeSpeakers.add(userId);
+                }
+            }
+
+            // If set changed, fire callback
+            if (activeSpeakers.size !== lastActiveSpeakers.size || 
+                [...activeSpeakers].some(s => !lastActiveSpeakers.has(s))) {
+                lastActiveSpeakers = activeSpeakers;
+                this.onActiveSpeakersChanged?.(activeSpeakers);
+            }
+        }, 100);
+    }
+
+    private stopVadPolling(): void {
+        if (this.vadInterval) {
+            clearInterval(this.vadInterval as any);
+            this.vadInterval = null;
+            this.onActiveSpeakersChanged?.(new Set());
+        }
+    }
+
     /** Stops encoding, releases the mic, and destroys all peer players. */
     public leave(): void {
+        this.stopVadPolling();
+        
         if (this.captureSource) {
             this.captureSource.disconnect();
             this.captureSource = null;
@@ -255,6 +324,11 @@ export class AudioRelay {
         }
 
         this.frameBuffer = null;
+
+        if (this.analyserNode) {
+            this.analyserNode.disconnect();
+            this.analyserNode = null;
+        }
 
         if (this.encoder) {
             this.encoder.free();

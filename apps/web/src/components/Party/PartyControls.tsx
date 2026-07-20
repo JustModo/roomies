@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MicOff, VideoOff, Mic, Video, Loader2, Settings, X, ChevronDown } from 'lucide-react';
+import { MicOff, Mic, Loader2, Settings, X, ChevronDown } from 'lucide-react';
 import { useVoice } from '../../contexts/VoiceContext';
 import { useActiveMenu } from '../../hooks/useActiveMenu';
 
 interface PartyControlsProps {
   isJoined: boolean;
   isMicMuted: boolean;
-  isVideoMuted: boolean;
-  updatePartyState: (updates: { isJoined?: boolean; micMuted?: boolean; videoMuted?: boolean }) => void;
+  updatePartyState: (updates: { isJoined?: boolean; micMuted?: boolean }) => void;
   onJoin: () => Promise<void>;
 }
 
@@ -99,7 +98,6 @@ const DeviceSelect: React.FC<DeviceSelectProps> = ({ label, disabledHint, disabl
 export const PartyControls: React.FC<PartyControlsProps> = ({
   isJoined,
   isMicMuted,
-  isVideoMuted,
   updatePartyState,
   onJoin,
 }) => {
@@ -123,7 +121,7 @@ export const PartyControls: React.FC<PartyControlsProps> = ({
     setJoinError(null);
     try {
       await onJoin();
-      updatePartyState({ isJoined: true, micMuted: true, videoMuted: true });
+      updatePartyState({ isJoined: true, micMuted: true });
     } catch (err) {
       setJoinError(err instanceof Error ? err.message : 'Failed to access microphone.');
     } finally {
@@ -191,15 +189,6 @@ export const PartyControls: React.FC<PartyControlsProps> = ({
             title={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
           >
             {isMicMuted ? <MicOff size={16} strokeWidth={1.5} /> : <Mic size={16} strokeWidth={1.5} />}
-          </button>
-          <button
-            onClick={() => updatePartyState({ videoMuted: !isVideoMuted })}
-            className={`w-8 h-8 flex items-center justify-center transition-colors hover:bg-ash/10 ${
-              isVideoMuted ? 'text-red-400/80 hover:text-red-400' : 'text-paper/60 hover:text-paper'
-            }`}
-            title={isVideoMuted ? 'Enable video' : 'Disable video'}
-          >
-            {isVideoMuted ? <VideoOff size={16} strokeWidth={1.5} /> : <Video size={16} strokeWidth={1.5} />}
           </button>
           <button
             onClick={() => toggleMenu('devices')}

@@ -5,6 +5,7 @@ import type { VoiceConfig } from '../config';
 export class PeerPlayer {
     private readonly ctx: AudioContext;
     private readonly gainNode: GainNode;
+    private readonly analyserNode: AnalyserNode;
     private readonly decoder: Promise<OpusDecoderHandle>;
     private readonly config: VoiceConfig;
     private nextPlayTime = 0;
@@ -17,11 +18,27 @@ export class PeerPlayer {
         this.ctx = ctx;
         this.config = config;
         this.gainNode = ctx.createGain();
-        this.gainNode.connect(ctx.destination);
+        this.analyserNode = ctx.createAnalyser();
+        this.analyserNode.fftSize = 256;
+        
+        this.gainNode.connect(this.analyserNode);
+        this.analyserNode.connect(ctx.destination);
+        
         this.decoder = createDecoder({
             channels: config.channels,
             sampleRate: config.sampleRate,
         });
+    }
+
+    getVolume(): number {
+        const data = new Float32Array(this.analyserNode.fftSize);
+        this.analyserNode.getFloatTimeDomainData(data);
+        
+        let sumSquares = 0;
+        for (let i = 0; i < data.length; i++) {
+            sumSquares += data[i] * data[i];
+        }
+        return Math.sqrt(sumSquares / data.length);
     }
 
     setVolume(volume: number): void {
@@ -79,6 +96,7 @@ export class PeerPlayer {
             const dec = await this.decoder;
             dec.free();
             this.gainNode.disconnect();
+            this.analyserNode.disconnect();
         });
         return this.opQueue;
     }
