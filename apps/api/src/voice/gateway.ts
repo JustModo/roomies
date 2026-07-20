@@ -62,7 +62,12 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
           pingInterval = null;
         }
 
-        voiceManager.leaveRoom(userId);
+        // Only remove/broadcast if this connection is still the current
+        // owner of the session — a stale connection (e.g. a reconnect race
+        // or duplicate tab) that already got superseded must not evict the
+        // live session or send a bogus peer_left for it.
+        const removed = voiceManager.leaveRoom(userId, connection);
+        if (!removed) return;
 
         // Notify other clients about the user leaving
         for (const client of voiceManager.getRoomClients()) {
