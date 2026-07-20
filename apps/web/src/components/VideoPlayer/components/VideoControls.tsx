@@ -26,6 +26,10 @@ interface VideoControlsProps {
   activeSubtitleId?: string | null;
   setActiveSubtitleId?: (id: string | null) => void;
   displaySubtitleLabel?: (language: string | null) => string;
+  subtitleOffsetSec?: number;
+  setSubtitleOffsetSec?: (offset: number) => void;
+  subtitleFontScale?: number;
+  setSubtitleFontScale?: (scale: number) => void;
   isAsyncMode?: boolean;
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;
@@ -82,6 +86,10 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   activeSubtitleId,
   setActiveSubtitleId,
   displaySubtitleLabel,
+  subtitleOffsetSec = 0,
+  setSubtitleOffsetSec,
+  subtitleFontScale = 1,
+  setSubtitleFontScale,
   isAsyncMode,
   onToggleAsync,
   allowAsyncMode = true,
@@ -292,6 +300,56 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                               {displaySubtitleLabel(sub.language)}
                             </button>
                           ))}
+                        </>
+                      )}
+
+                      {setSubtitleOffsetSec && (
+                        <>
+                          <div className="px-3 pt-2 pb-1 mt-1 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-t border-ash/10">Offset</div>
+                          <div className="flex items-center justify-between px-3 py-1.5 gap-2">
+                            <button
+                              onClick={() => setSubtitleOffsetSec(Math.round((subtitleOffsetSec - 0.5) * 10) / 10)}
+                              className="px-2 py-1 text-[12px] lg:text-sm text-paper hover:bg-ash/20"
+                            >
+                              -0.5s
+                            </button>
+                            <span className="text-[12px] lg:text-sm text-paper/80 tabular-nums">
+                              {subtitleOffsetSec > 0 ? '+' : ''}{subtitleOffsetSec.toFixed(1)}s
+                            </span>
+                            <button
+                              onClick={() => setSubtitleOffsetSec(Math.round((subtitleOffsetSec + 0.5) * 10) / 10)}
+                              className="px-2 py-1 text-[12px] lg:text-sm text-paper hover:bg-ash/20"
+                            >
+                              +0.5s
+                            </button>
+                          </div>
+                          {subtitleOffsetSec !== 0 && (
+                            <button
+                              onClick={() => setSubtitleOffsetSec(0)}
+                              className="w-full text-center px-3 py-1 text-[11px] lg:text-xs text-paper/50 hover:text-paper"
+                            >
+                              Reset offset
+                            </button>
+                          )}
+                        </>
+                      )}
+
+                      {setSubtitleFontScale && (
+                        <>
+                          <div className="px-3 pt-2 pb-1 mt-1 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-t border-ash/10">Size</div>
+                          <div className="flex items-center justify-center gap-2 px-3 py-1.5">
+                            {[{ label: 'S', scale: 0.75 }, { label: 'M', scale: 1 }, { label: 'L', scale: 1.5 }].map(({ label, scale }) => (
+                              <button
+                                key={label}
+                                onClick={() => setSubtitleFontScale(scale)}
+                                className={`px-2.5 py-1 text-[12px] lg:text-sm transition-colors ${
+                                  Math.abs(subtitleFontScale - scale) < 0.01 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
                         </>
                       )}
                     </div>

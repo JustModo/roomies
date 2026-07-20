@@ -4,6 +4,8 @@ import { roomStore } from './store';
 import { SocketEmitter } from '../websocket/emitter';
 import { coordinator } from '../playback/coordinator';
 import { prisma } from '../database/sqlite';
+import { getMasterPlaylistUrl } from '../playback/service';
+import { SyncService } from '../sync/service';
 
 type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
 type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>['payload'];
@@ -79,6 +81,31 @@ export class RoomService {
           status: 'ready',
           asyncSession: undefined
         });
+
+        // Reset their player back to the room-scoped HLS stream — without this,
+        // the client keeps pointing at the now-torn-down async transcode session
+        // and buffers forever.
+        SocketEmitter.sendToUser(ctx.app, member.userId, {
+          event: 'media.changed',
+          payload: {
+            mediaFileId: state.mediaId!,
+            title: state.mediaTitle || 'Unknown Media',
+            hlsUrl: getMasterPlaylistUrl(state.mediaId!, 'sync'),
+            duration: state.duration,
+            transcodeOffset: state.transcodeOffset,
+            sessionScope: 'room',
+            subtitles: state.subtitles,
+          }
+        });
+
+        SocketEmitter.broadcastToRoom(ctx.app, {
+          event: 'user.status_changed',
+          payload: { userId: member.userId, status: 'ready' }
+        });
+      }
+
+      if (asyncMembers.length > 0) {
+        SyncService.reconcileRoomBufferingState(ctx);
       }
     }
 

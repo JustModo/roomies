@@ -2,6 +2,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from './service';
 import { SetupRootSchema, LoginSchema, LoginRequest } from '@roomies/contracts';
 import { prisma } from '../database/sqlite';
+import { kickUserConnections } from '../websocket/gateway';
 
 export const AuthController = {
   async status(req: FastifyRequest, reply: FastifyReply) {
@@ -34,6 +35,7 @@ export const AuthController = {
 
     try {
       const response = await AuthService.login(parsedBody.data);
+      kickUserConnections(req.server, response.user.id);
       return reply.send(response);
     } catch (e: any) {
       if (e.message === 'Invalid credentials') {

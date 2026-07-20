@@ -2,9 +2,10 @@ import React from 'react';
 
 interface SubtitleOverlayProps {
   activeCueHtml: string;
+  fontScale?: number;
 }
 
-export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({ activeCueHtml }) => {
+export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({ activeCueHtml, fontScale = 1 }) => {
   if (!activeCueHtml) return null;
 
   return (
@@ -17,7 +18,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({ activeCueHtml 
         textAlign: 'center',
         pointerEvents: 'none',
         zIndex: 10,
-        fontSize: '2vw',
+        fontSize: `${2 * fontScale}vw`,
         fontFamily: "'Inter', sans-serif",
         fontWeight: 500,
         lineHeight: 1.2,
