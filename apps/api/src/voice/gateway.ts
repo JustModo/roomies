@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { authenticateWebSocket } from "../auth";
+import { authenticateWebSocket } from "../auth/websocket";
 import { voiceManager } from "./manager";
 import { VOICE_PROTOCOL, VoiceServerControlMessage } from "./config";
 import {
@@ -24,7 +24,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
       reply.status(400).send({ error: "WebSocket upgrade required" });
     },
     wsHandler: async (connection, req) => {
-      const userPayload = authenticateWebSocket(req);
+      const userPayload = await authenticateWebSocket(req);
 
       if (!userPayload) {
         console.warn("[voice] WebSocket unauthorized");

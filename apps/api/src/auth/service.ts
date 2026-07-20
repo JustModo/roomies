@@ -5,9 +5,27 @@ import { SetupRootRequest, CreateGuestRequest, LoginRequest } from '@roomies/con
 import { Config } from '../config';
 
 const BCRYPT_ROUNDS = 12;
+const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // NOTE: Dummy hash for bcrypt comparisons to prevent user-enumeration timing attacks.
 const DUMMY_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO/pF5X3XG5pXHIe9Rq3z1e6nS3s3z3sK';
+
+/**
+ * Rotates the user's session: any previously issued RefreshToken row (and thus the
+ * sessionId embedded in its access token) is deleted, enforcing single-session-per-account.
+ */
+async function rotateSession(userId: string, refreshToken: string) {
+  return prisma.$transaction(async (tx) => {
+    await tx.refreshToken.deleteMany({ where: { userId } });
+    return tx.refreshToken.create({
+      data: {
+        token: refreshToken,
+        userId,
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+      },
+    });
+  });
+}
 
 export const AuthService = {
   async setupRoot(data: SetupRootRequest) {
@@ -38,15 +56,16 @@ export const AuthService = {
       throw err;
     }
 
-    const token = jwt.sign(
-      { userId: user.id, username: user.username, role: user.role },
-      Config.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
     const refreshToken = jwt.sign(
       { userId: user.id },
       Config.JWT_REFRESH_SECRET,
       { expiresIn: '7d' }
+    );
+    const session = await rotateSession(user.id, refreshToken);
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role, sessionId: session.id },
+      Config.JWT_SECRET,
+      { expiresIn: '1h' }
     );
 
     return { token, refreshToken, user: { id: user.id, username: user.username, role: user.role } };
@@ -84,15 +103,16 @@ export const AuthService = {
       throw new Error('Invalid credentials');
     }
 
-    const token = jwt.sign(
-      { userId: user.id, username: user.username, role: user.role },
-      Config.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
     const refreshToken = jwt.sign(
       { userId: user.id },
       Config.JWT_REFRESH_SECRET,
       { expiresIn: '7d' }
+    );
+    const session = await rotateSession(user.id, refreshToken);
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role, sessionId: session.id },
+      Config.JWT_SECRET,
+      { expiresIn: '1h' }
     );
 
     return { token, refreshToken, user: { id: user.id, username: user.username, role: user.role } };

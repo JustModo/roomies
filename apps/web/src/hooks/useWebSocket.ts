@@ -31,6 +31,11 @@ export function useWebSocket() {
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as OutgoingSocketMessage;
+        if ((message as any).event === 'auth.kicked') {
+          // Signed in elsewhere — don't auto-reconnect with the now-invalid session.
+          ws.onclose = null;
+          ws.close();
+        }
         handlersRef.current.forEach(handler => handler(message));
       } catch (err) {
         console.error('[sync] Failed to parse websocket message:', err);

@@ -51,7 +51,7 @@ export const setHasUserInteracted = (val: boolean) => {
 
 export default function Room() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [viewersCount, setViewersCount] = useState<number>(0);
   const [showAdmin, setShowAdmin] = useState(false);
 
@@ -94,6 +94,15 @@ export default function Room() {
       setViewersCount(roomState.members.length);
     }
   }, [roomState?.members]);
+
+  useEffect(() => {
+    return addMessageHandler((msg: any) => {
+      if (msg.event === 'auth.kicked') {
+        logout();
+        navigate('/login?reason=kicked', { replace: true });
+      }
+    });
+  }, [addMessageHandler, logout, navigate]);
 
   const handleExit = () => {
     sendMessage({ event: 'room.leave', payload: {} });
