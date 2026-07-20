@@ -196,6 +196,10 @@ export class TranscodeSession {
         this.mergedOffsets.set(offset, nextOffset);
         this.stopGroup(offset);
       } else {
+        if (this.sessionId === 'sync') {
+          console.log(`[transcode] Keeping latest offset group ${offset} active for sync session`);
+          return;
+        }
         console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
         this.stopGroup(offset);
       }

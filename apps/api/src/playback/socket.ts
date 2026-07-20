@@ -29,7 +29,7 @@ export const registerPlaybackSocketEvents = () => {
 
   registerSocketEvent(
     'playback.seek',
-    createDebouncer(500)(withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
+    createDebouncer(150)(withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
       await PlaybackService.handleSeek(payload as SeekPayload, ctx);
     })))
   );

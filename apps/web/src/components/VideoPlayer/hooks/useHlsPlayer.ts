@@ -58,7 +58,9 @@ export function useHlsPlayer({
     const isNewMedia = mediaInfo.mediaFileId !== lastMediaIdRef.current;
     lastMediaIdRef.current = mediaInfo.mediaFileId;
 
-    reportStatus('buffering');
+    // NOTE: Do NOT call reportStatus('buffering') here — useVideoEvents handles
+    // the buffering/ready lifecycle via DOM events (waiting, canplay, seeked, progress).
+    // Calling it here causes a double-report and confuses the reconcile flow.
     if (isNewMedia) {
       setLevels([]);
       setCurrentLevel(-1);

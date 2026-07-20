@@ -21,49 +21,62 @@ export function useAsyncPlayback({
 }: UseAsyncPlaybackParams) {
   const [isAsyncMode, setIsAsyncMode] = useState(false);
   const isAsyncModeRef = useRef(false);
-  
-  const [asyncPlaybackState, setAsyncPlaybackState] = useState<RoomState['playback'] | null>(null);
 
-  // Send periodic heartbeat for the async transcoder
+  const [asyncPlaybackState, setAsyncPlaybackState] = useState<RoomState['playback'] | null>(null);
+  // Keep a ref so the heartbeat interval always reads the latest value without stale closures.
+  const asyncPlaybackStateRef = useRef<RoomState['playback'] | null>(null);
+
   useEffect(() => {
-    if (!isConnected || !isAsyncModeRef.current) return;
-    
+    asyncPlaybackStateRef.current = asyncPlaybackState;
+  }, [asyncPlaybackState]);
+
+  // Periodic heartbeat so the transcoder knows where the async user is.
+  useEffect(() => {
+    if (!isConnected) return;
+
     const interval = setInterval(() => {
+      if (!isAsyncModeRef.current) return;
+      const ps = asyncPlaybackStateRef.current;
       sendMessage({
         event: 'sync.heartbeat',
         payload: {
           position: localTimeRef.current,
-          playing: asyncPlaybackState?.state === 'playing',
-          playbackRate: asyncPlaybackState?.playbackRate || 1,
-          resolution: activeResolutionRef.current as any
+          playing: ps?.state === 'playing',
+          playbackRate: ps?.playbackRate ?? 1,
+          resolution: activeResolutionRef.current as any,
+          status: 'async' as const,
         }
       });
     }, WEB_CONFIG.ASYNC_HEARTBEAT_INTERVAL_MS);
+
     return () => clearInterval(interval);
-  }, [isConnected, sendMessage, asyncPlaybackState]);
+  }, [isConnected, sendMessage, localTimeRef, activeResolutionRef]);
 
   const forceAsyncMode = useCallback((enabled: boolean) => {
     if (enabled && !allowAsyncMode) return;
     setIsAsyncMode(prev => {
       if (prev === enabled) return prev;
       isAsyncModeRef.current = enabled;
-      
+
       if (enabled) {
         sendMessage({ event: 'sync.status', payload: { status: 'async' as any } });
-        setAsyncPlaybackState(roomPlaybackState ? {
+        const snap = roomPlaybackState ? {
           ...roomPlaybackState,
           anchorPosition: localTimeRef.current,
           anchorTime: Date.now(),
-        } : null);
+        } : null;
+        setAsyncPlaybackState(snap);
+        asyncPlaybackStateRef.current = snap;
       } else {
         sendMessage({ event: 'sync.status', payload: { status: 'ready' } });
         setAsyncPlaybackState(null);
+        asyncPlaybackStateRef.current = null;
       }
       return enabled;
     });
   }, [sendMessage, roomPlaybackState, localTimeRef, allowAsyncMode]);
 
-  // Auto-enforce room setting: force back to room sync if admin disables async mode
+  // Auto-enforce room setting: force back to room sync if admin disables async mode.
   useEffect(() => {
     if (!allowAsyncMode && isAsyncModeRef.current) {
       forceAsyncMode(false);
@@ -75,57 +88,76 @@ export function useAsyncPlayback({
   }, [forceAsyncMode]);
 
   const play = useCallback(() => {
-    setAsyncPlaybackState(prev => prev ? { ...prev, state: 'playing', intendedState: 'playing', anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
+    setAsyncPlaybackState(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, state: 'playing' as const, intendedState: 'playing' as const, anchorPosition: localTimeRef.current, anchorTime: Date.now() };
+      asyncPlaybackStateRef.current = next;
+      return next;
+    });
   }, [localTimeRef]);
 
   const pause = useCallback(() => {
-    setAsyncPlaybackState(prev => prev ? { ...prev, state: 'paused', intendedState: 'paused', anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
+    setAsyncPlaybackState(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, state: 'paused' as const, intendedState: 'paused' as const, anchorPosition: localTimeRef.current, anchorTime: Date.now() };
+      asyncPlaybackStateRef.current = next;
+      return next;
+    });
   }, [localTimeRef]);
 
   /**
-   * Seek in async mode — sends the request to the server, which uses the
-   * same coordinator as sync to decide whether a transcode reinit is needed.
-   *
-   * The server responds with a user-scoped `media.changed` event containing
-   * the resolved transcodeOffset. The HLS player reinits only when the
-   * offset actually changes (via seekKey in useRoomSync).
-   *
-   * Play/pause state is set locally (buffering) for instant feedback.
+   * Seek in async mode — sends the request to the server, which uses the same
+   * coordinator as sync to decide whether a transcode reinit is needed.
+   * The server responds with a user-scoped `media.changed` containing the
+   * resolved transcodeOffset. HLS reinits only when offset actually changes.
    */
   const seek = useCallback((position: number, forceNewOffset: boolean = false) => {
-    setAsyncPlaybackState(prev => prev ? { ...prev, state: 'buffering', anchorPosition: position, anchorTime: Date.now() } : prev);
-
-    sendMessage({ 
-      event: 'playback.seek', 
-      payload: { position, scope: 'user', forceNewOffset } 
+    setAsyncPlaybackState(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, state: 'buffering' as const, anchorPosition: position, anchorTime: Date.now() };
+      asyncPlaybackStateRef.current = next;
+      return next;
     });
-    
-    // Immediate heartbeat for seek to help transcoder start ASAP
+
+    sendMessage({
+      event: 'playback.seek',
+      payload: { position, scope: 'user', forceNewOffset }
+    });
+
+    // Immediate heartbeat so the transcoder starts ASAP.
     sendMessage({
       event: 'sync.heartbeat',
       payload: {
         position,
         playing: false,
-        playbackRate: asyncPlaybackState?.playbackRate || 1,
-        resolution: activeResolutionRef.current as any
+        playbackRate: asyncPlaybackStateRef.current?.playbackRate ?? 1,
+        resolution: activeResolutionRef.current as any,
+        status: 'async' as const,
       }
     });
-  }, [sendMessage, asyncPlaybackState]);
+  }, [sendMessage, activeResolutionRef]);
 
   const setStatus = useCallback((status: 'ready' | 'buffering') => {
     setAsyncPlaybackState(prev => {
       if (!prev) return prev;
-      return {
+      const next = {
         ...prev,
-        state: status === 'buffering' ? 'buffering' : prev.intendedState,
+        state: (status === 'buffering' ? 'buffering' : prev.intendedState) as RoomState['playback']['state'],
         anchorPosition: localTimeRef.current,
         anchorTime: Date.now()
       };
+      asyncPlaybackStateRef.current = next;
+      return next;
     });
   }, [localTimeRef]);
 
   const setRate = useCallback((rate: number) => {
-    setAsyncPlaybackState(prev => prev ? { ...prev, playbackRate: rate, anchorPosition: localTimeRef.current, anchorTime: Date.now() } : prev);
+    setAsyncPlaybackState(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, playbackRate: rate, anchorPosition: localTimeRef.current, anchorTime: Date.now() };
+      asyncPlaybackStateRef.current = next;
+      return next;
+    });
   }, [localTimeRef]);
 
   return {

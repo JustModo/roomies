@@ -6,14 +6,24 @@ export interface BufferedRange {
   end: number;
 }
 
+/**
+ * A seek command issued by the sync system. Using an object with a monotonically
+ * increasing `id` instead of a bare counter eliminates stale-trigger replays:
+ * `useVideoEvents` tracks the last handled id and skips duplicates.
+ */
+export interface SeekCommand {
+  position: number;
+  id: number;
+}
+
 export interface VideoPlayerProps {
   mediaInfo: MediaInfo | null;
   seekKey?: number;
   roomPlaybackState?: RoomState['playback'];
   localTime: number;
   localCorrectionRate?: number | null;
-  syncSeekTrigger?: number;
-  syncSeekPosition?: number;
+  /** Replaces the old syncSeekTrigger + syncSeekPosition pair. */
+  seekCommand?: SeekCommand | null;
   onPlay: () => void;
   onPause: () => void;
   onSeek: (position: number, forceNewOffset?: boolean) => void;

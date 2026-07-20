@@ -1,13 +1,13 @@
 import { useEffect, MutableRefObject, useRef } from 'react';
 import { RoomState, SyncStatus } from '@roomies/contracts';
-import { BufferedRange } from '../types';
+import { BufferedRange, SeekCommand } from '../types';
 
 interface UseVideoEventsParams {
   videoRef: MutableRefObject<HTMLVideoElement | null>;
   roomPlaybackState?: RoomState['playback'];
   localCorrectionRate?: number | null;
-  syncSeekTrigger?: number;
-  syncSeekPosition?: number;
+  /** Replaces the old syncSeekTrigger + syncSeekPosition pair. */
+  seekCommand?: SeekCommand | null;
   reportStatus: (status: SyncStatus, force?: boolean) => void;
   isDragging: boolean;
   isPlaying: boolean;
@@ -20,7 +20,8 @@ interface UseVideoEventsParams {
   onEnded?: () => void;
 }
 
-const getBufferedAhead = (vid: HTMLVideoElement) => {
+/** Returns how many seconds are buffered ahead of the current playhead. */
+const getBufferedAhead = (vid: HTMLVideoElement): number => {
   const time = vid.currentTime;
   let maxEnd = time;
   for (let i = 0; i < vid.buffered.length; i++) {
@@ -37,8 +38,7 @@ export function useVideoEvents({
   videoRef,
   roomPlaybackState,
   localCorrectionRate,
-  syncSeekTrigger = 0,
-  syncSeekPosition = 0,
+  seekCommand,
   reportStatus,
   isDragging,
   isPlaying,
@@ -50,109 +50,102 @@ export function useVideoEvents({
   activeOffsetRef,
   onEnded,
 }: UseVideoEventsParams) {
-  const lastProcessedTriggerRef = useRef(0);
+  const lastHandledSeekIdRef = useRef(-1);
   const pendingSeekRef = useRef<number | null>(null);
   const targetRateRef = useRef(1);
 
-  // Sync state changes from server (play/pause)
+  // ── Play / Pause ──────────────────────────────────────────────────────────
+  // Driven entirely by the room playback state. We do not locally call play()
+  // or pause() in response to user input — that goes through the server first.
   useEffect(() => {
     if (!videoRef.current) return;
-    if (roomPlaybackState?.state === 'playing' && !isPlaying && !isDragging) {
-      videoRef.current.play().catch(err => console.error('[playback] Play failed:', err));
-      setIsPlaying(true);
-    } else if (roomPlaybackState?.state !== 'playing' && isPlaying) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, [roomPlaybackState?.state, isDragging, isPlaying, setIsPlaying]);
+    const state = roomPlaybackState?.state;
 
-  // Sync playback rate
+    if (state === 'playing' && !isPlaying && !isDragging) {
+      videoRef.current.play().catch(err => console.error('[playback] Play failed:', err));
+    } else if (state !== 'playing' && isPlaying) {
+      videoRef.current.pause();
+    }
+  }, [roomPlaybackState?.state, isDragging, isPlaying]);
+
+  // ── Playback Rate ─────────────────────────────────────────────────────────
   useEffect(() => {
     const targetRate = localCorrectionRate ?? roomPlaybackState?.playbackRate ?? 1;
     targetRateRef.current = targetRate;
-
-    if (videoRef.current) {
-      if (videoRef.current.playbackRate !== targetRate) {
-        videoRef.current.playbackRate = targetRate;
-      }
+    if (videoRef.current && videoRef.current.playbackRate !== targetRate) {
+      videoRef.current.playbackRate = targetRate;
     }
   }, [roomPlaybackState?.playbackRate, localCorrectionRate]);
 
-  // Sync seek triggers
+  // ── Seek Command ──────────────────────────────────────────────────────────
+  // Handles explicit seeks issued by the sync system (on seek, join, buffering).
+  // Uses seekCommand.id to deduplicate — a seek is only ever executed once
+  // regardless of re-renders or React StrictMode double-invocations.
   useEffect(() => {
-    if (syncSeekTrigger <= lastProcessedTriggerRef.current) return;
+    if (!seekCommand) return;
+    if (seekCommand.id <= lastHandledSeekIdRef.current) return;
 
-    if (isDragging) {
-      lastProcessedTriggerRef.current = syncSeekTrigger;
-      return;
-    }
+    // Mark handled immediately to prevent re-entry.
+    lastHandledSeekIdRef.current = seekCommand.id;
 
-    if (!videoRef.current || syncSeekTrigger === 0) return;
+    if (isDragging) return; // Don't interrupt scrubbing.
 
+    const video = videoRef.current;
     const transOffset = activeOffsetRef.current;
-    const targetRelative = Math.max(0, syncSeekPosition - transOffset);
+    const targetRelative = Math.max(0, seekCommand.position - transOffset);
 
-    // Defer explicit seeks if the video is completely unloaded or swapping sources.
-    // The seek will be executed once loadedmetadata fires.
-    if (videoRef.current.readyState === 0) {
+    // Update UI time immediately for instant feedback.
+    setCurrentTime(seekCommand.position);
+    onReportTime(seekCommand.position);
+
+    if (!video) return;
+
+    // If the video source isn't loaded yet, defer the seek to loadedmetadata.
+    if (video.readyState === 0) {
       pendingSeekRef.current = targetRelative;
-      lastProcessedTriggerRef.current = syncSeekTrigger;
-      setCurrentTime(syncSeekPosition);
-      onReportTime(syncSeekPosition);
       return;
     }
 
-    lastProcessedTriggerRef.current = syncSeekTrigger;
-
-    console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${targetRelative})`);
-
-    
-    // Check if the target position is already in memory
-    let isBuffered = false;
-    const buffered = videoRef.current.buffered;
+    // Check if the target position is already in the buffer.
+    let isAlreadyBuffered = false;
+    const buffered = video.buffered;
     for (let i = 0; i < buffered.length; i++) {
-      // Require at least 0.5 seconds of buffer ahead of the seek point to consider it "cached"
       if (targetRelative >= buffered.start(i) && targetRelative <= buffered.end(i) - 0.5) {
-        isBuffered = true;
+        isAlreadyBuffered = true;
         break;
       }
     }
 
-    if (!isBuffered) {
-      reportStatus('buffering');
-    } else {
-      // Force report 'ready' to instantly acknowledge the explicit seek command
+    if (isAlreadyBuffered) {
+      // Already have data — report ready immediately, no buffering spinner needed.
       reportStatus('ready', true);
+    } else {
+      reportStatus('buffering');
     }
 
-    videoRef.current.currentTime = targetRelative;
-    setCurrentTime(syncSeekPosition);
-    onReportTime(syncSeekPosition);
-  }, [syncSeekTrigger, syncSeekPosition, isDragging, reportStatus, setCurrentTime, onReportTime]);
+    console.log(`[playback] Seek to abs=${seekCommand.position.toFixed(2)} rel=${targetRelative.toFixed(2)} (buffered=${isAlreadyBuffered})`);
+    video.currentTime = targetRelative;
+  }, [seekCommand, isDragging, reportStatus, setCurrentTime, onReportTime]);
 
-  // DOM Event Listeners
+  // ── DOM Event Listeners (status + time tracking) ──────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     let bufferingTimeout: ReturnType<typeof setTimeout>;
 
-    const handleWaiting = () => {
-      clearTimeout(bufferingTimeout);
-      bufferingTimeout = setTimeout(() => {
-        reportStatus('buffering');
-      }, 1500);
-    };
-
-    const handleReady = () => {
-      // Re-assert playrate in case the browser loaded new metadata and reverted it to 1.0
+    /**
+     * Check buffer ahead and report ready if there's enough data.
+     * This is the single source-of-truth for reporting 'ready'.
+     */
+    const checkAndReportReady = () => {
       if (video.playbackRate !== targetRateRef.current) {
         video.playbackRate = targetRateRef.current;
       }
 
       const bufferedAhead = getBufferedAhead(video);
-      const remainingTime = video.duration ? (video.duration - video.currentTime) : 0;
-      const threshold = video.duration ? Math.min(0.5, remainingTime) : 0.5;
+      const remainingTime = video.duration ? Math.max(0, video.duration - video.currentTime) : Infinity;
+      const threshold = Math.min(0.5, remainingTime);
 
       if (bufferedAhead >= threshold) {
         clearTimeout(bufferingTimeout);
@@ -160,12 +153,33 @@ export function useVideoEvents({
       }
     };
 
-    const handleProgress = () => {
-      handleReady();
+    const handleWaiting = () => {
+      clearTimeout(bufferingTimeout);
+      // Short debounce to ignore brief stalls that resolve immediately.
+      bufferingTimeout = setTimeout(() => {
+        reportStatus('buffering');
+      }, 500);
     };
 
-    // Aggressively enforce playback rate against DOM resets
+    const handleLoadedMetadata = () => {
+      if (pendingSeekRef.current !== null) {
+        console.log(`[playback] Executing deferred seek to rel=${pendingSeekRef.current.toFixed(2)}`);
+        video.currentTime = pendingSeekRef.current;
+        setCurrentTime(pendingSeekRef.current + activeOffsetRef.current);
+        pendingSeekRef.current = null;
+      }
+    };
+
+    const handleSeeked = () => checkAndReportReady();
+    const handleCanPlay = () => checkAndReportReady();
+    const handlePlaying = () => {
+      clearTimeout(bufferingTimeout);
+      checkAndReportReady();
+    };
+    const handleProgress = () => checkAndReportReady();
+
     const handleRateChange = () => {
+      // Browser may reset playbackRate (e.g. after src change); re-assert it.
       if (video.playbackRate !== targetRateRef.current) {
         video.playbackRate = targetRateRef.current;
       }
@@ -177,21 +191,12 @@ export function useVideoEvents({
       onEnded?.();
     };
 
-    const handleLoadedMetadata = () => {
-      if (pendingSeekRef.current !== null) {
-        console.log(`[playback] Executing deferred sync seek to relative ${pendingSeekRef.current}`);
-        video.currentTime = pendingSeekRef.current;
-        setCurrentTime(pendingSeekRef.current + activeOffsetRef.current);
-        pendingSeekRef.current = null;
-      }
-    };
-
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('playing', handleReady);
-    video.addEventListener('canplay', handleReady);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('progress', handleProgress);
-    video.addEventListener('seeked', handleReady);
+    video.addEventListener('seeked', handleSeeked);
     video.addEventListener('ratechange', handleRateChange);
     video.addEventListener('ended', handleEnded);
 
@@ -199,62 +204,57 @@ export function useVideoEvents({
       clearTimeout(bufferingTimeout);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('waiting', handleWaiting);
-      video.removeEventListener('playing', handleReady);
-      video.removeEventListener('canplay', handleReady);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('progress', handleProgress);
-      video.removeEventListener('seeked', handleReady);
+      video.removeEventListener('seeked', handleSeeked);
       video.removeEventListener('ratechange', handleRateChange);
       video.removeEventListener('ended', handleEnded);
     };
-  }, [reportStatus, onEnded]);
+  }, [reportStatus, onEnded, setCurrentTime]);
 
+  // ── Time Update & Buffer Tracking ─────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     const updateBufferedRanges = () => {
       const transOffset = activeOffsetRef.current;
-      const rawRanges: { start: number, end: number }[] = [];
+      const rawRanges: { start: number; end: number }[] = [];
       for (let i = 0; i < video.buffered.length; i++) {
         rawRanges.push({
           start: video.buffered.start(i) + transOffset,
-          end: video.buffered.end(i) + transOffset
+          end: video.buffered.end(i) + transOffset,
         });
       }
 
       rawRanges.sort((a, b) => a.start - b.start);
 
-      const mergedRanges: { start: number, end: number }[] = [];
+      const merged: { start: number; end: number }[] = [];
       if (rawRanges.length > 0) {
-        let current = rawRanges[0];
+        let cur = rawRanges[0];
         for (let i = 1; i < rawRanges.length; i++) {
           const next = rawRanges[i];
-          if (next.start - current.end <= 2.0) {
-            current.end = Math.max(current.end, next.end);
+          if (next.start - cur.end <= 2.0) {
+            cur.end = Math.max(cur.end, next.end);
           } else {
-            mergedRanges.push(current);
-            current = next;
+            merged.push(cur);
+            cur = next;
           }
         }
-        mergedRanges.push(current);
+        merged.push(cur);
       }
 
       const curTime = video.currentTime + transOffset;
-      const finalRanges = mergedRanges.map(range => {
-        if (range.start > curTime && range.start - curTime <= 1.0) {
-          return { ...range, start: curTime };
-        }
-        return range;
-      });
-
-      setBufferedRanges(finalRanges);
+      const final = merged.map(r =>
+        r.start > curTime && r.start - curTime <= 1.0 ? { ...r, start: curTime } : r
+      );
+      setBufferedRanges(final);
     };
 
     const onTimeUpdate = () => {
       if (video.readyState === 0) return;
-      const transOffset = activeOffsetRef.current;
-      const absTime = video.currentTime + transOffset;
-      
+      const absTime = video.currentTime + activeOffsetRef.current;
       if (!isDragging && !video.seeking) {
         setCurrentTime(absTime);
         onReportTime(absTime);

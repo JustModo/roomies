@@ -28,10 +28,7 @@ export class RoomService {
       }
     });
 
-    const state = roomStore.getState();
-    if (state.playback.state === 'playing') {
-      roomStore.updatePlayback({ state: 'buffering', anchorTime: Date.now() });
-    }
+    SyncService.reconcileRoomBufferingState(ctx);
 
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'room.state',

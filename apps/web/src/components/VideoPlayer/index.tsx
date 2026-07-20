@@ -11,7 +11,6 @@ import { VideoControls } from './components/VideoControls';
 import { SubtitleOverlay } from './components/SubtitleOverlay';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
 
-
 import { SyncStatus } from '@roomies/contracts';
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -20,8 +19,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   roomPlaybackState,
   localTime,
   localCorrectionRate,
-  syncSeekTrigger = 0,
-  syncSeekPosition = 0,
+  seekCommand,
   onPlay,
   onPause,
   onSeek,
@@ -37,7 +35,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   allowAsyncMode = true,
   userId,
   isLockedByAdmin = false,
-  children
+  children,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -49,7 +47,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [dragProgress, setDragProgress] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  
+
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = volume;
@@ -77,7 +75,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  // Cleanup effect
+  // Cleanup on media unload.
   useEffect(() => {
     if (!mediaInfo) {
       setCurrentTime(0);
@@ -88,24 +86,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [mediaInfo]);
 
+  // ── Idle / Controls Visibility ─────────────────────────────────────────────
+
   const lastShowTimeRef = useRef<number>(0);
   const manuallyHiddenTimeRef = useRef<number>(0);
 
   const showControls = useCallback(() => {
-    // Prevent synthetic events from waking it up right after hiding
     if (Date.now() - manuallyHiddenTimeRef.current < 500) return;
-
-    setIdle((prevIdle) => {
-      if (prevIdle) {
-        lastShowTimeRef.current = Date.now();
-      }
+    setIdle(prevIdle => {
+      if (prevIdle) lastShowTimeRef.current = Date.now();
       return false;
     });
-
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setIdle(true);
-    }, 3000);
+    timerRef.current = setTimeout(() => setIdle(true), 3000);
   }, []);
 
   const hideControls = useCallback(() => {
@@ -114,21 +107,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     clearTimeout(timerRef.current);
   }, []);
 
-  // Idle Timer — wakes up UI on keyboard activity
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       showControls();
     };
-
     window.addEventListener('keydown', handleKeyDown);
     showControls();
-
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       clearTimeout(timerRef.current);
     };
   }, [showControls]);
+
+  // ── HLS Player ────────────────────────────────────────────────────────────
 
   const triggerQualitySeek = useCallback(() => {
     if (videoRef.current) {
@@ -157,6 +149,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [activeResolution, onReportResolution]);
 
+  // ── Subtitles ──────────────────────────────────────────────────────────────
+
   const {
     activeSubtitleId,
     setActiveSubtitleId,
@@ -166,6 +160,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     subtitleFontScale,
     setSubtitleFontScale,
   } = useSubtitles({ mediaInfo, currentTime });
+
+  // ── Video Events ───────────────────────────────────────────────────────────
 
   const handleEnded = useCallback(() => {
     if (isLocked) return;
@@ -178,8 +174,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     videoRef,
     roomPlaybackState,
     localCorrectionRate,
-    syncSeekTrigger,
-    syncSeekPosition,
+    seekCommand,
     reportStatus,
     isDragging,
     isPlaying,
@@ -191,6 +186,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     activeOffsetRef,
     onEnded: handleEnded,
   });
+
+  // ── Controls ───────────────────────────────────────────────────────────────
 
   const handlePlayPause = useCallback(() => {
     if (isLocked) return;
@@ -233,17 +230,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     transcodeOffset: mediaInfo?.transcodeOffset || 0,
   });
 
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds)) return '0:00';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) {
-      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
   const cyclePlaybackRate = () => {
     if (isLocked) return;
     const rates = [0.5, 1, 1.25, 1.5, 2];
@@ -252,7 +238,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onSetRate(next);
   };
 
-  // Scrubbing Logic
+  // ── Scrubbing (seek bar drag) ──────────────────────────────────────────────
+
   const updateDragProgress = (clientX: number) => {
     if (!progressBarRef.current) return;
     const rect = progressBarRef.current.getBoundingClientRect();
@@ -273,39 +260,51 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   useEffect(() => {
-    if (isDragging) {
-      const handlePointerMove = (e: PointerEvent) => {
-        updateDragProgress(e.clientX);
-      };
-      const handlePointerUp = (e: PointerEvent) => {
-        setIsDragging(false);
-        let pos = dragProgress;
-        if (progressBarRef.current) {
-          const rect = progressBarRef.current.getBoundingClientRect();
-          pos = (e.clientX - rect.left) / rect.width;
-          pos = Math.max(0, Math.min(1, pos));
-          setDragProgress(pos);
-          setCurrentTime(pos * (mediaInfo?.duration || duration));
-        }
-        const totalDuration = mediaInfo?.duration || duration;
-        const newPos = pos * totalDuration;
-        onSeek(newPos);
-        if (videoRef.current) {
-          const transOffset = activeOffsetRef.current;
-          videoRef.current.currentTime = Math.max(0, newPos - transOffset);
-        }
-      };
+    if (!isDragging) return;
 
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
-      window.addEventListener('pointercancel', handlePointerUp);
-      return () => {
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-        window.removeEventListener('pointercancel', handlePointerUp);
-      };
-    }
+    const handlePointerMove = (e: PointerEvent) => updateDragProgress(e.clientX);
+
+    const handlePointerUp = (e: PointerEvent) => {
+      setIsDragging(false);
+      let pos = dragProgress;
+      if (progressBarRef.current) {
+        const rect = progressBarRef.current.getBoundingClientRect();
+        pos = (e.clientX - rect.left) / rect.width;
+        pos = Math.max(0, Math.min(1, pos));
+        setDragProgress(pos);
+        setCurrentTime(pos * (mediaInfo?.duration || duration));
+      }
+      const totalDuration = mediaInfo?.duration || duration;
+      const newPos = pos * totalDuration;
+      onSeek(newPos);
+      if (videoRef.current) {
+        const transOffset = activeOffsetRef.current;
+        videoRef.current.currentTime = Math.max(0, newPos - transOffset);
+      }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
   }, [isDragging, dragProgress, duration, mediaInfo?.duration, mediaInfo?.transcodeOffset, onSeek]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const formatTime = (seconds: number) => {
+    if (isNaN(seconds)) return '0:00';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   const totalDuration = mediaInfo?.duration || duration;
   const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
@@ -314,7 +313,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('player-controls-toggle', { detail: { visible: uiVisible } }));
   }, [uiVisible]);
-
 
   return (
     <div
@@ -329,7 +327,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         muted={volume === 0}
       />
 
-      {/* Custom subtitle overlay — gives full control over position */}
+      {/* Custom subtitle overlay */}
       <SubtitleOverlay activeCueHtml={activeCueHtml} fontScale={subtitleFontScale} />
 
       <VideoOverlay

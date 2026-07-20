@@ -10,6 +10,7 @@ import { VoiceProvider, useVoice } from '../contexts/VoiceContext';
 import { ChatToasts } from '../components/Chat';
 import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
+import { SeekCommand } from '../components/VideoPlayer/types';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
 
 /**
@@ -71,8 +72,7 @@ export default function Room() {
     seekKey,
     localTime,
     localCorrectionRate,
-    syncSeekTrigger,
-    syncSeekPosition,
+    seekCommand,
     play,
     pause,
     seek,
@@ -122,8 +122,7 @@ export default function Room() {
           seekKey={seekKey}
           localTime={localTime}
           localCorrectionRate={localCorrectionRate}
-          syncSeekTrigger={syncSeekTrigger}
-          syncSeekPosition={syncSeekPosition}
+          seekCommand={seekCommand}
           play={play}
           pause={pause}
           seek={seek}
@@ -154,8 +153,7 @@ interface RoomInnerProps {
   seekKey: number;
   localTime: number;
   localCorrectionRate: number | null | undefined;
-  syncSeekTrigger: number;
-  syncSeekPosition: number;
+  seekCommand: SeekCommand | null;
   play: () => void;
   pause: () => void;
   seek: (pos: number) => void;
@@ -182,8 +180,7 @@ function RoomInner({
   seekKey,
   localTime,
   localCorrectionRate,
-  syncSeekTrigger,
-  syncSeekPosition,
+  seekCommand,
   play,
   pause,
   seek,
@@ -332,8 +329,7 @@ function RoomInner({
           roomPlaybackState={roomState?.playback}
           localTime={localTime}
           localCorrectionRate={localCorrectionRate}
-          syncSeekTrigger={syncSeekTrigger}
-          syncSeekPosition={syncSeekPosition}
+          seekCommand={seekCommand}
           onPlay={play}
           onPause={pause}
           onSeek={seek}
