@@ -53,7 +53,7 @@ export const AuthService = {
   },
 
   async createGuest(data: CreateGuestRequest) {
-    const existingUser = await prisma.user.findFirst({
+    const existingUser = await prisma.user.findUnique({
       where: { username: data.username },
     });
 
