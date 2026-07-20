@@ -62,8 +62,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [onStatusChange]);
 
   const lastReportedStatusRef = useRef<SyncStatus>('ready');
-  const reportStatus = useCallback((status: SyncStatus) => {
-    if (lastReportedStatusRef.current !== status) {
+  const reportStatus = useCallback((status: SyncStatus, force = false) => {
+    if (force || lastReportedStatusRef.current !== status) {
       lastReportedStatusRef.current = status;
       onStatusChangeRef.current(status);
     }

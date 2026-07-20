@@ -8,7 +8,7 @@ interface UseVideoEventsParams {
   localCorrectionRate?: number | null;
   syncSeekTrigger?: number;
   syncSeekPosition?: number;
-  reportStatus: (status: SyncStatus) => void;
+  reportStatus: (status: SyncStatus, force?: boolean) => void;
   isDragging: boolean;
   isPlaying: boolean;
   setIsPlaying: (playing: boolean) => void;
@@ -97,6 +97,8 @@ export function useVideoEvents({
     if (videoRef.current.readyState === 0) {
       pendingSeekRef.current = targetRelative;
       lastProcessedTriggerRef.current = syncSeekTrigger;
+      setCurrentTime(syncSeekPosition);
+      onReportTime(syncSeekPosition);
       return;
     }
 
@@ -109,8 +111,8 @@ export function useVideoEvents({
     let isBuffered = false;
     const buffered = videoRef.current.buffered;
     for (let i = 0; i < buffered.length; i++) {
-      // Require at least 1 second of buffer ahead of the seek point to consider it "cached"
-      if (targetRelative >= buffered.start(i) && targetRelative <= buffered.end(i) - 1.0) {
+      // Require at least 0.5 seconds of buffer ahead of the seek point to consider it "cached"
+      if (targetRelative >= buffered.start(i) && targetRelative <= buffered.end(i) - 0.5) {
         isBuffered = true;
         break;
       }
@@ -118,11 +120,15 @@ export function useVideoEvents({
 
     if (!isBuffered) {
       reportStatus('buffering');
+    } else {
+      // Force report 'ready' to instantly acknowledge the explicit seek command
+      reportStatus('ready', true);
     }
 
     videoRef.current.currentTime = targetRelative;
     setCurrentTime(syncSeekPosition);
-  }, [syncSeekTrigger, syncSeekPosition, isDragging, reportStatus, setCurrentTime]);
+    onReportTime(syncSeekPosition);
+  }, [syncSeekTrigger, syncSeekPosition, isDragging, reportStatus, setCurrentTime, onReportTime]);
 
   // DOM Event Listeners
   useEffect(() => {
@@ -146,7 +152,7 @@ export function useVideoEvents({
 
       const bufferedAhead = getBufferedAhead(video);
       const remainingTime = video.duration ? (video.duration - video.currentTime) : 0;
-      const threshold = video.duration ? Math.min(3.0, remainingTime) : 3.0;
+      const threshold = video.duration ? Math.min(0.5, remainingTime) : 0.5;
 
       if (bufferedAhead >= threshold) {
         clearTimeout(bufferingTimeout);
@@ -248,10 +254,11 @@ export function useVideoEvents({
       if (video.readyState === 0) return;
       const transOffset = activeOffsetRef.current;
       const absTime = video.currentTime + transOffset;
-      if (!isDragging) {
+      
+      if (!isDragging && !video.seeking) {
         setCurrentTime(absTime);
+        onReportTime(absTime);
       }
-      onReportTime(absTime);
       setDuration(video.duration || 0);
       updateBufferedRanges();
     };

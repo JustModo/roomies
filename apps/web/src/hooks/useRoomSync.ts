@@ -133,7 +133,7 @@ export function useRoomSync() {
           setLocalTime(initialPos);
           localTimeRef.current = initialPos;
 
-          if (msg.payload.state === 'buffering') {
+          if (msg.payload.state === 'buffering' || msg.payload.state === 'waiting') {
             setSyncSeekPosition(initialPos);
             setSyncSeekTrigger((prev) => prev + 1);
           }
@@ -370,6 +370,23 @@ export function useRoomSync() {
       setSyncSeekTrigger(t => t + 1);
       return;
     }
+    
+    // Optimistically update local state to prevent rubber-banding
+    setRoomState((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        playback: {
+          ...prev.playback,
+          state: 'buffering',
+          anchorPosition: position,
+          anchorTime: Date.now()
+        }
+      };
+    });
+    setSyncSeekPosition(position);
+    setSyncSeekTrigger(t => t + 1);
+
     sendMessage({ event: 'playback.seek', payload: { position, forceNewOffset } });
   }, [sendMessage, asyncPlayback]);
 
