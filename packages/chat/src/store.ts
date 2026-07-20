@@ -5,7 +5,7 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-const MAX_MESSAGES_PER_PARTY = 500;
+import { CHAT_CONFIG } from './config';
 
 // Single-node, in-memory replacement for the old Redis OM chat schema. Chat
 // is explicitly ephemeral (per tasks/ARCHITECTURE.md) — a capped ring buffer
@@ -15,8 +15,8 @@ let messages: ChatMessage[] = [];
 export const chatStore = {
   append(message: ChatMessage): void {
     messages.push(message);
-    if (messages.length > MAX_MESSAGES_PER_PARTY) {
-      messages.splice(0, messages.length - MAX_MESSAGES_PER_PARTY);
+    if (messages.length > CHAT_CONFIG.MAX_MESSAGES_PER_PARTY) {
+      messages.splice(0, messages.length - CHAT_CONFIG.MAX_MESSAGES_PER_PARTY);
     }
   },
 

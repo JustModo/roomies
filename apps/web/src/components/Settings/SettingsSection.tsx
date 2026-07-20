@@ -2,7 +2,7 @@ import React from 'react';
 import { useChat } from '../../contexts/ChatContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { RoomState } from '../../hooks/useRoomSync';
-import { Bell, Volume2, VolumeX, BellOff, Radio, Shield } from 'lucide-react';
+import { Bell, Volume2, VolumeX, BellOff, Radio } from 'lucide-react';
 
 interface SettingsSectionProps {
   roomState?: RoomState | null;

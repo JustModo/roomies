@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { Dirent } from 'fs';
-import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS } from './constants';
+import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS } from './config';
 import { ScannedEpisode, ScannedMedia, ScannedSubtitle } from './types';
 import { parseEpisodeFilename } from './parser';
 

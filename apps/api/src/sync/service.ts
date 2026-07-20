@@ -2,9 +2,9 @@ import { SocketContext } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
-import { TranscodeSessionManager } from '@roomies/transcoding';
 import { coordinator } from '../playback/coordinator';
-import { getMasterPlaylistUrl, PlaybackService } from '../playback/service';
+import { getMasterPlaylistUrl } from '../playback/service';
+import { SYNC_CONFIG } from '../config';
 
 type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'sync.heartbeat' }>['payload'];
 type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['payload'];
@@ -91,8 +91,8 @@ export class SyncService {
     const expectedPosition = this.calculateExpectedPosition(playback);
     const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
 
-    const SOFT_THRESHOLD_MS = 500;
-    const HARD_THRESHOLD_MS = 4000;
+    const SOFT_THRESHOLD_MS = SYNC_CONFIG.SOFT_THRESHOLD_MS;
+    const HARD_THRESHOLD_MS = SYNC_CONFIG.HARD_THRESHOLD_MS;
 
     // NOTE: If the room is buffering, wait for it to resume before enforcing sync.
     if (playback.state === 'buffering') {

@@ -1,4 +1,4 @@
-import { SCAN_CONCURRENCY } from './constants';
+import { SCAN_CONCURRENCY } from './config';
 
 export const runWithConcurrency = async <T>(items: T[], worker: (item: T) => Promise<void>): Promise<void> => {
   let cursor = 0;

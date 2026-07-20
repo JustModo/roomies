@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
 import { RoomState } from './useRoomSync';
+import { WEB_CONFIG } from '../config';
 
 interface UseAsyncPlaybackParams {
   isConnected: boolean;
@@ -37,7 +38,7 @@ export function useAsyncPlayback({
           resolution: activeResolutionRef.current as any
         }
       });
-    }, 5000);
+    }, WEB_CONFIG.ASYNC_HEARTBEAT_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [isConnected, sendMessage, asyncPlaybackState]);
 
