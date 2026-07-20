@@ -51,6 +51,7 @@ export function useVideoEvents({
   onEnded,
 }: UseVideoEventsParams) {
   const lastProcessedTriggerRef = useRef(0);
+  const pendingSeekRef = useRef<number | null>(null);
   const targetRateRef = useRef(1);
 
   // Sync state changes from server (play/pause)
@@ -88,12 +89,21 @@ export function useVideoEvents({
 
     if (!videoRef.current || syncSeekTrigger === 0) return;
 
+    const transOffset = activeOffsetRef.current;
+    const targetRelative = Math.max(0, syncSeekPosition - transOffset);
+
+    // Defer explicit seeks if the video is completely unloaded or swapping sources.
+    // The seek will be executed once loadedmetadata fires.
+    if (videoRef.current.readyState === 0) {
+      pendingSeekRef.current = targetRelative;
+      lastProcessedTriggerRef.current = syncSeekTrigger;
+      return;
+    }
+
     lastProcessedTriggerRef.current = syncSeekTrigger;
 
-    const transOffset = activeOffsetRef.current;
-    console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${syncSeekPosition - transOffset})`);
+    console.log(`[playback] Executing sync seek to absolute ${syncSeekPosition} (relative: ${targetRelative})`);
 
-    const targetRelative = Math.max(0, syncSeekPosition - transOffset);
     
     // Check if the target position is already in memory
     let isBuffered = false;
@@ -161,6 +171,16 @@ export function useVideoEvents({
       onEnded?.();
     };
 
+    const handleLoadedMetadata = () => {
+      if (pendingSeekRef.current !== null) {
+        console.log(`[playback] Executing deferred sync seek to relative ${pendingSeekRef.current}`);
+        video.currentTime = pendingSeekRef.current;
+        setCurrentTime(pendingSeekRef.current + activeOffsetRef.current);
+        pendingSeekRef.current = null;
+      }
+    };
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handleReady);
     video.addEventListener('canplay', handleReady);
@@ -171,6 +191,7 @@ export function useVideoEvents({
 
     return () => {
       clearTimeout(bufferingTimeout);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('playing', handleReady);
       video.removeEventListener('canplay', handleReady);

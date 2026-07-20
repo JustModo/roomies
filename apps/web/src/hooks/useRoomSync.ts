@@ -85,7 +85,6 @@ export function useRoomSync() {
           const initialPos = getInitialPosition(msg.payload.room.playback);
           setLocalTime(initialPos);
           localTimeRef.current = initialPos;
-
           setSyncSeekPosition(initialPos);
           setSyncSeekTrigger((prev) => prev + 1);
         }
