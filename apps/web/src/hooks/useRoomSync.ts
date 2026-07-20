@@ -150,15 +150,15 @@ export function useRoomSync() {
 
       // ── playback.state ─────────────────────────────────────────────────
       } else if (msg.event === 'playback.state') {
-        // Async users ignore room playback events.
-        if (asyncPlayback.isAsyncModeRef.current) return;
-
         setRoomState(prev => {
           if (!prev) return prev;
           const playback = { ...msg.payload };
           if (!prev.mediaId) playback.state = 'waiting';
           return { ...prev, playback };
         });
+
+        // Async users ignore room playback position changes & seeks.
+        if (asyncPlayback.isAsyncModeRef.current) return;
 
         const pos = getPositionFromAnchor(msg.payload);
         setLocalTime(pos);

@@ -68,7 +68,7 @@ export function useAsyncPlayback({
         setAsyncPlaybackState(snap);
         asyncPlaybackStateRef.current = snap;
       } else {
-        sendMessage({ event: 'sync.status', payload: { status: 'ready' } });
+        sendMessage({ event: 'sync.status', payload: { status: 'buffering' as any } });
         setAsyncPlaybackState(null);
         asyncPlaybackStateRef.current = null;
       }

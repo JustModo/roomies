@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import { MediaInfo, RoomState } from '@roomies/contracts';
 
 interface VideoOverlayProps {
@@ -16,19 +16,16 @@ export const VideoOverlay: React.FC<VideoOverlayProps> = ({
   isDragging,
   isAsyncMode
 }) => {
-  const overlayTextRef = useRef(!mediaInfo ? 'THE PARTY WILL START SOON' : 'PAUSED');
+  let overlayText = '';
+  if (!mediaInfo) {
+    overlayText = 'THE PARTY WILL START SOON';
+  } else if (roomPlaybackState?.state === 'buffering') {
+    overlayText = isAsyncMode ? 'BUFFERING' : 'SYNCING';
+  } else if (roomPlaybackState?.state === 'paused' || roomPlaybackState?.state === 'waiting' || (!isPlaying && !isDragging)) {
+    overlayText = 'PAUSED';
+  }
 
-  useEffect(() => {
-    if (!mediaInfo) {
-      overlayTextRef.current = 'THE PARTY WILL START SOON';
-    } else if (roomPlaybackState?.state === 'buffering') {
-      overlayTextRef.current = isAsyncMode ? 'BUFFERING' : 'SYNCING';
-    } else if (roomPlaybackState?.state === 'paused' || roomPlaybackState?.state === 'waiting') {
-      overlayTextRef.current = 'PAUSED';
-    }
-  }, [mediaInfo, roomPlaybackState?.state, isAsyncMode]);
-
-  const showOverlay = roomPlaybackState !== undefined && (roomPlaybackState.state === 'buffering' || (!isPlaying && !isDragging));
+  const showOverlay = Boolean(overlayText) && !isDragging;
 
   return (
     <div
@@ -37,7 +34,7 @@ export const VideoOverlay: React.FC<VideoOverlayProps> = ({
       }`}
     >
       <h2 className={`text-sm lg:text-3xl font-medium tracking-[0.12em] text-paper/80 animate-pulse drop-shadow-lg text-center px-6 ${mediaInfo ? 'uppercase' : ''}`}>
-        {overlayTextRef.current}
+        {overlayText}
       </h2>
     </div>
   );

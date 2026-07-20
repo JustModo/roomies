@@ -60,11 +60,12 @@ export function useVideoEvents({
   useEffect(() => {
     if (!videoRef.current) return;
     const state = roomPlaybackState?.state;
+    const video = videoRef.current;
 
-    if (state === 'playing' && !isPlaying && !isDragging) {
-      videoRef.current.play().catch(err => console.error('[playback] Play failed:', err));
-    } else if (state !== 'playing' && isPlaying) {
-      videoRef.current.pause();
+    if (state === 'playing' && video.paused && !isDragging) {
+      video.play().catch(err => console.error('[playback] Play failed:', err));
+    } else if (state !== 'playing' && !video.paused) {
+      video.pause();
     }
   }, [roomPlaybackState?.state, isDragging, isPlaying]);
 
@@ -82,6 +83,7 @@ export function useVideoEvents({
   // Uses seekCommand.id to deduplicate — a seek is only ever executed once
   // regardless of re-renders or React StrictMode double-invocations.
   useEffect(() => {
+    if (!videoRef.current) return;
     if (!seekCommand) return;
     if (seekCommand.id <= lastHandledSeekIdRef.current) return;
 

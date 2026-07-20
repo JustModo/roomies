@@ -10,6 +10,8 @@ type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'sync.heartbeat'
 type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['payload'];
 
 export class SyncService {
+  private static userStatusLocks = new Map<string, Promise<void>>();
+
   static async handleHeartbeat(payload: HeartbeatPayload, ctx: SocketContext) {
     if (payload.timestamp !== undefined) {
       SocketEmitter.sendToClient(ctx.socket, {
@@ -183,6 +185,18 @@ export class SyncService {
   }
 
   static async handleStatus(payload: StatusPayload, ctx: SocketContext) {
+    const previousPromise = this.userStatusLocks.get(ctx.userId) || Promise.resolve();
+    const nextPromise = previousPromise.then(async () => {
+      try {
+        await this.executeHandleStatus(payload, ctx);
+      } catch (err) {
+        console.error(`[sync] Error handling status for user ${ctx.userId}:`, err);
+      }
+    });
+    this.userStatusLocks.set(ctx.userId, nextPromise);
+  }
+
+  private static async executeHandleStatus(payload: StatusPayload, ctx: SocketContext) {
     const state = roomStore.getState();
     const member = state.members.find(m => m.userId === ctx.userId);
     const wasAsync = member?.status === 'async';
