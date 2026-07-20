@@ -40,7 +40,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   children
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
   const [idle, setIdle] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -49,6 +49,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [dragProgress, setDragProgress] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = volume;
+    }
+  }, [volume]);
+
   const activeOffsetRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const progressBarRef = useRef<HTMLDivElement>(null);
@@ -204,8 +211,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isLocked,
     isPlaying,
     playbackRate: roomPlaybackState?.playbackRate || 1,
-    isMuted,
-    setIsMuted,
+    volume,
+    setVolume,
     onPlay,
     onPause,
     onSeek,
@@ -311,7 +318,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ref={videoRef}
         className="w-full h-full object-contain bg-ink"
         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='%23000000'/%3E%3C/svg%3E"
-        muted={isMuted}
+        muted={volume === 0}
       />
 
       {/* Custom subtitle overlay — gives full control over position */}
@@ -345,8 +352,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <VideoControls
           isLocked={isLocked}
           roomPlaybackState={roomPlaybackState}
-          isMuted={isMuted}
-          setIsMuted={setIsMuted}
+          volume={volume}
+          setVolume={setVolume}
           currentTime={currentTime}
           totalDuration={totalDuration}
           formatTime={formatTime}

@@ -6,8 +6,8 @@ interface UsePlayerGesturesParams {
   isLocked: boolean;
   isPlaying: boolean;
   playbackRate: number;
-  isMuted: boolean;
-  setIsMuted: (muted: boolean) => void;
+  volume: number;
+  setVolume: (volume: number) => void;
   onPlay: () => void;
   onPause: () => void;
   onSeek: (position: number) => void;
@@ -26,8 +26,8 @@ export function usePlayerGestures({
   isLocked,
   isPlaying,
   playbackRate,
-  isMuted,
-  setIsMuted,
+  volume,
+  setVolume,
   onPlay,
   onPause,
   onSeek,
@@ -48,11 +48,11 @@ export function usePlayerGestures({
   const stateRef = useRef({
     isPlaying,
     playbackRate,
-    isMuted,
+    volume,
     idle,
     mediaDuration,
     transcodeOffset,
-    setIsMuted,
+    setVolume,
     onPlay,
     onPause,
     onSeek,
@@ -65,11 +65,11 @@ export function usePlayerGestures({
     stateRef.current = {
       isPlaying,
       playbackRate,
-      isMuted,
+      volume,
       idle,
       mediaDuration,
       transcodeOffset,
-      setIsMuted,
+      setVolume,
       onPlay,
       onPause,
       onSeek,
@@ -208,11 +208,11 @@ export function usePlayerGestures({
       e.preventDefault();
 
       if (e.deltaY > 0) {
-        // Scroll down: Mute
-        stateRef.current.setIsMuted(true);
+        // Scroll down: Volume down
+        stateRef.current.setVolume(Math.max(0, stateRef.current.volume - 0.05));
       } else if (e.deltaY < 0) {
-        // Scroll up: Unmute
-        stateRef.current.setIsMuted(false);
+        // Scroll up: Volume up
+        stateRef.current.setVolume(Math.min(1, stateRef.current.volume + 0.05));
       }
     };
 

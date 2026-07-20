@@ -8,8 +8,8 @@ import { useChat } from '../../../contexts/ChatContext';
 interface VideoControlsProps {
   isLocked: boolean;
   roomPlaybackState?: RoomState['playback'];
-  isMuted: boolean;
-  setIsMuted: (muted: boolean) => void;
+  volume: number;
+  setVolume: (volume: number) => void;
   currentTime: number;
   totalDuration: number;
   formatTime: (seconds: number) => string;
@@ -64,8 +64,8 @@ const Btn: React.FC<{
 export const VideoControls: React.FC<VideoControlsProps> = ({
   isLocked,
   roomPlaybackState,
-  isMuted,
-  setIsMuted,
+  volume,
+  setVolume,
   currentTime,
   totalDuration,
   formatTime,
@@ -93,42 +93,82 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
 
   return (
     <div className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1">
-      {/* ── Left cluster: play, seek offsets, mute, time ── */}
+      {/* ── Left cluster: play, seek offsets, volume, time ── */}
       <div className="flex items-center min-w-0">
-        {/* Playback Controls */}
-        <div className="flex items-center gap-0.5 sm:gap-1">
-          <Btn
-            disabled={isLocked}
-            onClick={handlePlayPause}
-            title={isPlaying ? 'Pause' : 'Play'}
-            important
-          >
-            {isPlaying
-              ? <Pause className="w-[18px] h-[18px] lg:w-5 lg:h-5" fill="currentColor" />
-              : <Play className="w-[18px] h-[18px] lg:w-5 lg:h-5" fill="currentColor" />}
-          </Btn>
+        {/* Play Button */}
+        <Btn
+          disabled={isLocked}
+          onClick={handlePlayPause}
+          title={isPlaying ? 'Pause' : 'Play'}
+          important
+        >
+          {isPlaying
+            ? <Pause className="w-5 h-5 lg:w-6 lg:h-6" fill="currentColor" />
+            : <Play className="w-5 h-5 lg:w-6 lg:h-6" fill="currentColor" />}
+        </Btn>
 
+        {/* Space / Divider after Play */}
+        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-3" />
+
+        {/* The two seek buttons (Back & Forward) */}
+        <div className="flex items-center gap-0.5 sm:gap-1">
           <Btn disabled={isLocked} onClick={() => handleSeekOffset(-10)} title="Back 10s">
             <RotateCcw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
           </Btn>
-
           <Btn disabled={isLocked} onClick={() => handleSeekOffset(10)} title="Forward 10s">
             <RotateCw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
           </Btn>
         </div>
 
-        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-4" />
+        {/* Space / Divider after the two buttons */}
+        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-3" />
 
-        {/* Audio & Time */}
-        <div className="flex items-center gap-0.5 sm:gap-1">
-          <Btn onClick={() => setIsMuted(!isMuted)} title={isMuted ? 'Unmute' : 'Mute'}>
-            {isMuted
-              ? <VolumeX className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-              : <Volume2 className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
-          </Btn>
+        {/* Volume & Play Time */}
+        <div className="flex items-center gap-1 sm:gap-1.5">
+          {/* Volume Button */}
+          <div className="group relative flex items-center justify-center">
+            <Btn onClick={() => setVolume(volume === 0 ? 1 : 0)} title={volume === 0 ? 'Unmute' : 'Mute'}>
+              {volume === 0
+                ? <VolumeX className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+                : <Volume2 className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
+            </Btn>
+            
+            {/* Vertical Volume Slider Popup */}
+            <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pb-2">
+              <div className="bg-ink/95 backdrop-blur-md border border-ash/20 py-3 rounded-lg shadow-2xl flex flex-col items-center justify-center w-[40px] h-[120px]">
+                <div className="text-[10px] text-paper/70 font-mono font-bold mb-3">
+                  {Math.round(volume * 100)}
+                </div>
+                
+                <div className="relative w-1.5 h-16 bg-ash/30 rounded-full flex justify-center">
+                  {/* Filled part (blue) */}
+                  <div 
+                    className="absolute bottom-0 w-full bg-blue-500 rounded-full pointer-events-none transition-all duration-75" 
+                    style={{ height: `${volume * 100}%` }}
+                  />
+                  {/* Invisible slider input for interaction */}
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={volume}
+                    onChange={(e) => setVolume(parseFloat(e.target.value))}
+                    className="absolute top-1/2 left-1/2 w-16 h-6 opacity-0 cursor-pointer"
+                    style={{ transform: 'translate(-50%, -50%) rotate(-90deg)' }}
+                  />
+                  {/* Thumb dot */}
+                  <div 
+                    className="absolute w-2.5 h-2.5 bg-paper rounded-full shadow-sm pointer-events-none transition-all duration-75 left-1/2 -translate-x-1/2"
+                    style={{ bottom: `calc(${volume * 100}% - 5px)` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
 
-          {/* Time — hidden on very small portrait so it doesn't wrap */}
-          <span className="hidden xs:flex items-center h-7 lg:h-9 font-mono text-[11px] lg:text-base text-paper/70 whitespace-nowrap ml-1 sm:ml-2">
+          {/* Play time with little space before it */}
+          <span className="hidden xs:flex items-center h-7 lg:h-9 font-mono text-[11px] lg:text-base text-paper/70 whitespace-nowrap ml-0.5 sm:ml-1">
             {formatTime(currentTime)} / {formatTime(totalDuration)}
           </span>
         </div>
@@ -218,6 +258,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   <Btn
                     onClick={() => toggleMenu('subtitle')}
                     active={activeSubtitleId !== null}
+                    className={activeSubtitleId !== null ? '!text-blue-400' : ''}
                     title="Subtitles"
                   >
                     <ClosedCaption className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
@@ -292,10 +333,11 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               }
             }}
             title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            important
           >
             {isFullscreen
-              ? <Minimize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-              : <Maximize className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
+              ? <Minimize className="w-5 h-5 lg:w-6 lg:h-6" strokeWidth={1.5} />
+              : <Maximize className="w-5 h-5 lg:w-6 lg:h-6" strokeWidth={1.5} />}
           </Btn>
         </div>
       </div>
