@@ -272,7 +272,7 @@ export class SyncService {
     });
   }
 
-  private static reconcileRoomBufferingState(ctx: SocketContext) {
+  static reconcileRoomBufferingState(ctx: SocketContext) {
     const state = roomStore.getState();
     const activeMembers = state.members.filter(m => m.status !== 'async');
 

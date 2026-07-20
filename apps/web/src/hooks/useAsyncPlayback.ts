@@ -56,7 +56,7 @@ export function useAsyncPlayback({
           anchorTime: Date.now(),
         } : null);
       } else {
-        sendMessage({ event: 'sync.status', payload: { status: 'watching' as any } });
+        sendMessage({ event: 'sync.status', payload: { status: 'ready' } });
         setAsyncPlaybackState(null);
       }
       return enabled;
