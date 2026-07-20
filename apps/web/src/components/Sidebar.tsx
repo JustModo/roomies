@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { IconButton } from './ui/IconButton';
 import { useChat } from '../contexts/ChatContext';
-import { RoomState } from '../hooks/useRoomSync';
+import { RoomState } from '@roomies/contracts';
 import { ChatSection } from './Chat/ChatSection';
 import { PartySection } from './Party/PartySection';
 import { SettingsSection } from './Settings/SettingsSection';

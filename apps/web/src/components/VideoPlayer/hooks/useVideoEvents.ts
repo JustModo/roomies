@@ -1,5 +1,5 @@
 import { useEffect, MutableRefObject, useRef } from 'react';
-import { RoomState, SyncStatus } from '../../../hooks/useRoomSync';
+import { RoomState, SyncStatus } from '@roomies/contracts';
 import { BufferedRange } from '../types';
 
 interface UseVideoEventsParams {

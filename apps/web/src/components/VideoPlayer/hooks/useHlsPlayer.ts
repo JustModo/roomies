@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, MutableRefObject } from 'react';
 import Hls, { Level, Events, ErrorData, ManifestParsedData } from 'hls.js';
-import { MediaInfo, RoomState } from '../../../hooks/useRoomSync';
+import { MediaInfo, RoomState } from '@roomies/contracts';
 
 interface UseHlsPlayerParams {
   videoRef: MutableRefObject<HTMLVideoElement | null>;

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { MediaInfo, RoomState } from '../../../hooks/useRoomSync';
+import { MediaInfo, RoomState } from '@roomies/contracts';
 
 interface VideoOverlayProps {
   mediaInfo: MediaInfo | null;

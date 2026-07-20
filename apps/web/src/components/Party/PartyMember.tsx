@@ -1,7 +1,7 @@
 import React from 'react';
 import { MicOff, Mic, Lock, Unlock, SignalHigh, SignalMedium, SignalLow, PhoneOff } from 'lucide-react';
 import { getUsernameColor } from '../Chat/utils';
-import { MemberState } from '../../hooks/useRoomSync';
+import { MemberState } from '@roomies/contracts';
 import { LocalMemberState } from './PartySection';
 import { UserProfile } from '@roomies/contracts';
 

@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { MediaInfo, RoomState, SyncStatus } from '../../hooks/useRoomSync';
+import { MediaInfo, RoomState, SyncStatus } from '@roomies/contracts';
 
 export interface BufferedRange {
   start: number;

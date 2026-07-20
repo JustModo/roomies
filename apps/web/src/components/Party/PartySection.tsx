@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useActiveMenu } from '../../hooks/useActiveMenu';
-import { RoomState } from '../../hooks/useRoomSync';
+import { RoomState } from '@roomies/contracts';
 import { PartyMember } from './PartyMember';
 import { PartyControls } from './PartyControls';
 import { useVoice } from '../../contexts/VoiceContext';

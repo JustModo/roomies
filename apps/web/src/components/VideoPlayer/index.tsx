@@ -12,7 +12,7 @@ import { SubtitleOverlay } from './components/SubtitleOverlay';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
 
 
-import { SyncStatus } from '../../hooks/useRoomSync';
+import { SyncStatus } from '@roomies/contracts';
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   mediaInfo,

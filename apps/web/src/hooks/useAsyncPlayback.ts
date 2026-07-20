@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
-import { RoomState } from './useRoomSync';
+import { RoomState } from '@roomies/contracts';
 import { WEB_CONFIG } from '../config';
 
 interface UseAsyncPlaybackParams {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useChat } from '../../contexts/ChatContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { RoomState } from '../../hooks/useRoomSync';
+import { RoomState } from '@roomies/contracts';
 import { Bell, Volume2, VolumeX, BellOff, Radio } from 'lucide-react';
 
 interface SettingsSectionProps {

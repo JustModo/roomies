@@ -1,6 +1,6 @@
 import React from 'react';
 import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption } from 'lucide-react';
-import { RoomState, MediaInfo } from '../../../hooks/useRoomSync';
+import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
 import { useChat } from '../../../contexts/ChatContext';

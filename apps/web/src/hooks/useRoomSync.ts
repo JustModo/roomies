@@ -1,26 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { OutgoingSocketMessage } from '@roomies/contracts';
+import { RoomState, MediaInfo, SyncStatus } from '@roomies/contracts';
 import { useAsyncPlayback } from './useAsyncPlayback';
-
-export type RoomState = Extract<OutgoingSocketMessage, { event: 'room.state' }>['payload']['room'];
-export type MemberState = RoomState['members'][0];
-export type SyncStatus = MemberState['status'];
-
-export interface SubtitleTrack {
-  id: string;
-  language: string | null;
-}
-
-export interface MediaInfo {
-  mediaFileId: string;
-  title: string;
-  hlsUrl: string;
-  duration?: number;
-  seekKey?: number;
-  transcodeOffset: number;
-  subtitles: SubtitleTrack[];
-}
 
 export function useRoomSync() {
   const { isConnected, sendMessage, addMessageHandler } = useWebSocket();

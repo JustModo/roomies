@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { MediaInfo } from '../../../hooks/useRoomSync';
+import { MediaInfo } from '@roomies/contracts';
 
 export const displaySubtitleLabel = (language: string | null): string => {
   if (!language) return 'Unknown';
