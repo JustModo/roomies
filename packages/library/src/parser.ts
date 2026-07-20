@@ -3,7 +3,6 @@ import path from 'path';
 export interface ParsedEpisode {
   season: number | null;
   episode: number | null;
-  title: string;
   sortNumber: number | null;
 }
 
@@ -19,7 +18,6 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
     return {
       season,
       episode,
-      title: `S${String(season).padStart(2, '0')} E${String(episode).padStart(2, '0')}`,
       sortNumber: season * 10000 + episode,
     };
   }
@@ -32,7 +30,6 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
     return {
       season,
       episode,
-      title: `S${String(season).padStart(2, '0')} E${String(episode).padStart(2, '0')}`,
       sortNumber: season * 10000 + episode,
     };
   }
@@ -44,7 +41,6 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
     return {
       season: null,
       episode,
-      title: `Episode ${episode}`,
       sortNumber: episode,
     };
   }
@@ -56,7 +52,6 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
     return {
       season: null,
       episode,
-      title: `Episode ${episode}`,
       sortNumber: episode,
     };
   }
@@ -73,7 +68,6 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
       return {
         season,
         episode,
-        title: `S${String(season).padStart(2, '0')} E${String(episode).padStart(2, '0')}`,
         sortNumber: season * 10000 + episode,
       };
     }
@@ -86,7 +80,6 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
     return {
       season: null,
       episode,
-      title: `Episode ${episode}`,
       sortNumber: episode,
     };
   }
@@ -95,7 +88,6 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
   return {
     season: null,
     episode: null,
-    title: base,
     sortNumber: null,
   };
 };

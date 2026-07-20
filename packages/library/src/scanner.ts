@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Dirent } from 'fs';
 import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS } from './constants';
-import { ScannedEpisode, ScannedMovie, ScannedSubtitle } from './types';
+import { ScannedEpisode, ScannedMedia, ScannedSubtitle } from './types';
 import { parseEpisodeFilename } from './parser';
 
 const listDir = async (dir: string): Promise<Dirent[]> => {
@@ -136,7 +136,7 @@ const buildEpisodes = (folder: string, allFiles: string[]): ScannedEpisode[] => 
         finalEpisodes.push({
           path: ep.path,
           number: ep.parsed.sortNumber,
-          title: ep.parsed.title,
+          title: path.basename(ep.path, path.extname(ep.path)),
           subtitles: ep.subtitles,
         });
       } else {
@@ -159,8 +159,8 @@ const buildEpisodes = (folder: string, allFiles: string[]): ScannedEpisode[] => 
 };
 
 /** Scans immediate subfolders of `rootPath` — each one is a title (movie or show). */
-export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMovie[]> => {
-  const movies: ScannedMovie[] = [];
+export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMedia[]> => {
+  const movies: ScannedMedia[] = [];
   const rootEntries = await listDir(rootPath);
 
   for (const entry of rootEntries) {
@@ -175,11 +175,18 @@ export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMovie[
       continue;
     }
 
+    const type = episodes.length > 1 ? 'show' : 'movie';
+
     movies.push({
       path: titleFolder,
       name: entry.name,
-      type: episodes.length > 1 ? 'show' : 'movie',
-      episodes,
+      type,
+      episodes: episodes.map(ep => ({
+        ...ep,
+        title: type === 'movie' 
+          ? entry.name 
+          : (ep.number !== null ? `${entry.name} Episode ${ep.number}` : ep.title)
+      })),
     });
   }
 

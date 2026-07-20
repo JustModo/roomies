@@ -5,7 +5,7 @@ import { Library, MediaFile as MediaFileContract, Subtitle, Movie } from '@roomi
 import { scanLibraryFolder } from './scanner';
 import { getMediaDuration } from './ffprobe';
 import { runWithConcurrency } from './concurrency';
-import { ScannedEpisode, ScannedMovie } from './types';
+import { ScannedEpisode, ScannedMedia } from './types';
 
 const MEDIA_ROOT = CONFIG_MEDIA_ROOT;
 
@@ -111,7 +111,7 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
 };
 
 /** Syncs a library's movie rows (and their episodes) against disk. */
-const syncMovies = async (prisma: PrismaClient, libraryId: string, scannedMovies: ScannedMovie[]) => {
+const syncMovies = async (prisma: PrismaClient, libraryId: string, scannedMovies: ScannedMedia[]) => {
   const existing = await prisma.movie.findMany({ where: { libraryId } });
   const diskPaths = new Set(scannedMovies.map((m) => m.path));
 

@@ -10,7 +10,7 @@ export interface ScannedEpisode {
   subtitles: ScannedSubtitle[];
 }
 
-export interface ScannedMovie {
+export interface ScannedMedia {
   path: string;
   name: string;
   type: 'movie' | 'show';
