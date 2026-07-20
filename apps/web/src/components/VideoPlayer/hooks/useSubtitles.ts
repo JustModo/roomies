@@ -21,6 +21,13 @@ interface UseSubtitlesProps {
   currentTime: number; // absolute playback time (video.currentTime + transcodeOffset)
 }
 
+const OFFSET_STORAGE_KEY = 'roomies_subtitle_offset';
+const FONT_SCALE_STORAGE_KEY = 'roomies_subtitle_font_scale';
+const MIN_FONT_SCALE = 0.6;
+const MAX_FONT_SCALE = 2.0;
+
+const clampFontScale = (value: number) => Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, value));
+
 /** Convert VTT inline tags to safe HTML, preserving <i>, <b>, <u> */
 const vttTagToHtml = (text: string): string => {
   return text
@@ -112,6 +119,26 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
   // Raw VTT text per subtitle id (fetched once with offset=0)
   const [parsedTracks, setParsedTracks] = useState<Record<string, ParsedCue[]>>({});
 
+  const [subtitleOffsetSec, setSubtitleOffsetSecState] = useState<number>(() => {
+    const saved = parseFloat(localStorage.getItem(OFFSET_STORAGE_KEY) || '0');
+    return isNaN(saved) ? 0 : saved;
+  });
+  const [subtitleFontScale, setSubtitleFontScaleState] = useState<number>(() => {
+    const saved = parseFloat(localStorage.getItem(FONT_SCALE_STORAGE_KEY) || '1');
+    return isNaN(saved) ? 1 : clampFontScale(saved);
+  });
+
+  const setSubtitleOffsetSec = useCallback((offset: number) => {
+    setSubtitleOffsetSecState(offset);
+    localStorage.setItem(OFFSET_STORAGE_KEY, String(offset));
+  }, []);
+
+  const setSubtitleFontScale = useCallback((scale: number) => {
+    const clamped = clampFontScale(scale);
+    setSubtitleFontScaleState(clamped);
+    localStorage.setItem(FONT_SCALE_STORAGE_KEY, String(clamped));
+  }, []);
+
   const subtitlesSignature = (mediaInfo?.subtitles || []).map(s => s.id).join(',');
 
   useEffect(() => {
@@ -177,15 +204,19 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
     const cues = parsedTracks[activeSubtitleId];
     if (!cues || cues.length === 0) return '';
 
-    const active = findActiveCues(cues, currentTime);
+    const active = findActiveCues(cues, currentTime + subtitleOffsetSec);
     if (active.length === 0) return '';
 
     return active.map((cue) => vttTagToHtml(cue.text)).join('<br/>');
-  }, [activeSubtitleId, parsedTracks, currentTime]);
+  }, [activeSubtitleId, parsedTracks, currentTime, subtitleOffsetSec]);
 
   return {
     activeSubtitleId,
     setActiveSubtitleId: handleSetActiveSubtitleId,
     activeCueHtml,
+    subtitleOffsetSec,
+    setSubtitleOffsetSec,
+    subtitleFontScale,
+    setSubtitleFontScale,
   };
 }

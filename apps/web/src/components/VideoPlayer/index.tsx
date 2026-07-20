@@ -150,7 +150,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [activeResolution, onReportResolution]);
 
-  const { activeSubtitleId, setActiveSubtitleId, activeCueHtml } = useSubtitles({ mediaInfo, currentTime });
+  const {
+    activeSubtitleId,
+    setActiveSubtitleId,
+    activeCueHtml,
+    subtitleOffsetSec,
+    setSubtitleOffsetSec,
+    subtitleFontScale,
+    setSubtitleFontScale,
+  } = useSubtitles({ mediaInfo, currentTime });
 
   const handleEnded = useCallback(() => {
     if (isLocked) return;
@@ -315,7 +323,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       />
 
       {/* Custom subtitle overlay — gives full control over position */}
-      <SubtitleOverlay activeCueHtml={activeCueHtml} />
+      <SubtitleOverlay activeCueHtml={activeCueHtml} fontScale={subtitleFontScale} />
 
       <VideoOverlay
         mediaInfo={mediaInfo}
@@ -366,6 +374,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           activeSubtitleId={activeSubtitleId}
           setActiveSubtitleId={setActiveSubtitleId}
           displaySubtitleLabel={displaySubtitleLabel}
+          subtitleOffsetSec={subtitleOffsetSec}
+          setSubtitleOffsetSec={setSubtitleOffsetSec}
+          subtitleFontScale={subtitleFontScale}
+          setSubtitleFontScale={setSubtitleFontScale}
         />
       </div>
     </div>
