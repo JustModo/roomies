@@ -8,6 +8,7 @@ import { prisma } from '../database/sqlite';
 type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
 type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>['payload'];
 type SetControlLockPayload = Extract<IncomingSocketMessage, { event: 'room.set_control_lock' }>['payload'];
+type UpdateRoomSettingsPayload = Extract<IncomingSocketMessage, { event: 'room.update_settings' }>['payload'];
 
 export class RoomService {
   static async handleJoin(payload: RoomJoinPayload, ctx: SocketContext) {
@@ -52,6 +53,34 @@ export class RoomService {
     }
 
     roomStore.setControlLock(payload.userId, payload.locked);
+
+    SocketEmitter.broadcastToRoom(ctx.app, {
+      event: 'room.state',
+      payload: { room: roomStore.getState() }
+    });
+  }
+
+  static async handleUpdateSettings(payload: UpdateRoomSettingsPayload, ctx: SocketContext) {
+    const user = await prisma.user.findUnique({ where: { id: ctx.userId } });
+    if (user?.role !== 'root') {
+      console.warn(`[room] Unauthorized room settings update attempt by ${ctx.userId}`);
+      return;
+    }
+
+    roomStore.updateSettings(payload.settings);
+
+    // If allowAsyncMode was set to false, force all currently async users back to room sync
+    if (payload.settings.allowAsyncMode === false) {
+      const state = roomStore.getState();
+      const asyncMembers = state.members.filter(m => m.status === 'async');
+      for (const member of asyncMembers) {
+        coordinator.removeAsyncPlayhead(member.userId);
+        roomStore.updateMember(member.userId, {
+          status: 'ready',
+          asyncSession: undefined
+        });
+      }
+    }
 
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'room.state',

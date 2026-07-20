@@ -34,6 +34,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isFullscreen = false,
   isAsyncMode = false,
   onToggleAsync,
+  allowAsyncMode = true,
   userId,
   isLockedByAdmin = false,
   children
@@ -360,6 +361,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           isFullscreen={isFullscreen}
           isAsyncMode={isAsyncMode}
           onToggleAsync={onToggleAsync}
+          allowAsyncMode={allowAsyncMode}
           mediaInfo={mediaInfo}
           activeSubtitleId={activeSubtitleId}
           setActiveSubtitleId={setActiveSubtitleId}

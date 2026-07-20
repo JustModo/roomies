@@ -26,6 +26,7 @@ export interface VideoPlayerProps {
   isFullscreen?: boolean;
   isAsyncMode: boolean;
   onToggleAsync?: () => void;
+  allowAsyncMode?: boolean;
   userId?: string;
   isLockedByAdmin?: boolean;
   children?: ReactNode;

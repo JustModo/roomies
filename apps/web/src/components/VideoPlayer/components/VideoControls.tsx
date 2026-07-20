@@ -28,6 +28,7 @@ interface VideoControlsProps {
   displaySubtitleLabel?: (language: string | null) => string;
   isAsyncMode?: boolean;
   onToggleAsync?: () => void;
+  allowAsyncMode?: boolean;
 }
 
 // Compact icon button — smaller padding on mobile
@@ -83,6 +84,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   displaySubtitleLabel,
   isAsyncMode,
   onToggleAsync,
+  allowAsyncMode = true,
 }) => {
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
   const { unreadCount } = useChat();
@@ -141,11 +143,12 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               <>
                 <div className="flex items-center gap-0 sm:gap-1">
                   <button
+                    disabled={!allowAsyncMode}
                     onClick={onToggleAsync}
-                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
+                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed ${
                       !isAsyncMode ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
                     }`}
-                    title={isAsyncMode ? 'Resync with Room' : 'Go Async Mode'}
+                    title={!allowAsyncMode ? 'Async mode disabled by admin' : (isAsyncMode ? 'Resync with Room' : 'Go Async Mode')}
                   >
                     SYNC
                   </button>

@@ -7,6 +7,7 @@ interface UseAsyncPlaybackParams {
   localTimeRef: MutableRefObject<number>;
   activeResolutionRef: MutableRefObject<string | undefined>;
   roomPlaybackState?: RoomState['playback'];
+  allowAsyncMode?: boolean;
 }
 
 export function useAsyncPlayback({
@@ -15,6 +16,7 @@ export function useAsyncPlayback({
   localTimeRef,
   activeResolutionRef,
   roomPlaybackState,
+  allowAsyncMode = true,
 }: UseAsyncPlaybackParams) {
   const [isAsyncMode, setIsAsyncMode] = useState(false);
   const isAsyncModeRef = useRef(false);
@@ -40,6 +42,7 @@ export function useAsyncPlayback({
   }, [isConnected, sendMessage, asyncPlaybackState]);
 
   const forceAsyncMode = useCallback((enabled: boolean) => {
+    if (enabled && !allowAsyncMode) return;
     setIsAsyncMode(prev => {
       if (prev === enabled) return prev;
       isAsyncModeRef.current = enabled;
@@ -57,7 +60,14 @@ export function useAsyncPlayback({
       }
       return enabled;
     });
-  }, [sendMessage, roomPlaybackState, localTimeRef]);
+  }, [sendMessage, roomPlaybackState, localTimeRef, allowAsyncMode]);
+
+  // Auto-enforce room setting: force back to room sync if admin disables async mode
+  useEffect(() => {
+    if (!allowAsyncMode && isAsyncModeRef.current) {
+      forceAsyncMode(false);
+    }
+  }, [allowAsyncMode, forceAsyncMode]);
 
   const toggleAsyncMode = useCallback(() => {
     forceAsyncMode(!isAsyncModeRef.current);

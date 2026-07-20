@@ -85,12 +85,18 @@ export function ChatProvider({
   sendMessage: sendSocketMessage,
   addMessageHandler,
   currentUserId,
+  roomMembers = [],
 }: {
   children: ReactNode;
   sendMessage: (msg: IncomingSocketMessage) => void;
   addMessageHandler: (handler: (msg: OutgoingSocketMessage) => void) => () => void;
   currentUserId?: string | null;
+  roomMembers?: { userId: string; username: string }[];
 }) {
+  const roomMembersRef = useRef(roomMembers);
+  useEffect(() => {
+    roomMembersRef.current = roomMembers;
+  }, [roomMembers]);
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [toasts, setToasts] = useState<Message[]>([]);
@@ -266,6 +272,8 @@ export function ChatProvider({
     }
   }, [storageKey]);
 
+  const userAsyncStatesRef = useRef<Map<string, boolean>>(new Map());
+
   // Listen to WebSocket events
   useEffect(() => {
     const unsubscribe = addMessageHandler((msg) => {
@@ -283,6 +291,28 @@ export function ChatProvider({
             isMine: currentUserId != null && msg.payload.userId === currentUserId,
           };
           appendMessage(newMsg);
+          break;
+        }
+
+        case 'user.status_changed': {
+          const { userId, status } = msg.payload;
+          const wasAsync = userAsyncStatesRef.current.get(userId) ?? false;
+          const isNowAsync = status === 'async';
+
+          if (isNowAsync !== wasAsync) {
+            userAsyncStatesRef.current.set(userId, isNowAsync);
+            const member = roomMembersRef.current.find(m => m.userId === userId);
+            const actor = member?.username || userId;
+            const newMsg: Message = {
+              id: `system-status-${userId}-${Date.now()}`,
+              username: actor,
+              timestamp: timestampStr,
+              body: isNowAsync ? 'went Async' : 'synced with room',
+              isSystem: true,
+              eventType: 'play',
+            };
+            appendMessage(newMsg);
+          }
           break;
         }
 

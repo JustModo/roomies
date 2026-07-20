@@ -84,7 +84,8 @@ export default function Room() {
     isAsyncMode,
     toggleAsyncMode,
     updatePartyState,
-    setControlLock
+    setControlLock,
+    updateSettings
   } = useRoomSync();
 
   useEffect(() => {
@@ -103,7 +104,7 @@ export default function Room() {
   const isMicMuted = currentUserMember?.party.micMuted ?? true;
 
   return (
-    <ChatProvider sendMessage={sendMessage} addMessageHandler={addMessageHandler} currentUserId={user?.id}>
+    <ChatProvider sendMessage={sendMessage} addMessageHandler={addMessageHandler} currentUserId={user?.id} roomMembers={roomState?.members}>
       <VoiceProvider isJoined={isJoined} isMicMuted={isMicMuted}>
         <RoomInner
           roomState={roomState}
@@ -128,6 +129,7 @@ export default function Room() {
           toggleAsyncMode={toggleAsyncMode}
           updatePartyState={updatePartyState}
           setControlLock={setControlLock}
+          updateSettings={updateSettings}
           addMessageHandler={addMessageHandler}
           sendMessage={sendMessage}
         />
@@ -159,6 +161,7 @@ interface RoomInnerProps {
   toggleAsyncMode: () => void;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
   setControlLock: (userId: string, locked: boolean) => void;
+  updateSettings?: (settings: { allowAsyncMode?: boolean }) => void;
   addMessageHandler: (handler: (msg: any) => void) => () => void;
   sendMessage: (msg: any) => void;
 }
@@ -186,6 +189,7 @@ function RoomInner({
   toggleAsyncMode,
   updatePartyState,
   setControlLock,
+  updateSettings,
   addMessageHandler,
   sendMessage
 }: RoomInnerProps) {
@@ -196,9 +200,7 @@ function RoomInner({
 
   const handleToggleAsync = useCallback(() => {
     toggleAsyncMode();
-    const newMode = !isAsyncMode;
-    addLocalSystemMessage(newMode ? 'Local Async Mode' : 'Synced with Room', 'play');
-  }, [toggleAsyncMode, isAsyncMode, addLocalSystemMessage]);
+  }, [toggleAsyncMode]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
 
@@ -334,6 +336,7 @@ function RoomInner({
           isFullscreen={isFullscreen}
           isAsyncMode={isAsyncMode}
           onToggleAsync={handleToggleAsync}
+          allowAsyncMode={roomState?.settings?.allowAsyncMode ?? true}
           userId={user?.id}
           isLockedByAdmin={isLockedByAdmin}
         >
@@ -390,6 +393,7 @@ function RoomInner({
         roomState={roomState} 
         updatePartyState={updatePartyState} 
         setControlLock={setControlLock} 
+        updateSettings={updateSettings}
         addMessageHandler={addMessageHandler}
         sendMessage={sendMessage}
       />

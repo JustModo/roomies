@@ -10,10 +10,15 @@ export const ClientRoomLeaveSchema = z.object({
   payload: z.object({}),
 });
 
+export const RoomSettingsSchema = z.object({
+  allowAsyncMode: z.boolean(),
+});
+
 export const ServerRoomStateSchema = z.object({
   event: z.literal('room.state'),
   payload: z.object({
     room: z.object({
+      settings: RoomSettingsSchema,
       mediaId: z.string().optional(),
       mediaTitle: z.string().optional(),
       hlsUrl: z.string().optional(),
@@ -50,6 +55,13 @@ export const ClientSetControlLockSchema = z.object({
   payload: z.object({
     userId: z.string(),
     locked: z.boolean(),
+  }),
+});
+
+export const ClientUpdateRoomSettingsSchema = z.object({
+  event: z.literal('room.update_settings'),
+  payload: z.object({
+    settings: RoomSettingsSchema.partial(),
   }),
 });
 

@@ -47,7 +47,8 @@ export function useRoomSync() {
     sendMessage,
     localTimeRef,
     activeResolutionRef,
-    roomPlaybackState: roomState?.playback
+    roomPlaybackState: roomState?.playback,
+    allowAsyncMode: roomState?.settings?.allowAsyncMode ?? true
   });
 
   const getInitialPosition = useCallback((playback: RoomState['playback']) => {
@@ -409,6 +410,10 @@ export function useRoomSync() {
     sendMessage({ event: 'room.set_control_lock', payload: { userId, locked } });
   }, [sendMessage]);
 
+  const updateSettings = useCallback((settings: { allowAsyncMode?: boolean }) => {
+    sendMessage({ event: 'room.update_settings', payload: { settings } });
+  }, [sendMessage]);
+
   const effectiveRoomState = asyncPlayback.isAsyncMode && asyncPlayback.asyncPlaybackState && roomState 
     ? { ...roomState, playback: asyncPlayback.asyncPlaybackState } 
     : roomState;
@@ -435,6 +440,7 @@ export function useRoomSync() {
     toggleAsyncMode: asyncPlayback.toggleAsyncMode,
     forceAsyncMode: asyncPlayback.forceAsyncMode,
     updatePartyState,
-    setControlLock
+    setControlLock,
+    updateSettings
   };
 }

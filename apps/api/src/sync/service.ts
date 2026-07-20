@@ -186,7 +186,13 @@ export class SyncService {
     const state = roomStore.getState();
     const member = state.members.find(m => m.userId === ctx.userId);
     const wasAsync = member?.status === 'async';
-    const isNowAsync = payload.status === 'async';
+    let isNowAsync = payload.status === 'async';
+
+    if (isNowAsync && !state.settings.allowAsyncMode) {
+      console.warn(`[sync] User ${ctx.userId} attempted to enter async mode while allowAsyncMode is false`);
+      isNowAsync = false;
+      payload.status = 'ready';
+    }
 
     if (isNowAsync && !wasAsync) {
       await this.handleEnterAsyncMode(ctx, payload, state, member);

@@ -34,7 +34,12 @@ export interface SubtitleTrack {
     language: string | null;
 }
 
+export interface RoomSettingsState {
+    allowAsyncMode: boolean;
+}
+
 export interface RoomState {
+    settings: RoomSettingsState;
     mediaId: string;
     mediaTitle: string;
     hlsUrl: string;
@@ -51,6 +56,9 @@ export class RoomStore {
 
     constructor() {
         this.state = {
+            settings: {
+                allowAsyncMode: true,
+            },
             mediaId: '',
             mediaTitle: '',
             hlsUrl: '',
@@ -65,6 +73,13 @@ export class RoomStore {
                 playbackRate: 1,
             },
             members: [],
+        };
+    }
+
+    public updateSettings(updates: Partial<RoomSettingsState>): void {
+        this.state.settings = {
+            ...this.state.settings,
+            ...updates,
         };
     }
 
