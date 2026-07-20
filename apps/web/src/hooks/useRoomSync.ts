@@ -289,12 +289,12 @@ export function useRoomSync() {
             resolution: resolution as any,
             timestamp: Date.now(),
             pingQuality: pingQualityRef.current,
-            status: localStatusRef.current
+            status: asyncPlayback.isAsyncModeRef.current ? 'async' : localStatusRef.current
           }
         });
       }
     }
-  }, [isConnected, sendMessage]);
+  }, [isConnected, sendMessage, asyncPlayback.isAsyncModeRef]);
 
   const playbackStateRef = useRef(roomState?.playback.state);
   const playbackRateRef = useRef(roomState?.playback.playbackRate);
