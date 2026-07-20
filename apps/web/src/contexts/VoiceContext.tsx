@@ -154,20 +154,18 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   }, [selectedInputId, selectedOutputId]);
 
   /** Clears the selected input and reverts the live mic to the system default. */
-  const fallbackToDefaultInput = useCallback((message: string) => {
+  const fallbackToDefaultInput = useCallback(() => {
     setSelectedInputId(undefined);
     localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
-    setNotice(message);
     if (stateRef.current.isJoined) {
       relayRef.current?.switchMic(undefined).catch(() => {});
     }
     void refreshDevices();
   }, [refreshDevices]);
 
-  const fallbackToDefaultOutput = useCallback((message: string) => {
+  const fallbackToDefaultOutput = useCallback(() => {
     setSelectedOutputId(undefined);
     localStorage.removeItem(OUTPUT_DEVICE_STORAGE_KEY);
-    setNotice(message);
     void relayRef.current?.setOutputDevice(undefined);
   }, []);
 
@@ -175,13 +173,13 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   // (unplugged, disabled, etc.), fall back to the system default.
   useEffect(() => {
     if (selectedInputId && inputs.length > 0 && !inputs.some((d) => d.deviceId === selectedInputId)) {
-      fallbackToDefaultInput('Your microphone was disconnected — switched to the default device.');
+      fallbackToDefaultInput();
     }
   }, [inputs, selectedInputId, fallbackToDefaultInput]);
 
   useEffect(() => {
     if (selectedOutputId && outputs.length > 0 && !outputs.some((d) => d.deviceId === selectedOutputId)) {
-      fallbackToDefaultOutput('Your speaker was disconnected — switched to the default device.');
+      fallbackToDefaultOutput();
     }
   }, [outputs, selectedOutputId, fallbackToDefaultOutput]);
 
@@ -198,7 +196,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     try {
       const { usedFallback } = await relayRef.current.switchMic(deviceId);
       if (usedFallback) {
-        fallbackToDefaultInput('The selected microphone was unavailable — switched to the default device.');
+        fallbackToDefaultInput();
       }
     } catch (e) {
       setNotice(describeMicError(e).message);
@@ -235,7 +233,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   useEffect(() => {
     const relay = new AudioRelay();
     relay.onInputDeviceEnded = () => {
-      fallbackToDefaultInput('Your microphone was disconnected — switched to the default device.');
+      fallbackToDefaultInput();
     };
     relayRef.current = relay;
     isComponentMounted.current = true;
@@ -402,7 +400,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
       relay.setMuted(stateRef.current.isMicMuted);
 
       if (usedFallback) {
-        fallbackToDefaultInput('Your selected microphone was unavailable — switched to the default device.');
+        fallbackToDefaultInput();
       }
       void refreshDevices();
     } catch (e) {

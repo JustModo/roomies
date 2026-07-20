@@ -64,18 +64,18 @@ const DeviceSelect: React.FC<DeviceSelectProps> = ({ label, disabledHint, disabl
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         title={currentLabel}
-        className="w-full flex items-center justify-between gap-2 bg-ash/5 border border-ash/10 rounded px-2 py-1.5 text-13 text-paper text-left outline-none disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-between gap-2 bg-ash/5 hover:bg-ash/10 border border-ash/10 rounded px-2 py-1.5 text-12 text-paper text-left outline-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <span className="truncate">{currentLabel}</span>
-        <ChevronDown size={14} className="shrink-0 text-paper/40" />
+        <ChevronDown size={14} className={`shrink-0 text-paper/40 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && !disabled && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-ink border border-ash/10 rounded shadow-lg max-h-40 overflow-y-auto z-20">
+        <div className="absolute bottom-full left-0 right-0 mb-1 bg-void border border-ash/10 rounded-lg shadow-xl max-h-60 overflow-y-auto z-20">
           <button
             type="button"
             onClick={() => { onChange(undefined); setOpen(false); }}
-            className={`w-full text-left px-2 py-1.5 text-13 truncate hover:bg-ash/10 ${!value ? 'text-paper bg-ash/10' : 'text-paper/70'}`}
+            className={`w-full text-left px-2 py-1.5 text-12 truncate transition-colors hover:bg-ash/10 ${!value ? 'text-paper bg-ash/10' : 'text-paper/70'}`}
           >
             System Default
           </button>
@@ -85,7 +85,7 @@ const DeviceSelect: React.FC<DeviceSelectProps> = ({ label, disabledHint, disabl
               type="button"
               onClick={() => { onChange(o.deviceId); setOpen(false); }}
               title={o.label}
-              className={`w-full text-left px-2 py-1.5 text-13 truncate hover:bg-ash/10 ${value === o.deviceId ? 'text-paper bg-ash/10' : 'text-paper/70'}`}
+              className={`w-full text-left px-2 py-1.5 text-12 truncate transition-colors hover:bg-ash/10 ${value === o.deviceId ? 'text-paper bg-ash/10' : 'text-paper/70'}`}
             >
               {o.label}
             </button>
@@ -149,7 +149,7 @@ export const PartyControls: React.FC<PartyControlsProps> = ({
       )}
 
       {activeMenu === 'devices' && (
-        <div className="absolute bottom-full left-2 right-2 sm:left-3 sm:right-3 mb-2 bg-ink border border-ash/10 rounded p-3 flex flex-col gap-3 shadow-lg z-10">
+        <div className="absolute bottom-full left-2 right-2 sm:left-3 sm:right-3 mb-2 bg-void border border-ash/10 rounded p-2.5 flex flex-col gap-2 shadow-2xl z-10">
           <DeviceSelect
             label="Microphone"
             value={selectedInputId}
@@ -162,7 +162,6 @@ export const PartyControls: React.FC<PartyControlsProps> = ({
             options={outputDevices}
             onChange={setOutputDevice}
             disabled={!outputSelectionSupported}
-            disabledHint={!outputSelectionSupported ? 'not supported in this browser' : undefined}
           />
         </div>
       )}
