@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getUsernameColor } from '../../Chat/utils';
 
 interface FloatingEmojiProps {
   emoji: string;
@@ -15,6 +16,7 @@ export function FloatingEmoji({ emoji, username, onComplete }: FloatingEmojiProp
   const driftX = useState(() => (Math.random() - 0.5) * 72)[0];
   const duration = useState(() => 2600 + Math.random() * 900)[0];
   const onCompleteRef = useRef(onComplete);
+  const usernameColor = getUsernameColor(username);
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
@@ -68,7 +70,9 @@ export function FloatingEmoji({ emoji, username, onComplete }: FloatingEmojiProp
       }}
     >
       <span className="text-3xl">{emoji}</span>
-      <span className="text-white/90 text-xs truncate max-w-30 text-center">{username}</span>
+      <span className="text-xs truncate max-w-30 text-center" style={{ color: usernameColor }}>
+        {username.toUpperCase()}
+      </span>
     </div>
   );
 }

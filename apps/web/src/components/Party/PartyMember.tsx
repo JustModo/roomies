@@ -76,7 +76,7 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
           >
             {member.username.charAt(0).toUpperCase()}
           </div>
-          <div className="flex flex-col items-start text-left">
+          <div className="flex items-center gap-1">
             <span className="text-14 font-medium capitalize" style={{ color: getUsernameColor(member.username) }}>
               {member.username}{' '}
               {user?.id === member.userId && (

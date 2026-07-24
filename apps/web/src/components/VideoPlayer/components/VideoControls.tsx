@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Smile } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
@@ -95,13 +95,9 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   onToggleAsync,
   allowAsyncMode = true,
 }) => {
-  const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
+  const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle' | 'emoji'>();
   const { unreadCount } = useChat();
   const { sendEmoji } = useRoomSync();
-
-  // Emoji picker state
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'] as const;
 
@@ -221,7 +217,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               </>
             )}
 
-            {/* Media Settings (Rate, Quality, Subtitles) */}
+            {/* Media Settings (Rate, Quality, Subtitles, Emoji) */}
             <div className="flex items-center gap-0 sm:gap-1" ref={containerRef}>
               {/* Playback rate */}
               <button
@@ -372,6 +368,33 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   )}
                 </div>
               )}
+
+              {/* Emoji picker */}
+              {onToggleChat && (
+                <div className="relative">
+                  <Btn
+                    onClick={() => toggleMenu('emoji')}
+                    active={activeMenu === 'emoji'}
+                    title="Reactions"
+                  >
+                    <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+                  </Btn>
+                  {activeMenu === 'emoji' && (
+                    <div className="absolute bottom-full right-0 mb-2 p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50">
+                      {EMOJI_OPTIONS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleEmojiClick(emoji)}
+                          className="p-2 text-2xl hover:bg-ash/30 hover:scale-110 transition-all duration-150 rounded"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
 
             <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
@@ -395,35 +418,6 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                 </span>
               )}
             </Btn>
-          )}
-
-          {/* Emoji picker — desktop only */}
-          {onToggleChat && (
-            <div className="hidden lg:flex relative">
-              <Btn
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                active={showEmojiPicker}
-                title="Reactions"
-              >
-                <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-              </Btn>
-              {showEmojiPicker && (
-                <div
-                  ref={emojiPickerRef}
-                  className="absolute bottom-full right-0 mb-2 p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50"
-                >
-                  {EMOJI_OPTIONS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => handleEmojiClick(emoji)}
-                      className="p-2 text-2xl hover:bg-ash/30 hover:scale-110 transition-all duration-150 rounded"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           )}
 
           {/* Fullscreen */}
