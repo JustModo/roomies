@@ -9,6 +9,8 @@ export interface EmojiReaction {
   id: string;
 }
 
+export const DEFAULT_EMOJI_PICKER = ['👍', '❤️', '😂', '😮', '😢', '😡'] as const;
+
 export interface Message {
   id: string;
   username?: string;
@@ -38,6 +40,8 @@ interface ChatContextType {
   setBrowserNotificationsEnabled: (enabled: boolean) => void;
   emojiMuted: boolean;
   setEmojiMuted: (enabled: boolean) => void;
+  emojiPicker: string[];
+  setEmojiPicker: (picker: string[]) => void;
   focusChatInput: () => void;
   registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
   emojiReactions: EmojiReaction[];
@@ -138,6 +142,21 @@ export function ChatProvider({
     return false;
   });
 
+  const [emojiPicker, setEmojiPicker] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('chat_emoji_picker');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length === 6 && parsed.every(e => typeof e === 'string')) {
+            return parsed;
+          }
+        } catch { }
+      }
+    }
+    return [...DEFAULT_EMOJI_PICKER];
+  });
+
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
 
   const storageKey = `chat_history:${window.location.pathname}`;
@@ -185,6 +204,13 @@ export function ChatProvider({
       localStorage.setItem('chat_emoji_muted', String(emojiMuted));
     }
   }, [emojiMuted]);
+
+  // Persist emoji picker preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chat_emoji_picker', JSON.stringify(emojiPicker));
+    }
+  }, [emojiPicker]);
 
   // Request notification permissions
   useEffect(() => {
@@ -455,6 +481,7 @@ export function ChatProvider({
       isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
       soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled,
       emojiMuted, setEmojiMuted,
+      emojiPicker, setEmojiPicker,
       focusChatInput, registerChatInputRef,
       emojiReactions,
     }}>

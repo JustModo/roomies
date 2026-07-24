@@ -3,7 +3,7 @@ import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize,
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
-import { useChat } from '../../../contexts/ChatContext';
+import { useChat, DEFAULT_EMOJI_PICKER } from '../../../contexts/ChatContext';
 import { useRoomSync } from '../../../hooks/useRoomSync';
 
 interface VideoControlsProps {
@@ -96,11 +96,9 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   allowAsyncMode = true,
 }) => {
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle' | 'emoji'>();
-  const { unreadCount } = useChat();
+  const { unreadCount, emojiPicker } = useChat();
   const { sendEmoji } = useRoomSync();
   const { emojiMuted } = useChat();
-
-  const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'] as const;
 
   const handleEmojiClick = useCallback((emoji: string) => {
     sendEmoji(emoji);
@@ -382,7 +380,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   </Btn>
                   {activeMenu === 'emoji' && (
                     <div className="absolute bottom-full right-0 mb-2 p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50">
-                      {EMOJI_OPTIONS.map((emoji) => (
+                      {(emojiPicker || DEFAULT_EMOJI_PICKER).map((emoji) => (
                         <button
                           key={emoji}
                           onClick={() => handleEmojiClick(emoji)}

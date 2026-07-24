@@ -3,6 +3,7 @@ import { useChat } from '../../contexts/ChatContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { RoomState } from '@roomies/contracts';
 import { Bell, Volume2, VolumeX, BellOff, Radio, Smile } from 'lucide-react';
+import { EmojiSlot } from './EmojiSlot';
 
 interface SettingsSectionProps {
   roomState?: RoomState | null;
@@ -14,7 +15,8 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({ roomState, upd
   const {
     soundEnabled, setSoundEnabled,
     browserNotificationsEnabled, setBrowserNotificationsEnabled,
-    emojiMuted, setEmojiMuted
+    emojiMuted, setEmojiMuted,
+    emojiPicker, setEmojiPicker
   } = useChat();
 
   const allowAsyncMode = roomState?.settings?.allowAsyncMode ?? true;
@@ -150,6 +152,36 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({ roomState, upd
                   }`}
                 />
               </button>
+            </div>
+
+            {/* Emoji Picker Customization */}
+            <div className="pt-4 border-t border-ash/10">
+              <div className="flex flex-wrap items-center justify-between gap-4 py-1.5">
+                <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+                  <div className="w-8 h-8 rounded-full bg-ash/20 flex items-center justify-center shrink-0">
+                    <Smile size={16} className="text-blue-400" />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-14 font-medium text-paper truncate">Emoji Picker</span>
+                    <span className="text-12 text-paper/50 truncate">Customize your 6 reaction emojis</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap shrink-0 lg:flex-nowrap">
+                  {emojiPicker.map((emoji, index) => (
+                    <EmojiSlot
+                      key={index}
+                      index={index}
+                      emoji={emoji}
+                      onChange={(newEmoji) => {
+                        const next = [...emojiPicker];
+                        next[index] = newEmoji;
+                        setEmojiPicker(next);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
 
           </div>
