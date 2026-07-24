@@ -1,6 +1,14 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
 
+export interface EmojiReaction {
+  userId: string;
+  username: string;
+  emoji: string;
+  timestamp: number;
+  id: string;
+}
+
 export interface Message {
   id: string;
   username?: string;
@@ -30,6 +38,7 @@ interface ChatContextType {
   setBrowserNotificationsEnabled: (enabled: boolean) => void;
   focusChatInput: () => void;
   registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
+  emojiReactions: EmojiReaction[];
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -118,6 +127,8 @@ export function ChatProvider({
     }
     return true;
   });
+
+  const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
 
   const storageKey = `chat_history:${window.location.pathname}`;
   const isOpenRef = useRef(isOpen);
@@ -376,6 +387,26 @@ export function ChatProvider({
           break;
         }
 
+        case 'emoji.reaction': {
+          const { userId, username, emoji, timestamp } = msg.payload;
+
+          // Emit custom event for floating emoji animation in VideoPlayer
+          window.dispatchEvent(new CustomEvent('roomies:emoji', {
+            detail: { userId, username, emoji, timestamp }
+          }));
+
+          // Add to emojiReactions state for party member display
+          const reactionId = `${userId}-${timestamp}`;
+          setEmojiReactions(prev => [...prev, { userId, username, emoji, timestamp, id: reactionId }]);
+
+          // Auto-clear after animation duration (3s)
+          setTimeout(() => {
+            setEmojiReactions(prev => prev.filter(r => r.id !== reactionId));
+          }, 3000);
+
+          break;
+        }
+
         default:
           break;
       }
@@ -407,6 +438,7 @@ export function ChatProvider({
       isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
       soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled,
       focusChatInput, registerChatInputRef,
+      emojiReactions,
     }}>
       {children}
     </ChatContext.Provider>

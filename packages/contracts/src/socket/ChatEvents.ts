@@ -16,3 +16,24 @@ export const ServerChatMessageSchema = z.object({
     timestamp: z.string(),
   }),
 });
+
+// Emoji reaction events
+export const ClientEmojiSendSchema = z.object({
+  event: z.literal('emoji.send'),
+  payload: z.object({
+    emoji: z.string().min(1).max(8), // Unicode emoji character(s)
+  }),
+});
+
+export const ServerEmojiReactionSchema = z.object({
+  event: z.literal('emoji.reaction'),
+  payload: z.object({
+    userId: z.string(),
+    username: z.string(),
+    emoji: z.string(),
+    timestamp: z.number(), // Unix ms for animation sync
+  }),
+});
+
+export type ClientEmojiSend = z.infer<typeof ClientEmojiSendSchema>;
+export type ServerEmojiReaction = z.infer<typeof ServerEmojiReactionSchema>;

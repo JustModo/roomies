@@ -4,6 +4,7 @@ import { getUsernameColor } from '../Chat/utils';
 import { MemberState } from '@roomies/contracts';
 import { LocalMemberState } from './PartySection';
 import { UserProfile } from '@roomies/contracts';
+import { useChat } from '../../contexts/ChatContext';
 
 interface PartyMemberProps {
   member: MemberState;
@@ -30,6 +31,12 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
 }) => {
   const isLocallyMuted = localState?.audioMuted ?? false;
   const volume = localState?.volume ?? 100;
+  const { emojiReactions } = useChat();
+
+  // Get latest reaction for this member
+  const myReaction = (emojiReactions || [])
+    .filter((r: { userId: string; timestamp: number }) => r.userId === member.userId)
+    .sort((a: { timestamp: number }, b: { timestamp: number }) => b.timestamp - a.timestamp)[0];
 
   let statusText = '';
   if (roomPlaybackState === 'waiting') {
@@ -77,6 +84,11 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
               )}
             </span>
             {statusText && <span className="text-12 text-paper/50">{statusText}</span>}
+            {myReaction && (
+              <span className="inline-block animate-bounce-in ml-1" style={{ fontSize: '1rem', lineHeight: '1' }}>
+                {myReaction.emoji}
+              </span>
+            )}
           </div>
         </div>
 

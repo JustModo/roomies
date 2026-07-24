@@ -1,9 +1,10 @@
-import React from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Smile } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
 import { useChat } from '../../../contexts/ChatContext';
+import { useRoomSync } from '../../../hooks/useRoomSync';
 
 interface VideoControlsProps {
   isLocked: boolean;
@@ -96,11 +97,26 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
 }) => {
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
   const { unreadCount } = useChat();
+  const { sendEmoji } = useRoomSync();
+
+  // Emoji picker state
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+
+  const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'] as const;
+
+  const handleEmojiClick = useCallback((emoji: string) => {
+    sendEmoji(emoji);
+    // Don't close picker - allow multiple emoji sends
+  }, [sendEmoji]);
 
   const isPlaying = roomPlaybackState?.state === 'playing';
 
   return (
-    <div className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1">
+    <div
+      data-video-controls="true"
+      className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1"
+    >
       {/* ── Left cluster: play, seek offsets, volume, time ── */}
       <div className="flex items-center min-w-0">
         {/* Play Button */}
@@ -379,6 +395,35 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                 </span>
               )}
             </Btn>
+          )}
+
+          {/* Emoji picker — desktop only */}
+          {onToggleChat && (
+            <div className="hidden lg:flex relative">
+              <Btn
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                active={showEmojiPicker}
+                title="Reactions"
+              >
+                <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+              </Btn>
+              {showEmojiPicker && (
+                <div
+                  ref={emojiPickerRef}
+                  className="absolute bottom-full right-0 mb-2 p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50"
+                >
+                  {EMOJI_OPTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => handleEmojiClick(emoji)}
+                      className="p-2 text-2xl hover:bg-ash/30 hover:scale-110 transition-all duration-150 rounded"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Fullscreen */}

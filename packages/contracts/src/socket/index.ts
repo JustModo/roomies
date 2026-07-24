@@ -41,7 +41,8 @@ import {
 } from './PlaybackEvents';
 
 import {
-  ClientChatSendSchema, ServerChatMessageSchema
+  ClientChatSendSchema, ServerChatMessageSchema,
+  ClientEmojiSendSchema, ServerEmojiReactionSchema
 } from './ChatEvents';
 
 import {
@@ -72,6 +73,7 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientSyncStatusSchema,
 
   ClientChatSendSchema,
+  ClientEmojiSendSchema,
 ]);
 
 export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
@@ -90,6 +92,7 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerSyncHeartbeatAckSchema,
 
   ServerChatMessageSchema,
+  ServerEmojiReactionSchema,
 
   ServerErrorSchema,
 ]);
