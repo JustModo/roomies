@@ -36,6 +36,8 @@ interface ChatContextType {
   setSoundEnabled: (enabled: boolean) => void;
   browserNotificationsEnabled: boolean;
   setBrowserNotificationsEnabled: (enabled: boolean) => void;
+  emojiMuted: boolean;
+  setEmojiMuted: (enabled: boolean) => void;
   focusChatInput: () => void;
   registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
   emojiReactions: EmojiReaction[];
@@ -128,6 +130,14 @@ export function ChatProvider({
     return true;
   });
 
+  const [emojiMuted, setEmojiMuted] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('chat_emoji_muted');
+      return saved !== null ? saved === 'true' : false;
+    }
+    return false;
+  });
+
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
 
   const storageKey = `chat_history:${window.location.pathname}`;
@@ -168,6 +178,13 @@ export function ChatProvider({
       localStorage.setItem('chat_browser_notifications_enabled', String(browserNotificationsEnabled));
     }
   }, [browserNotificationsEnabled]);
+
+  // Persist emoji muted preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chat_emoji_muted', String(emojiMuted));
+    }
+  }, [emojiMuted]);
 
   // Request notification permissions
   useEffect(() => {
@@ -437,6 +454,7 @@ export function ChatProvider({
     <ChatContext.Provider value={{
       isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
       soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled,
+      emojiMuted, setEmojiMuted,
       focusChatInput, registerChatInputRef,
       emojiReactions,
     }}>

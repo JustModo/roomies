@@ -11,6 +11,7 @@ import { VideoControls } from './components/VideoControls';
 import { SubtitleOverlay } from './components/SubtitleOverlay';
 import { FloatingEmoji } from './components/FloatingEmoji';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
+import { useChat } from '../../contexts/ChatContext';
 
 import { SyncStatus } from '@roomies/contracts';
 
@@ -49,6 +50,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Floating emoji state
   const [floatingEmojis, setFloatingEmojis] = useState<Array<{ id: string; emoji: string; username: string }>>([]);
+
+  const { emojiMuted } = useChat();
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -93,6 +96,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Listen for emoji reactions from other users
   useEffect(() => {
     const handleEmoji = (e: CustomEvent) => {
+      if (emojiMuted) return;
       const { userId, username, emoji, timestamp } = e.detail;
       const id = `${userId}-${timestamp}`;
       console.log(`[VideoPlayer] Received emoji event:`, { userId, username, emoji, timestamp, id });
@@ -101,7 +105,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     window.addEventListener('roomies:emoji', handleEmoji as EventListener);
     return () => window.removeEventListener('roomies:emoji', handleEmoji as EventListener);
-  }, []);
+  }, [emojiMuted]);
 
   const removeFloatingEmoji = useCallback((id: string) => {
     console.log(`[VideoPlayer] removeFloatingEmoji called for id="${id}"`);

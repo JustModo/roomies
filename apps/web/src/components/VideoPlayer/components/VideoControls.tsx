@@ -98,6 +98,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle' | 'emoji'>();
   const { unreadCount } = useChat();
   const { sendEmoji } = useRoomSync();
+  const { emojiMuted } = useChat();
 
   const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'] as const;
 
@@ -370,7 +371,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               )}
 
               {/* Emoji picker */}
-              {onToggleChat && (
+              {!emojiMuted && onToggleChat && (
                 <div className="relative">
                   <Btn
                     onClick={() => toggleMenu('emoji')}

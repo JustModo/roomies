@@ -2,7 +2,7 @@ import React from 'react';
 import { useChat } from '../../contexts/ChatContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { RoomState } from '@roomies/contracts';
-import { Bell, Volume2, VolumeX, BellOff, Radio } from 'lucide-react';
+import { Bell, Volume2, VolumeX, BellOff, Radio, Smile } from 'lucide-react';
 
 interface SettingsSectionProps {
   roomState?: RoomState | null;
@@ -11,9 +11,10 @@ interface SettingsSectionProps {
 
 export const SettingsSection: React.FC<SettingsSectionProps> = ({ roomState, updateSettings }) => {
   const { user } = useAuth();
-  const { 
-    soundEnabled, setSoundEnabled, 
-    browserNotificationsEnabled, setBrowserNotificationsEnabled 
+  const {
+    soundEnabled, setSoundEnabled,
+    browserNotificationsEnabled, setBrowserNotificationsEnabled,
+    emojiMuted, setEmojiMuted
   } = useChat();
 
   const allowAsyncMode = roomState?.settings?.allowAsyncMode ?? true;
@@ -105,7 +106,7 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({ roomState, upd
                   <span className="text-12 text-paper/50">Show system alerts when in background</span>
                 </div>
               </div>
-              
+
               <button
                 onClick={() => {
                   if (!browserNotificationsEnabled && typeof window !== 'undefined' && 'Notification' in window) {
@@ -124,7 +125,33 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({ roomState, upd
                 />
               </button>
             </div>
-            
+
+            {/* Mute Emoji Reactions Toggle */}
+            <div className="flex items-center justify-between py-1.5">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-ash/20 flex items-center justify-center">
+                  {emojiMuted ? <Smile size={16} className="text-paper/40" /> : <Smile size={16} className="text-blue-400" />}
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-14 font-medium text-paper">Mute emoji reactions</span>
+                  <span className="text-12 text-paper/50">Hide floating emojis and reaction badges</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setEmojiMuted(!emojiMuted)}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
+                  emojiMuted ? 'bg-blue-400' : 'bg-ash/20'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition duration-200 ease-in-out ${
+                    emojiMuted ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
           </div>
         </div>
       </div>

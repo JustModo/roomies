@@ -31,7 +31,7 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
 }) => {
   const isLocallyMuted = localState?.audioMuted ?? false;
   const volume = localState?.volume ?? 100;
-  const { emojiReactions } = useChat();
+  const { emojiReactions, emojiMuted } = useChat();
 
   // Get latest reaction for this member
   const myReaction = (emojiReactions || [])
@@ -84,7 +84,7 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
               )}
             </span>
             {statusText && <span className="text-12 text-paper/50">{statusText}</span>}
-            {myReaction && (
+            {!emojiMuted && myReaction && (
               <span className="inline-block animate-bounce-in ml-1" style={{ fontSize: '1rem', lineHeight: '1' }}>
                 {myReaction.emoji}
               </span>
