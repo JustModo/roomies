@@ -74,7 +74,7 @@
     opacity: 1;
   }
   100% {
-    transform: translate3d(var(--drift-x, 0px), -260px, 0) scale(0.72);
+    transform: translate3d(var(--drift-x, 0em), -20em, 0) scale(0.72);
     opacity: 0;
   }
 }
