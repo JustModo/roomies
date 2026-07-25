@@ -45,6 +45,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [bufferedRanges, setBufferedRanges] = useState<BufferedRange[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
+  const [isSelfLocked, setIsSelfLocked] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -60,7 +61,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
-  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering' || activeLockByAdmin;
+  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering' || activeLockByAdmin || isSelfLocked;
 
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
@@ -383,6 +384,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSubtitleOffsetSec={setSubtitleOffsetSec}
           subtitleFontScale={subtitleFontScale}
           setSubtitleFontScale={setSubtitleFontScale}
+          isSelfLocked={isSelfLocked}
+          onToggleSelfLock={() => setIsSelfLocked((prev) => !prev)}
         />
       </div>
     </div>
