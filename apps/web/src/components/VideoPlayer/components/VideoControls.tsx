@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption } from 'lucide-react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Lock, Unlock } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
@@ -33,6 +33,8 @@ interface VideoControlsProps {
   isAsyncMode?: boolean;
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;
+  isSelfLocked: boolean;
+  onToggleSelfLock: () => void;
 }
 
 // Compact icon button — smaller padding on mobile
@@ -93,6 +95,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   isAsyncMode,
   onToggleAsync,
   allowAsyncMode = true,
+  isSelfLocked,
+  onToggleSelfLock,
 }) => {
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
   const { unreadCount } = useChat();
@@ -380,6 +384,18 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               )}
             </Btn>
           )}
+
+          {/* Self Lock Toggle */}
+          <Btn
+            onClick={onToggleSelfLock}
+            active={isSelfLocked}
+            className="hidden sm:flex relative"
+            title={isSelfLocked ? 'Unlock Controls' : 'Lock Controls'}
+          >
+            {isSelfLocked
+              ? <Lock className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+              : <Unlock className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
+          </Btn>
 
           {/* Fullscreen */}
           <Btn
