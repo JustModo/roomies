@@ -16,6 +16,13 @@ export interface SeekCommand {
   id: number;
 }
 
+export interface TopBarRenderProps {
+  isSelfLocked: boolean;
+  onToggleSelfLock: () => void;
+  isServerLocked: boolean;
+  activeLockByAdmin: boolean;
+}
+
 export interface VideoPlayerProps {
   mediaInfo: MediaInfo | null;
   seekKey?: number;
@@ -39,5 +46,5 @@ export interface VideoPlayerProps {
   allowAsyncMode?: boolean;
   userId?: string;
   isLockedByAdmin?: boolean;
-  children?: ReactNode;
+  children?: ReactNode | ((props: TopBarRenderProps) => ReactNode);
 }

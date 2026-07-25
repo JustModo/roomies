@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Settings2, Lock, Mic, MicOff } from 'lucide-react';
+import { ChevronLeft, Settings2, Lock, Unlock, Mic, MicOff } from 'lucide-react';
 import { AdminOverlay } from '../components/AdminOverlay';
 import { useRoomSync } from '../hooks/useRoomSync';
 import { RoomState, MediaInfo, SyncStatus } from '@roomies/contracts';
@@ -221,8 +221,6 @@ function RoomInner({
   }, []);
 
   const isLockedByAdmin = roomState?.members.find(m => m.userId === user?.id)?.controlsLocked;
-  const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
-  const isLocked = !mediaInfo || roomState?.playback?.state === 'waiting' || roomState?.playback?.state === 'buffering' || activeLockByAdmin;
   
   const currentUserMember = roomState?.members.find(m => m.userId === user?.id);
   const isJoined = currentUserMember?.party.isJoined ?? false;
@@ -346,39 +344,55 @@ function RoomInner({
           userId={user?.id}
           isLockedByAdmin={isLockedByAdmin}
         >
-          <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative">
-            <div className="flex-none flex justify-start w-14 sm:w-20 lg:w-24">
-              {!isFullscreen && (
-                <button onClick={handleExit} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors whitespace-nowrap">
-                  <ChevronLeft className="mr-0.5 lg:mr-1 w-3.5 h-3.5 lg:w-4 lg:h-4" /> Exit
-                </button>
-              )}
-            </div>
+          {({ isSelfLocked, onToggleSelfLock, isServerLocked, activeLockByAdmin }) => (
+            <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative">
+              <div className="flex-none flex justify-start w-14 sm:w-20 lg:w-24">
+                {!isFullscreen && (
+                  <button onClick={handleExit} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors whitespace-nowrap">
+                    <ChevronLeft className="mr-0.5 lg:mr-1 w-3.5 h-3.5 lg:w-4 lg:h-4" /> Exit
+                  </button>
+                )}
+              </div>
 
-            <div className="flex-1 flex justify-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] items-center gap-1 sm:gap-2 lg:gap-3 drop-shadow-md min-w-0">
-              <span className="truncate max-w-30 sm:max-w-50 lg:max-w-125">{mediaInfo?.title || 'ROOM'}</span>
-              <span className="shrink-0">·</span>
-              <span className="font-mono text-blue-400 shrink-0">{viewersCount}</span>
-              <span className="hidden xs:inline shrink-0">WATCHING</span>
-            </div>
+              <div className="flex-1 flex justify-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] items-center gap-1 sm:gap-2 lg:gap-3 drop-shadow-md min-w-0">
+                <span className="truncate max-w-30 sm:max-w-50 lg:max-w-125">{mediaInfo?.title || 'ROOM'}</span>
+                <span className="shrink-0">·</span>
+                <span className="font-mono text-blue-400 shrink-0">{viewersCount}</span>
+                <span className="hidden xs:inline shrink-0">WATCHING</span>
+              </div>
 
-            <div className="flex-none flex justify-end items-center gap-2 sm:gap-4 w-14 sm:w-20 lg:w-32">
-              {isLocked && (
-                <div 
-                  className={`flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
-                  title={activeLockByAdmin ? 'Controls locked by admin' : 'Controls locked while syncing'}
-                >
-                  <Lock className="w-3.5 h-3.5 lg:w-4 lg:h-4" strokeWidth={1.5} />
-                </div>
-              )}
-              {user?.role === 'root' && (
-                <button onClick={() => setShowAdmin(true)} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors">
-                  <span className="hidden sm:inline">Manage</span>
-                  <Settings2 className="sm:ml-1 lg:ml-2 w-3.5 h-3.5 lg:w-4 lg:h-4" />
-                </button>
-              )}
+              <div className="flex-none flex justify-end items-center gap-1.5 sm:gap-3 shrink-0">
+                {isServerLocked ? (
+                  <div 
+                    className={`p-1 sm:p-1.5 flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
+                    title={activeLockByAdmin ? 'Controls locked by admin' : 'Controls locked while syncing'}
+                  >
+                    <Lock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                  </div>
+                ) : (
+                  <button
+                    onClick={onToggleSelfLock}
+                    className={`p-1 sm:p-1.5 flex items-center justify-center transition-colors ${
+                      isSelfLocked ? 'text-blue-400' : 'text-paper/60 hover:text-paper'
+                    }`}
+                    title={isSelfLocked ? 'Unlock controls' : 'Lock controls'}
+                  >
+                    {isSelfLocked ? (
+                      <Lock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                    ) : (
+                      <Unlock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                    )}
+                  </button>
+                )}
+                {user?.role === 'root' && (
+                  <button onClick={() => setShowAdmin(true)} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors p-1 sm:p-1.5">
+                    <span className="hidden sm:inline">Manage</span>
+                    <Settings2 className="sm:ml-1 lg:ml-2 w-4 h-4 sm:w-4 sm:h-4 lg:w-5 lg:h-5" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </VideoPlayer>
         {/* Chat toasts: absolute overlay on the video, works on mobile + desktop */}
         <ChatToasts />

@@ -61,7 +61,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
-  const isLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering' || activeLockByAdmin || isSelfLocked;
+  const isServerLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering' || activeLockByAdmin;
+  const isLocked = isServerLocked || isSelfLocked;
 
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
@@ -341,7 +342,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Top Bar Container passed as children */}
       <div className={`absolute top-0 left-0 w-full z-50 transition-opacity duration-200 no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        {children}
+        {typeof children === 'function'
+          ? children({
+              isSelfLocked,
+              onToggleSelfLock: () => setIsSelfLocked((prev) => !prev),
+              isServerLocked,
+              activeLockByAdmin,
+            })
+          : children}
       </div>
 
       {/* Bottom Controls */}
@@ -384,8 +392,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSubtitleOffsetSec={setSubtitleOffsetSec}
           subtitleFontScale={subtitleFontScale}
           setSubtitleFontScale={setSubtitleFontScale}
-          isSelfLocked={isSelfLocked}
-          onToggleSelfLock={() => setIsSelfLocked((prev) => !prev)}
         />
       </div>
     </div>
