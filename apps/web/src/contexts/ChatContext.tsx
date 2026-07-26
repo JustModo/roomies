@@ -28,6 +28,7 @@ interface ChatContextType {
   setIsOpen: (isOpen: boolean) => void;
   messages: Message[];
   sendMessage: (body: string) => void;
+  sendEmoji: (emoji: string) => void;
   toasts: Message[];
   addLocalSystemMessage: (body: string, type?: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate') => void;
   unreadCount: number;
@@ -465,6 +466,13 @@ export function ChatProvider({
     });
   }, [sendSocketMessage]);
 
+  const sendEmoji = useCallback((emoji: string) => {
+    sendSocketMessage({
+      event: 'emoji.send',
+      payload: { emoji },
+    });
+  }, [sendSocketMessage]);
+
   const addLocalSystemMessage = useCallback((body: string, type: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate' = 'chat') => {
     const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     appendMessage({
@@ -478,7 +486,7 @@ export function ChatProvider({
 
   return (
     <ChatContext.Provider value={{
-      isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
+      isOpen, setIsOpen, messages, sendMessage, sendEmoji, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
       soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled,
       emojiMuted, setEmojiMuted,
       emojiPicker, setEmojiPicker,

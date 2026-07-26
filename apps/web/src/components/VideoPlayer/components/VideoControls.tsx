@@ -4,8 +4,7 @@ import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
 import { useChat, DEFAULT_EMOJI_PICKER } from '../../../contexts/ChatContext';
-import { useRoomSync } from '../../../hooks/useRoomSync';
-import { useMobileFullscreenLandscape } from '../../../hooks/useMobileFullscreenLandscape';
+import { useMobileView } from '../../../hooks/useMobileView';
 
 interface VideoControlsProps {
   isLocked: boolean;
@@ -97,10 +96,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   allowAsyncMode = true,
 }) => {
   const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle' | 'emoji'>();
-  const { unreadCount, emojiPicker } = useChat();
-  const { sendEmoji } = useRoomSync();
-  const { emojiMuted } = useChat();
-  const isMobileFullscreenLandscape = useMobileFullscreenLandscape();
+  const { unreadCount, emojiPicker, emojiMuted, sendEmoji } = useChat();
+  const { isMobileFullscreenLandscape, isMobilePortrait } = useMobileView();
 
   const handleEmojiClick = useCallback((emoji: string) => {
     sendEmoji(emoji);
@@ -370,8 +367,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                 </div>
               )}
 
-              {/* Emoji picker */}
-              {!emojiMuted && onToggleChat && (
+              {/* Emoji picker — hidden in mobile portrait (use floating button in chat instead) */}
+              {!emojiMuted && onToggleChat && !isMobilePortrait && (
                 <div className="relative">
                   <Btn
                     onClick={() => toggleMenu('emoji')}

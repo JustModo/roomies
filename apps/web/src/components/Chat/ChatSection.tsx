@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Send } from 'lucide-react';
 import { useChat } from '../../contexts/ChatContext';
+import { useMobileView } from '../../hooks/useMobileView';
 import { ChatMessage } from './ChatMessage';
+import { FloatingReactionButton } from './FloatingReactionButton';
 
 export const ChatSection: React.FC = () => {
   const { isOpen, messages, sendMessage, registerChatInputRef } = useChat();
+  const { isMobilePortrait } = useMobileView();
   const [newMessage, setNewMessage] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -129,7 +132,7 @@ export const ChatSection: React.FC = () => {
   };
 
   return (
-    <>
+    <div className="relative flex flex-1 flex-col min-h-0">
       <div
         ref={containerRef}
         className="flex-1 min-h-0 overflow-y-auto px-4 py-2 flex flex-col"
@@ -196,6 +199,9 @@ export const ChatSection: React.FC = () => {
           </button>
         </form>
       </div>
-    </>
+
+      {/* Floating reaction button — mobile portrait only */}
+      {isMobilePortrait && <FloatingReactionButton />}
+    </div>
   );
 };
