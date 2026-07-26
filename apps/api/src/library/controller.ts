@@ -10,6 +10,34 @@ import { prisma } from '../database/sqlite';
 
 const SUBTITLE_EXTENSIONS = ['.srt', '.vtt'];
 
+function decodeSubtitleBuffer(buffer: Buffer): string {
+  // UTF-8 BOM
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return buffer.subarray(3).toString('utf-8');
+  }
+  // UTF-16 LE BOM
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    return buffer.subarray(2).toString('utf16le');
+  }
+  // UTF-16 BE BOM
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
+    const swapped = Buffer.allocUnsafe(buffer.length - 2);
+    for (let i = 2; i < buffer.length - 1; i += 2) {
+      swapped[i - 2] = buffer[i + 1];
+      swapped[i - 1] = buffer[i];
+    }
+    return swapped.toString('utf16le');
+  }
+
+  // Try UTF-8 first
+  const utf8Text = buffer.toString('utf-8');
+  // Fallback to latin1 if invalid UTF-8 replacement chars are found
+  if (utf8Text.includes('\uFFFD')) {
+    return buffer.toString('latin1');
+  }
+  return utf8Text;
+}
+
 export const LibraryController = {
   async getLibraries(req: FastifyRequest, reply: FastifyReply) {
     try {
@@ -30,8 +58,6 @@ export const LibraryController = {
     }
   },
 
-
-
   async getSubtitle(req: FastifyRequest<{ Params: { subtitleId: string }; Querystring: { offset?: string } }>, reply: FastifyReply) {
     const subtitle = await prisma.subtitle.findUnique({ where: { id: req.params.subtitleId } });
     if (!subtitle) {
@@ -49,7 +75,8 @@ export const LibraryController = {
     }
 
     try {
-      const raw = await fs.promises.readFile(resolved, 'utf-8');
+      const buffer = await fs.promises.readFile(resolved);
+      const raw = decodeSubtitleBuffer(buffer);
       const offset = parseFloat(req.query.offset ?? '0') || 0;
       const vtt = convertSubtitleToVtt(raw, offset);
       reply.type('text/vtt');

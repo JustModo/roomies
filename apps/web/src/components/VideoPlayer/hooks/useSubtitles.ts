@@ -43,7 +43,7 @@ const vttTagToHtml = (text: string): string => {
 const parseVtt = (vttText: string): ParsedCue[] => {
   const cues: ParsedCue[] = [];
   // Split into blocks separated by blank lines
-  const blocks = vttText.replace(/\r\n/g, '\n').split(/\n\n+/);
+  const blocks = vttText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').split(/\n\n+/);
 
   for (const block of blocks) {
     const lines = block.trim().split('\n');
@@ -78,12 +78,16 @@ const parseVtt = (vttText: string): ParsedCue[] => {
 /** Parse a VTT/SRT timestamp like "00:01:23.456" or "01:23.456" into seconds */
 const parseTimestamp = (ts: string): number | null => {
   // Match HH:MM:SS.mmm or MM:SS.mmm
-  const match = ts.match(/(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})/);
+  const match = ts.match(/(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{1,4})/);
   if (!match) return null;
   const hours = parseInt(match[1] || '0', 10);
   const minutes = parseInt(match[2], 10);
   const seconds = parseInt(match[3], 10);
-  const ms = parseInt(match[4], 10);
+  const msStr = match[4];
+  let ms = parseInt(msStr, 10);
+  if (msStr.length === 1) ms *= 100;
+  else if (msStr.length === 2) ms *= 10;
+  else if (msStr.length > 3) ms = parseInt(msStr.slice(0, 3), 10);
   return hours * 3600 + minutes * 60 + seconds + ms / 1000;
 };
 
