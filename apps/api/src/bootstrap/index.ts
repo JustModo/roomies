@@ -19,7 +19,6 @@ import { registerSyncSocketEvents } from '../sync/socket';
 import { registerStoreSocketEvents } from '../websocket/store';
 import { TranscodeSessionManager, TranscodeCache } from '@roomies/transcoding';
 import { getCorsOptions } from '../config/cors';
-import { startCleanupInterval } from '../utils/rateLimiter';
 
 export const bootstrap = async (app: FastifyInstance) => {
   TranscodeCache.cleanGlobalCache();
@@ -51,9 +50,6 @@ export const bootstrap = async (app: FastifyInstance) => {
   }
 
   registerTranscodeEvents(app);
-
-  // Start rate limiter cleanup
-  startCleanupInterval();
 
   registerChatSocketEvents();
   registerPlaybackSocketEvents();

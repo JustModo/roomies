@@ -2,13 +2,13 @@ import { SocketContext } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { chatStore, ChatMessage } from '@roomies/chat';
 import { SocketEmitter } from '../websocket/emitter';
-import { checkRateLimit } from '../utils/rateLimiter';
+import { checkRateLimit } from '../websocket/middleware';
 
 type ChatPayload = Extract<IncomingSocketMessage, { event: 'chat.send' }>['payload'];
 type EmojiPayload = Extract<IncomingSocketMessage, { event: 'emoji.send' }>['payload'];
 
-// Emoji rate limit: burst of 2, then 1 per 500ms (max ~2/sec sustained)
-const EMOJI_RATE_LIMIT = { maxTokens: 2, refillRatePerMs: 1 / 500 };
+// Emoji rate limit: 1 per 500ms per user (simple time-window check)
+const EMOJI_RATE_LIMIT_WINDOW_MS = 500;
 
 export class ChatService {
   static async handleSend(payload: ChatPayload, ctx: SocketContext) {
@@ -37,8 +37,8 @@ export class ChatService {
   }
 
   static async handleEmoji(payload: EmojiPayload, ctx: SocketContext) {
-    // Rate limit: max 2 emojis burst, then 1 per 500ms
-    if (!checkRateLimit(ctx.userId, EMOJI_RATE_LIMIT)) {
+    // Rate limit: 1 emoji per 500ms per user
+    if (!checkRateLimit(ctx.userId, EMOJI_RATE_LIMIT_WINDOW_MS)) {
       console.log(`[chat] Emoji rate limited for ${ctx.userId}`);
       return; // Silently drop
     }
