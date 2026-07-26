@@ -5,6 +5,7 @@ import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
 import { useChat, DEFAULT_EMOJI_PICKER } from '../../../contexts/ChatContext';
 import { useRoomSync } from '../../../hooks/useRoomSync';
+import { useMobileFullscreenLandscape } from '../../../hooks/useMobileFullscreenLandscape';
 
 interface VideoControlsProps {
   isLocked: boolean;
@@ -99,6 +100,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   const { unreadCount, emojiPicker } = useChat();
   const { sendEmoji } = useRoomSync();
   const { emojiMuted } = useChat();
+  const isMobileFullscreenLandscape = useMobileFullscreenLandscape();
 
   const handleEmojiClick = useCallback((emoji: string) => {
     sendEmoji(emoji);
@@ -379,12 +381,16 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                     <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
                   </Btn>
                   {activeMenu === 'emoji' && (
-                    <div className="absolute bottom-full right-0 mb-2 p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50">
+                    <div className={`absolute p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50 ${
+                      isMobileFullscreenLandscape
+                        ? 'right-full mr-2 top-1/2 -translate-y-1/2'
+                        : 'right-full mr-2 top-1/2 -translate-y-1/2 sm:bottom-full sm:right-0 sm:top-auto sm:translate-y-0 sm:mb-2'
+                    }`}>
                       {(emojiPicker || DEFAULT_EMOJI_PICKER).map((emoji) => (
                         <button
                           key={emoji}
                           onClick={() => handleEmojiClick(emoji)}
-                          className="p-2 text-2xl hover:bg-ash/30 hover:scale-110 transition-all duration-150 rounded"
+                          className="p-2 text-sm sm:text-base md:text-lg lg:text-xl hover:bg-ash/30 hover:scale-110 transition-all duration-150 rounded"
                         >
                           {emoji}
                         </button>
