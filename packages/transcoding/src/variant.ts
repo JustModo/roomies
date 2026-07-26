@@ -32,6 +32,7 @@ export class TranscodeVariant extends EventEmitter {
 
   private process: ChildProcess | null = null;
   private watcher: fs.FSWatcher | null = null;
+  private pollInterval: NodeJS.Timeout | null = null;
   private _isReady = false;
   private _isRunning = false;
   private _isSuspended = false;
@@ -45,6 +46,7 @@ export class TranscodeVariant extends EventEmitter {
 
   constructor(resolution: Resolution, outputDir: string, sessionId: string) {
     super();
+    this.setMaxListeners(50);
     this.resolution = resolution;
     this.outputDir = outputDir;
     this.sessionId = sessionId;
@@ -188,6 +190,11 @@ export class TranscodeVariant extends EventEmitter {
 
     proc.on('exit', (code, signal) => {
       this._isRunning = false;
+      const tsCount = TranscodeCache.getSegmentCount(this.outputDir);
+      if (tsCount > 0 && !this._isReady && (code === 0 || this.stopRequested)) {
+        this._isReady = true;
+        this.emit('ready');
+      }
       this.stopWatcher();
       // NOTE: FFmpeg traps SIGTERM to shut down gracefully (flushing the final segment/playlist)
       // and then exits with its own code (observed: 255) rather than being reported as killed by
@@ -274,39 +281,42 @@ export class TranscodeVariant extends EventEmitter {
     }
   }
 
-  /** Watches the output directory for the first .ts segment file. */
+  /** Watches the output directory for the first .ts segment files. */
   private watchForFirstSegment(): void {
-    // NOTE: Check if lookahead segments already exist from a previous run.
-    const initialTsCount = TranscodeCache.getSegmentCount(this.outputDir);
-    if (initialTsCount >= LOOK_AHEAD_SEGMENTS) {
-      this._isReady = true;
-      this.emit('ready');
-      return;
-    }
-
-    // NOTE: Emits 'ready' once enough lookahead segments are present to prevent initial stall.
     const checkReady = () => {
+      if (this._isReady) return;
       const tsCount = TranscodeCache.getSegmentCount(this.outputDir);
-      if (tsCount >= LOOK_AHEAD_SEGMENTS && !this._isReady) {
+      // NOTE: Mark ready if lookahead segments are present OR if process finished and at least 1 segment exists
+      if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
         this._isReady = true;
         this.stopWatcher();
         this.emit('ready');
       }
     };
 
+    checkReady();
+    if (this._isReady) return;
+
+    // NOTE: fs.watch provides real-time OS events on native filesystems.
     try {
       this.watcher = fs.watch(this.outputDir, checkReady);
     } catch (err) {
-      // NOTE: Fall back to polling if directory watching fails.
-      const poll = setInterval(checkReady, 500);
-      this.once('exit', () => clearInterval(poll));
+      // Ignore watch setup error
     }
+
+    // NOTE: Docker host bind mounts on Windows/WSL2 do NOT pass inotify events to fs.watch.
+    // We add an active polling interval so segment creation is ALWAYS detected regardless of environment.
+    this.pollInterval = setInterval(checkReady, 300);
   }
 
   private stopWatcher(): void {
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
+    }
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
     }
   }
 }
