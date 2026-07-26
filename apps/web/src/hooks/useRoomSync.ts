@@ -407,6 +407,10 @@ export function useRoomSync() {
     sendMessage({ event: 'party.update', payload: updates });
   }, [sendMessage]);
 
+  const sendEmoji = useCallback((emoji: string) => {
+    sendMessage({ event: 'emoji.send', payload: { emoji } });
+  }, [sendMessage]);
+
   const setControlLock = useCallback((userId: string, locked: boolean) => {
     sendMessage({ event: 'room.set_control_lock', payload: { userId, locked } });
   }, [sendMessage]);
@@ -443,5 +447,6 @@ export function useRoomSync() {
     updatePartyState,
     setControlLock,
     updateSettings,
+    sendEmoji,
   };
 }

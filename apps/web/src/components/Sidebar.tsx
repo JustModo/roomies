@@ -24,7 +24,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, u
     if (!isOpen) return;
 
     const handleOutsideInteraction = (e: MouseEvent | TouchEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+      const target = e.target as Element;
+      if (
+        sidebarRef.current &&
+        !sidebarRef.current.contains(target) &&
+        // Don't close if clicking on video controls (emoji picker, quality menu, etc.)
+        !target.closest('[data-video-controls]')
+      ) {
         setIsOpen(false);
       }
     };

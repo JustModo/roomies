@@ -1,9 +1,10 @@
-import React from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption } from 'lucide-react';
+import React, { useCallback } from 'react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Smile } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
-import { useChat } from '../../../contexts/ChatContext';
+import { useChat, DEFAULT_EMOJI_PICKER } from '../../../contexts/ChatContext';
+import { useMobileView } from '../../../hooks/useMobileView';
 
 interface VideoControlsProps {
   isLocked: boolean;
@@ -94,13 +95,22 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   onToggleAsync,
   allowAsyncMode = true,
 }) => {
-  const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
-  const { unreadCount } = useChat();
+  const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle' | 'emoji'>();
+  const { unreadCount, emojiPicker, emojiMuted, sendEmoji } = useChat();
+  const { isMobileFullscreenLandscape, isMobilePortrait } = useMobileView();
+
+  const handleEmojiClick = useCallback((emoji: string) => {
+    sendEmoji(emoji);
+    // Don't close picker - allow multiple emoji sends
+  }, [sendEmoji]);
 
   const isPlaying = roomPlaybackState?.state === 'playing';
 
   return (
-    <div className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1">
+    <div
+      data-video-controls="true"
+      className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1"
+    >
       {/* ── Left cluster: play, seek offsets, volume, time ── */}
       <div className="flex items-center min-w-0">
         {/* Play Button */}
@@ -205,7 +215,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               </>
             )}
 
-            {/* Media Settings (Rate, Quality, Subtitles) */}
+            {/* Media Settings (Rate, Quality, Subtitles, Emoji) */}
             <div className="flex items-center gap-0 sm:gap-1" ref={containerRef}>
               {/* Playback rate */}
               <button
@@ -356,6 +366,37 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   )}
                 </div>
               )}
+
+              {/* Emoji picker — hidden in mobile portrait (use floating button in chat instead) */}
+              {!emojiMuted && onToggleChat && !isMobilePortrait && (
+                <div className="relative">
+                  <Btn
+                    onClick={() => toggleMenu('emoji')}
+                    active={activeMenu === 'emoji'}
+                    title="Reactions"
+                  >
+                    <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+                  </Btn>
+                  {activeMenu === 'emoji' && (
+                    <div className={`absolute p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50 ${
+                      isMobileFullscreenLandscape
+                        ? 'right-full mr-2 top-1/2 -translate-y-1/2'
+                        : 'right-full mr-2 top-1/2 -translate-y-1/2 sm:bottom-full sm:right-0 sm:top-auto sm:translate-y-0 sm:mb-2'
+                    }`}>
+                      {(emojiPicker || DEFAULT_EMOJI_PICKER).map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleEmojiClick(emoji)}
+                          className="p-2 text-sm sm:text-base md:text-lg lg:text-xl hover:bg-ash/30 hover:scale-110 transition-all duration-150 rounded"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
 
             <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />

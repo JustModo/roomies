@@ -237,7 +237,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     relay.onInputDeviceEnded = () => {
       fallbackToDefaultInput();
     };
-    relay.onActiveSpeakersChanged = (speakers) => {
+    relay.onActiveSpeakersChanged = (speakers: Set<string>) => {
       setActiveSpeakers(speakers);
     };
     relayRef.current = relay;

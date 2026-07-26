@@ -25,8 +25,24 @@ export const createRateLimiter = (windowMs: number, maxMessages: number) => {
 
 import { SocketEventHandler } from './router';
 
-/** 
- * Creates a global debouncer (leading-edge throttle) for socket events. 
+// Simple per-key rate limiter: checks if key has been used in the last `windowMs`
+// Returns true if allowed (first call or window expired), false if rate limited
+const rateLimitStore = new Map<string, number>();
+
+export const checkRateLimit = (key: string, windowMs: number): boolean => {
+  const now = Date.now();
+  const lastUsed = rateLimitStore.get(key);
+
+  if (lastUsed && now - lastUsed < windowMs) {
+    return false; // Rate limited
+  }
+
+  rateLimitStore.set(key, now);
+  return true; // Allowed
+};
+
+/**
+ * Creates a global debouncer (leading-edge throttle) for socket events.
  * If multiple users trigger the same wrapped event within delayMs, only the first one executes.
  */
 export const createDebouncer = (delayMs: number) => {

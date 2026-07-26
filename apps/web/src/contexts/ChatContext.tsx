@@ -1,6 +1,16 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
 
+export interface EmojiReaction {
+  userId: string;
+  username: string;
+  emoji: string;
+  timestamp: number;
+  id: string;
+}
+
+export const DEFAULT_EMOJI_PICKER = ['👍', '❤️', '😂', '😮', '😢', '😡'] as const;
+
 export interface Message {
   id: string;
   username?: string;
@@ -18,6 +28,7 @@ interface ChatContextType {
   setIsOpen: (isOpen: boolean) => void;
   messages: Message[];
   sendMessage: (body: string) => void;
+  sendEmoji: (emoji: string) => void;
   toasts: Message[];
   addLocalSystemMessage: (body: string, type?: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate') => void;
   unreadCount: number;
@@ -28,8 +39,13 @@ interface ChatContextType {
   setSoundEnabled: (enabled: boolean) => void;
   browserNotificationsEnabled: boolean;
   setBrowserNotificationsEnabled: (enabled: boolean) => void;
+  emojiMuted: boolean;
+  setEmojiMuted: (enabled: boolean) => void;
+  emojiPicker: string[];
+  setEmojiPicker: (picker: string[]) => void;
   focusChatInput: () => void;
   registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
+  emojiReactions: EmojiReaction[];
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -119,6 +135,31 @@ export function ChatProvider({
     return true;
   });
 
+  const [emojiMuted, setEmojiMuted] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('chat_emoji_muted');
+      return saved !== null ? saved === 'true' : false;
+    }
+    return false;
+  });
+
+  const [emojiPicker, setEmojiPicker] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('chat_emoji_picker');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length === 6 && parsed.every(e => typeof e === 'string')) {
+            return parsed;
+          }
+        } catch { }
+      }
+    }
+    return [...DEFAULT_EMOJI_PICKER];
+  });
+
+  const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
+
   const storageKey = `chat_history:${window.location.pathname}`;
   const isOpenRef = useRef(isOpen);
   const activeTabRef = useRef(activeTab);
@@ -157,6 +198,20 @@ export function ChatProvider({
       localStorage.setItem('chat_browser_notifications_enabled', String(browserNotificationsEnabled));
     }
   }, [browserNotificationsEnabled]);
+
+  // Persist emoji muted preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chat_emoji_muted', String(emojiMuted));
+    }
+  }, [emojiMuted]);
+
+  // Persist emoji picker preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chat_emoji_picker', JSON.stringify(emojiPicker));
+    }
+  }, [emojiPicker]);
 
   // Request notification permissions
   useEffect(() => {
@@ -376,6 +431,26 @@ export function ChatProvider({
           break;
         }
 
+        case 'emoji.reaction': {
+          const { userId, username, emoji, timestamp } = msg.payload;
+
+          // Emit custom event for floating emoji animation in VideoPlayer
+          window.dispatchEvent(new CustomEvent('roomies:emoji', {
+            detail: { userId, username, emoji, timestamp }
+          }));
+
+          // Add to emojiReactions state for party member display
+          const reactionId = `${userId}-${timestamp}`;
+          setEmojiReactions(prev => [...prev, { userId, username, emoji, timestamp, id: reactionId }]);
+
+          // Auto-clear after animation duration (3s)
+          setTimeout(() => {
+            setEmojiReactions(prev => prev.filter(r => r.id !== reactionId));
+          }, 3000);
+
+          break;
+        }
+
         default:
           break;
       }
@@ -388,6 +463,13 @@ export function ChatProvider({
     sendSocketMessage({
       event: 'chat.send',
       payload: { message: body },
+    });
+  }, [sendSocketMessage]);
+
+  const sendEmoji = useCallback((emoji: string) => {
+    sendSocketMessage({
+      event: 'emoji.send',
+      payload: { emoji },
     });
   }, [sendSocketMessage]);
 
@@ -404,9 +486,12 @@ export function ChatProvider({
 
   return (
     <ChatContext.Provider value={{
-      isOpen, setIsOpen, messages, sendMessage, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
+      isOpen, setIsOpen, messages, sendMessage, sendEmoji, toasts, addLocalSystemMessage, unreadCount, clearUnreadCount, activeTab, setActiveTab,
       soundEnabled, setSoundEnabled, browserNotificationsEnabled, setBrowserNotificationsEnabled,
+      emojiMuted, setEmojiMuted,
+      emojiPicker, setEmojiPicker,
       focusChatInput, registerChatInputRef,
+      emojiReactions,
     }}>
       {children}
     </ChatContext.Provider>

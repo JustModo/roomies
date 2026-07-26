@@ -9,7 +9,9 @@ import { VideoOverlay } from './components/VideoOverlay';
 import { SeekBar } from './components/SeekBar';
 import { VideoControls } from './components/VideoControls';
 import { SubtitleOverlay } from './components/SubtitleOverlay';
+import { FloatingEmoji } from './components/FloatingEmoji';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
+import { useChat } from '../../contexts/ChatContext';
 
 import { SyncStatus } from '@roomies/contracts';
 
@@ -46,6 +48,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
   const [isSelfLocked, setIsSelfLocked] = useState(false);
+
+  // Floating emoji state
+  const [floatingEmojis, setFloatingEmojis] = useState<Array<{ id: string; emoji: string; username: string }>>([]);
+
+  const { emojiMuted } = useChat();
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -87,6 +94,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setDragProgress(0);
     }
   }, [mediaInfo]);
+
+  // Listen for emoji reactions from other users
+  useEffect(() => {
+    const handleEmoji = (e: CustomEvent) => {
+      if (emojiMuted) return;
+      const { userId, username, emoji, timestamp } = e.detail;
+      const id = `${userId}-${timestamp}`;
+      console.log(`[VideoPlayer] Received emoji event:`, { userId, username, emoji, timestamp, id });
+      setFloatingEmojis(prev => [...prev, { id, emoji, username }]);
+    };
+
+    window.addEventListener('roomies:emoji', handleEmoji as EventListener);
+    return () => window.removeEventListener('roomies:emoji', handleEmoji as EventListener);
+  }, [emojiMuted]);
+
+  const removeFloatingEmoji = useCallback((id: string) => {
+    console.log(`[VideoPlayer] removeFloatingEmoji called for id="${id}"`);
+    setFloatingEmojis(prev => {
+      const next = prev.filter(e => e.id !== id);
+      console.log(`[VideoPlayer] Floating emojis: ${prev.length} -> ${next.length}`);
+      return next;
+    });
+  }, []);
 
   // ── Idle / Controls Visibility ─────────────────────────────────────────────
 
@@ -328,6 +358,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='%23000000'/%3E%3C/svg%3E"
         muted={volume === 0}
       />
+
+      {/* Floating emoji reactions overlay */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {floatingEmojis.map(({ id, emoji, username }) => (
+          <FloatingEmoji key={id} emoji={emoji} username={username} onComplete={() => removeFloatingEmoji(id)} />
+        ))}
+      </div>
 
       {/* Custom subtitle overlay */}
       <SubtitleOverlay activeCueHtml={activeCueHtml} fontScale={subtitleFontScale} />
