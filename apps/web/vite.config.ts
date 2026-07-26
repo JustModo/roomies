@@ -16,7 +16,7 @@ export default defineConfig({
         target: 'http://localhost:3000',
         ws: true
       },
-      '/hls': 'http://localhost:8080'
+      '/hls': 'http://localhost:5123'
     }
   }
 });
