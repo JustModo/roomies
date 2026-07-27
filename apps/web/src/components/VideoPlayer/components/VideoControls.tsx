@@ -367,17 +367,18 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                 </div>
               )}
 
-              {/* Emoji picker — hidden in mobile portrait (use floating button in chat instead) */}
-              {!emojiMuted && onToggleChat && !isMobilePortrait && (
+              {/* Emoji picker — disabled when reactions are muted */}
+              {onToggleChat && !isMobilePortrait && (
                 <div className="relative">
                   <Btn
-                    onClick={() => toggleMenu('emoji')}
+                    disabled={emojiMuted}
+                    onClick={() => !emojiMuted && toggleMenu('emoji')}
                     active={activeMenu === 'emoji'}
-                    title="Reactions"
+                    title={emojiMuted ? 'Reactions muted' : 'Reactions'}
                   >
                     <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
                   </Btn>
-                  {activeMenu === 'emoji' && (
+                  {!emojiMuted && activeMenu === 'emoji' && (
                     <div className={`absolute p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50 ${
                       isMobileFullscreenLandscape
                         ? 'right-full mr-2 top-1/2 -translate-y-1/2'

@@ -36,16 +36,14 @@ export const FloatingReactionButton: React.FC = () => {
     };
   }, [isOpen]);
 
-  if (emojiMuted) return null;
-
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-20 z-50"
+      className="absolute bottom-15 z-50"
       style={{ right: '0', width: '80px' }}
     >
       {/* Vertical popup — centered on container */}
-      {isOpen && (
+      {isOpen && !emojiMuted && (
         <div className="absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 flex flex-col gap-1 p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl animate-fade-in min-w-20">
           {(emojiPicker || DEFAULT_EMOJI_PICKER).map((emoji) => (
             <button
@@ -61,12 +59,15 @@ export const FloatingReactionButton: React.FC = () => {
 
       {/* Floating circular button — centered on container */}
       <button
-        onClick={() => setIsOpen((v) => !v)}
-        className="w-12 h-12 shrink-0 flex items-center justify-center bg-ink/95 backdrop-blur-md text-paper hover:text-blue-400 active:scale-95 transition-all duration-200 mx-auto"
+        disabled={emojiMuted}
+        onClick={() => !emojiMuted && setIsOpen((v) => !v)}
+        className={`w-12 h-12 shrink-0 flex items-center justify-center bg-ink/95 backdrop-blur-md transition-all duration-200 mx-auto ${
+          emojiMuted ? 'text-paper/30 cursor-not-allowed opacity-30' : 'text-paper hover:text-blue-400 active:scale-95'
+        }`}
         style={{
           clipPath: 'circle(50%)',
         }}
-        title="Reactions"
+        title={emojiMuted ? 'Reactions muted' : 'Reactions'}
       >
         <Smile className="w-6 h-6" strokeWidth={1.5} />
       </button>

@@ -132,7 +132,7 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({ roomState, upd
             <div className="flex items-center justify-between py-1.5">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-ash/20 flex items-center justify-center">
-                  {emojiMuted ? <Smile size={16} className="text-paper/40" /> : <Smile size={16} className="text-blue-400" />}
+                  {emojiMuted ? <Smile size={16} className="text-blue-400" /> : <Smile size={16} className="text-paper/40" />}
                 </div>
                 <div className="flex flex-col">
                   <span className="text-14 font-medium text-paper">Mute emoji reactions</span>
