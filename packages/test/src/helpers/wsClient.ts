@@ -41,6 +41,8 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
                 clearTimeout(timer);
                 const idx = messageListeners.indexOf(listener);
                 if (idx !== -1) messageListeners.splice(idx, 1);
+                const msgIdx = receivedMessages.indexOf(msg);
+                if (msgIdx !== -1) receivedMessages.splice(msgIdx, 1);
                 res(msg);
               }
             };
