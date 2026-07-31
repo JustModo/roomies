@@ -92,7 +92,7 @@ export class TranscodeVariant extends EventEmitter {
     const preset = RESOLUTION_PRESETS[this.resolution];
     const playlistPath = path.join(this.outputDir, 'stream.m3u8');
     const segmentPattern = path.join(this.outputDir, 'seg_%05d.ts');
-    const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`;
+    const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p`;
 
     // WHY: Use encoder-native -g instead of filtergraph force_key_frames to save CPU.
     // GOP size is derived from the probed source fps so keyframes land on segment boundaries.
