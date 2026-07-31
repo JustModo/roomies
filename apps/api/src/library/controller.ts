@@ -8,7 +8,7 @@ import { prisma } from '../database/sqlite';
 
 
 
-const SUBTITLE_EXTENSIONS = ['.srt', '.vtt'];
+const SUBTITLE_EXTENSIONS = ['.srt', '.vtt', '.ass', '.ssa'];
 
 function decodeSubtitleBuffer(buffer: Buffer): string {
   // UTF-8 BOM

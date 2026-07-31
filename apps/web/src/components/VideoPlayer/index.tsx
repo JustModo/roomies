@@ -186,7 +186,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const {
     activeSubtitleId,
     setActiveSubtitleId,
-    activeCueHtml,
+    activeCues,
     subtitleOffsetSec,
     setSubtitleOffsetSec,
     subtitleFontScale,
@@ -367,7 +367,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* Custom subtitle overlay */}
-      <SubtitleOverlay activeCueHtml={activeCueHtml} fontScale={subtitleFontScale} />
+      <SubtitleOverlay activeCues={activeCues} fontScale={subtitleFontScale} />
 
       <VideoOverlay
         mediaInfo={mediaInfo}
