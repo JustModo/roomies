@@ -51,7 +51,7 @@ export const bootstrap = async (app: FastifyInstance) => {
     }
   } catch (err) {
     console.error('[system] Database connection failed:', err);
-    process.exit(1);
+    throw err;
   }
 
   registerTranscodeEvents(app);

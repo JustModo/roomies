@@ -28,4 +28,8 @@ const start = async () => {
   }
 };
 
-start();
+export { bootstrap };
+
+if (process.argv[1] && (process.argv[1].endsWith('index.ts') || process.argv[1].endsWith('index.js'))) {
+  start();
+}
