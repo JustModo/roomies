@@ -1,4 +1,4 @@
-import type { SubtitleCue, CueAlignment, FormattedLine, FormattedSpan, CueStyle } from '../types/subtitle.ts';
+import type { SubtitleCue, CueAlignment, FormattedLine, FormattedSpan, CueStyle } from '../types/subtitle';
 
 const DEFAULT_ALIGNMENT: CueAlignment = { vertical: 'bottom', horizontal: 'center' };
 
@@ -10,10 +10,9 @@ export function assColorToCss(assColor: string): string | undefined {
   return `#${r}${g}${b}`.toUpperCase();
 }
 
-/** Convert ASS numpad alignment code (1-9) or legacy code to CueAlignment */
+/** Convert ASS numpad alignment code (1-9) to CueAlignment */
 export function parseAssAlignment(code: number): CueAlignment {
   switch (code) {
-    // Standard numpad alignments \an1 .. \an9
     case 1: return { vertical: 'bottom', horizontal: 'left' };
     case 2: return { vertical: 'bottom', horizontal: 'center' };
     case 3: return { vertical: 'bottom', horizontal: 'right' };
@@ -23,12 +22,6 @@ export function parseAssAlignment(code: number): CueAlignment {
     case 7: return { vertical: 'top', horizontal: 'left' };
     case 8: return { vertical: 'top', horizontal: 'center' };
     case 9: return { vertical: 'top', horizontal: 'right' };
-
-    // Legacy SSA alignments \a1 .. \a11
-    case 1: case 2: case 3: return { vertical: 'bottom', horizontal: code === 1 ? 'left' : code === 2 ? 'center' : 'right' };
-    case 9: case 10: case 11: return { vertical: 'middle', horizontal: code === 9 ? 'left' : code === 10 ? 'center' : 'right' };
-    case 5: case 6: case 7: return { vertical: 'top', horizontal: code === 5 ? 'left' : code === 6 ? 'center' : 'right' };
-
     default: return DEFAULT_ALIGNMENT;
   }
 }
@@ -95,14 +88,20 @@ export function parseCueText(rawText: string): { alignment: CueAlignment; positi
   while ((blockMatch = assBlockRegex.exec(rawText)) !== null) {
     const blockContent = blockMatch[1];
     
-    // Check for \an1 .. \an9 or \a1 .. \a11
+    // Check for \an1 .. \an9 or legacy \a1 .. \a11
     const anMatch = blockContent.match(/\\an(\d+)/);
     if (anMatch) {
       alignment = parseAssAlignment(parseInt(anMatch[1], 10));
     } else {
       const aMatch = blockContent.match(/\\a(\d+)/);
       if (aMatch) {
-        alignment = parseAssAlignment(parseInt(aMatch[1], 10));
+        const legacyCode = parseInt(aMatch[1], 10);
+        const legacyMap: Record<number, number> = {
+          1: 1, 2: 2, 3: 3,
+          5: 7, 6: 8, 7: 9,
+          9: 4, 10: 5, 11: 6,
+        };
+        alignment = parseAssAlignment(legacyMap[legacyCode] || 2);
       }
     }
 

@@ -102,6 +102,7 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
 
 const UsersTab = () => {
   const [users, setUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
 
   const [newUsername, setNewUsername] = useState('');
@@ -111,6 +112,7 @@ const UsersTab = () => {
   const [loading, setLoading] = useState(false);
 
   const fetchUsers = () => {
+    setIsLoading(true);
     fetch('/api/users', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
@@ -118,7 +120,8 @@ const UsersTab = () => {
       .then(data => {
         if (Array.isArray(data)) setUsers(data);
       })
-      .catch(err => console.error('[library] Failed to fetch users:', err));
+      .catch(err => console.error('[library] Failed to fetch users:', err))
+      .finally(() => setIsLoading(false));
   };
 
   useEffect(() => {
@@ -205,7 +208,7 @@ const UsersTab = () => {
       </div>
 
       <div className="w-full">
-        {users.length > 0 && (
+        {isLoading ? null : users.length > 0 ? (
           <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
             {users.map(u => (
               <div key={u.id} className="flex items-center justify-between p-3 sm:p-4.5 hover:bg-ash/5 transition-all duration-200 group w-full">
@@ -232,6 +235,10 @@ const UsersTab = () => {
               </div>
             ))}
           </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-fog text-14 border border-ash/20 border-dashed bg-ash/5">
+            No users found
+          </div>
         )}
       </div>
     </div>
@@ -240,6 +247,7 @@ const UsersTab = () => {
 
 const MediaTab = ({ onClose }: { onClose: () => void }) => {
   const [movies, setMovies] = useState<Movie[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -251,6 +259,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
   };
 
   const fetchLibrary = () => {
+    setIsLoading(true);
     fetch('/api/library', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
@@ -261,7 +270,8 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           setMovies(allMovies);
         }
       })
-      .catch(err => console.error('[library] Failed to fetch library:', err));
+      .catch(err => console.error('[library] Failed to fetch library:', err))
+      .finally(() => setIsLoading(false));
   };
 
   useEffect(() => {
@@ -383,11 +393,11 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           onChange={(e) => setSearchQuery(e.target.value)}
         />
         <Button onClick={handleScan} disabled={isScanning} className="w-full sm:w-auto min-w-[140px] flex-shrink-0">
-          {isScanning ? 'SCANNING...' : 'SCAN'}
+          {isScanning ? 'RESCANNING...' : 'RESCAN'}
         </Button>
       </div>
 
-      {filteredMovies.length === 0 && !isScanning && (
+      {isLoading ? null : filteredMovies.length === 0 && !isScanning ? (
         <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-ash/20 border-dashed bg-ash/5 w-full">
           <div className="w-12 h-12 rounded-full bg-ash/10 flex items-center justify-center text-fog mb-4">
             <Film size={24} strokeWidth={1.5} />
@@ -397,9 +407,9 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
             {searchQuery ? 'We couldn\'t find anything matching your search.' : 'Try scanning your library directory to import media.'}
           </p>
         </div>
-      )}
+      ) : null}
 
-      {filteredMovies.length > 0 && (
+      {!isLoading && filteredMovies.length > 0 && (
         <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
           {filteredMovies.map(m => (
             <div

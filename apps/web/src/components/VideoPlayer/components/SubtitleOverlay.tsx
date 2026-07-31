@@ -1,5 +1,5 @@
 import React from 'react';
-import type { SubtitleCue, CueAlignment, FormattedLine } from '../types/subtitle.ts';
+import type { SubtitleCue, CueAlignment, FormattedLine } from '../types/subtitle';
 
 interface SubtitleOverlayProps {
   activeCues: SubtitleCue[];

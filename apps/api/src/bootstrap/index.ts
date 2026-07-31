@@ -38,11 +38,16 @@ export const bootstrap = async (app: FastifyInstance) => {
     await initializeConfig();
 
     try {
-      console.log('[system] Initiating automatic startup library rescan...');
-      await LibraryService.scanLibrary(prisma);
-      console.log('[system] Startup library rescan completed.');
+      const movieCount = await prisma.movie.count();
+      if (movieCount === 0) {
+        console.log('[system] Database empty. Initiating initial library disk scan...');
+        await LibraryService.scanLibrary(prisma);
+        console.log('[system] Initial library scan completed.');
+      } else {
+        console.log('[system] Library loaded from database.');
+      }
     } catch (scanErr) {
-      console.error('[system] Failed to execute startup library rescan:', scanErr);
+      console.error('[system] Failed to check/execute startup library scan:', scanErr);
     }
   } catch (err) {
     console.error('[system] Database connection failed:', err);
