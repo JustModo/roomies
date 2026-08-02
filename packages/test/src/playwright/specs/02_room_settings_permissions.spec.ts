@@ -6,12 +6,11 @@ import {
   unlockGuestControls,
   joinRoomViaLobby,
   exitRoom,
+  setAuthToken,
 } from '../helpers/room';
-import { waitForPaused, waitForPlaying, getVideoState } from '../helpers/syncAssert';
+import { waitForPaused, waitForPlaying, getVideoState, waitForMediaReady } from '../helpers/syncAssert';
 import { createGuest } from '../helpers/auth';
-import { setAuthToken } from '../helpers/room';
 import { startMedia } from '../helpers/media';
-import { waitForMediaReady } from '../helpers/syncAssert';
 
 test.describe('Room Settings & Control Locks', () => {
   test('01. root locks guest — controls disabled + locked by admin', async ({ room }) => {

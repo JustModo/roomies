@@ -10,8 +10,6 @@ import {
 } from '../helpers/syncAssert';
 import { joinRoomViaLobby, exitRoom, setAuthToken } from '../helpers/room';
 import { startMedia, stopMedia } from '../helpers/media';
-import { RoomPOM } from '../pom/RoomPOM';
-import { PlayerPOM } from '../pom/PlayerPOM';
 
 test.describe('Multi-User Sync Lifecycle', () => {
   test('01. admin play syncs guest to playing', async ({ room }) => {

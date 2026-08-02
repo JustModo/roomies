@@ -5,12 +5,11 @@ import { defineConfig, devices } from '@playwright/test';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
 const testPkg = __dirname;
-const startStack = path.resolve(testPkg, 'src/playwright/start-stack.mjs');
+const startStack = path.resolve(testPkg, 'src/playwright/sandbox/start-stack.mjs');
 
 export default defineConfig({
   testDir: './src/playwright/specs',
-  globalSetup: './src/playwright/global-setup.ts',
-  globalTeardown: './src/playwright/global-teardown.ts',
+  globalTeardown: './src/playwright/sandbox/global-teardown.ts',
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,

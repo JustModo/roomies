@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Prepares packages/test/.e2e/{media,cache,config} for a Playwright run.
- * Invoked by start-stack.mjs (Playwright starts webServer before globalSetup).
- * Generates a 5-minute black movie + dummy SRT into .e2e/media (no committed assets).
+ * Invoked by start-stack.mjs (Playwright starts webServer before tests).
+ * Generates a 5-minute black movie + dummy SRT into .e2e/media.
  */
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -10,7 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const testPkgRoot = path.resolve(__dirname, '../..');
+const testPkgRoot = path.resolve(__dirname, '../../..');
 const e2eRoot = path.join(testPkgRoot, '.e2e');
 const e2eMediaDir = path.join(e2eRoot, 'media');
 const e2eCacheDir = path.join(e2eRoot, 'cache');
@@ -177,16 +177,4 @@ export function prepareSandbox() {
   });
 
   return env;
-}
-
-const isDirectRun =
-  process.argv[1] &&
-  (process.argv[1].endsWith('prepare-sandbox.mjs') || process.argv[1].endsWith('prepare-sandbox.js'));
-if (isDirectRun) {
-  try {
-    prepareSandbox();
-  } catch (err) {
-    console.error(err);
-    process.exit(1);
-  }
 }

@@ -11,7 +11,6 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     globalSetup: path.resolve(__dirname, 'src/vitest/setup/global.ts'),
-    setupFiles: [path.resolve(__dirname, 'src/vitest/setup/env.ts')],
     testTimeout: 10000,
     hookTimeout: 8000,
     include: ['src/vitest/**/*.test.ts'],

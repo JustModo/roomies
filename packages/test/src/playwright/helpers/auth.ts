@@ -47,7 +47,7 @@ export async function obtainAdminAndGuest(): Promise<AuthTokens> {
     if (!res.ok) {
       throw new Error(
         `E2E DB already has a root but setup credentials failed (${res.status}). ` +
-          `Ensure globalSetup recreates packages/test/.e2e/config each run.`,
+          `Ensure prepare-sandbox recreates packages/test/.e2e/config each run.`,
       );
     }
     const data = await res.json();

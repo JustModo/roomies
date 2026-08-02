@@ -40,8 +40,7 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
     } else if (fs.existsSync(rootPrismaJs)) {
       prismaCmd = `"${process.execPath}" "${rootPrismaJs}"`;
     } else {
-      const pnpmBin = '/home/modo/.local/share/pnpm/pnpm';
-      prismaCmd = fs.existsSync(pnpmBin) ? `"${pnpmBin}" exec prisma` : 'npx prisma';
+      prismaCmd = 'pnpm exec prisma';
     }
 
     try {
@@ -49,7 +48,6 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
         cwd: apiDir,
         env: {
           ...process.env,
-          PATH: `/home/modo/.local/share/pnpm:${process.env.PATH || ''}:/usr/local/bin:/usr/bin:/bin`,
           DATABASE_URL: databaseUrl,
         },
         stdio: 'pipe',

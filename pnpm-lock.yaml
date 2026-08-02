@@ -196,12 +196,6 @@ importers:
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(typescript@5.9.3)
-      '@roomies/chat':
-        specifier: workspace:*
-        version: link:../chat
-      '@roomies/config':
-        specifier: workspace:*
-        version: link:../config
       '@roomies/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -214,9 +208,6 @@ importers:
       '@roomies/transcoding':
         specifier: workspace:*
         version: link:../transcoding
-      '@roomies/voice':
-        specifier: workspace:*
-        version: link:../voice
       fastify:
         specifier: ^5.10.0
         version: 5.10.0

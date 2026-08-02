@@ -27,7 +27,7 @@ export async function exitRoom(page: Page) {
   await expect(page.getByRole('button', { name: /JOIN ROOM/i })).toBeVisible({ timeout: 20000 });
 }
 
-export async function openSidebarTab(page: Page, tab: 'CHAT' | 'PARTY' | 'SETTINGS') {
+export async function openSidebarTab(page: Page, tab: 'PARTY' | 'SETTINGS') {
   const tabBtn = page.getByRole('button', { name: new RegExp(`^${tab}$`, 'i') });
   if (!(await tabBtn.isVisible().catch(() => false))) {
     const toggle = page.locator('button[title="Toggle chat"]');
@@ -45,10 +45,6 @@ export async function openPartyTab(page: Page) {
 
 export async function openSettingsTab(page: Page) {
   await openSidebarTab(page, 'SETTINGS');
-}
-
-export async function openChatTab(page: Page) {
-  await openSidebarTab(page, 'CHAT');
 }
 
 export async function lockGuestControls(adminPage: Page, guestUsername: string) {
@@ -90,11 +86,4 @@ export async function getAllowAsyncMode(adminPage: Page): Promise<boolean> {
   const toggle = row.locator('button').last();
   const className = (await toggle.getAttribute('class')) ?? '';
   return className.includes('bg-blue-400');
-}
-
-export async function getInRoomCount(page: Page): Promise<number> {
-  await openPartyTab(page);
-  const text = await page.getByText(/IN ROOM \(/i).textContent();
-  const match = text?.match(/IN ROOM \((\d+)\)/i);
-  return match ? Number(match[1]) : 0;
 }

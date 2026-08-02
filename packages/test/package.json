@@ -13,13 +13,10 @@
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",
-    "@roomies/chat": "workspace:*",
-    "@roomies/config": "workspace:*",
     "@roomies/contracts": "workspace:*",
     "@roomies/library": "workspace:*",
     "@roomies/server": "workspace:*",
     "@roomies/transcoding": "workspace:*",
-    "@roomies/voice": "workspace:*",
     "fastify": "^5.10.0",
     "ws": "^8.18.0"
   },

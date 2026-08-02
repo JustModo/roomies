@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Prepares .e2e sandbox, then starts Caddy (docker-compose.dev) + API.
- * Sandbox prep lives here because Playwright starts webServer before globalSetup.
+ * Prep lives here because Playwright starts webServer before any globalSetup.
  */
 import { spawn } from 'child_process';
 import fs from 'fs';
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { prepareSandbox } from './prepare-sandbox.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const testPkgRoot = path.resolve(__dirname, '../..');
+const testPkgRoot = path.resolve(__dirname, '../../..');
 
 function findRepoRoot() {
   let rootDir = testPkgRoot;
@@ -42,7 +42,7 @@ function start(name, command, args) {
   child.on('exit', (code, signal) => {
     if (shuttingDown) return;
     console.error(`[e2e] ${name} exited (code=${code}, signal=${signal}) — stopping stack`);
-    shutdown(signal === 'SIGTERM' ? 'SIGTERM' : 'SIGTERM');
+    shutdown('SIGTERM');
     process.exit(code && code !== 0 ? code : 1);
   });
   children.push(child);

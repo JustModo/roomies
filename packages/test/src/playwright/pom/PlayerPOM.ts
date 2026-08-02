@@ -13,10 +13,6 @@ export class PlayerPOM {
     return this.page.locator('video');
   }
 
-  controls(): Locator {
-    return this.page.locator('[data-video-controls="true"]');
-  }
-
   async revealControls() {
     await this.video().hover({ force: true });
     await this.page.mouse.move(400, 400);
@@ -194,9 +190,5 @@ export class PlayerPOM {
 
   async expectSubtitleText(text: string | RegExp) {
     await expect(this.page.getByText(text)).toBeVisible({ timeout: 15000 });
-  }
-
-  async expectNoSubtitleText(text: string | RegExp) {
-    await expect(this.page.getByText(text)).toHaveCount(0);
   }
 }

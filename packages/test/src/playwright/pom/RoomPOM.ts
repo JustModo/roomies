@@ -1,15 +1,11 @@
 import { Page, expect } from '@playwright/test';
-import { openChatTab, openPartyTab, openSettingsTab } from '../helpers/room';
+import { openPartyTab, openSettingsTab } from '../helpers/room';
 
 export class RoomPOM {
   constructor(private page: Page) {}
 
   exitButton() {
     return this.page.getByRole('button', { name: /Exit/i });
-  }
-
-  manageButton() {
-    return this.page.getByRole('button', { name: /Manage/i });
   }
 
   async expectInRoom() {
@@ -21,24 +17,6 @@ export class RoomPOM {
     await this.page.waitForURL(/\/($|\?)/);
   }
 
-  async openManage() {
-    await this.manageButton().click();
-    await expect(this.page.getByText('MANAGE ROOM')).toBeVisible();
-  }
-
-  async stopMediaViaManage() {
-    await this.openManage();
-    await this.page.getByRole('button', { name: /^Stop$/i }).click();
-    await this.page.locator('button').filter({ has: this.page.locator('svg') }).first();
-    // Close overlay via X if still open
-    const close = this.page.locator('button').filter({ hasText: '' });
-    // Prefer Escape or clicking X icon button near MANAGE ROOM
-    const overlayClose = this.page.locator('h1:has-text("MANAGE ROOM")').locator('..').locator('button').last();
-    if (await overlayClose.isVisible().catch(() => false)) {
-      await overlayClose.click();
-    }
-  }
-
   async openParty() {
     await openPartyTab(this.page);
   }
@@ -47,20 +25,9 @@ export class RoomPOM {
     await openSettingsTab(this.page);
   }
 
-  async openChat() {
-    await openChatTab(this.page);
-  }
-
   async expectMemberCount(count: number) {
     await this.openParty();
     await expect(this.page.getByText(new RegExp(`IN ROOM \\(${count}\\)`, 'i'))).toBeVisible({
-      timeout: 15000,
-    });
-  }
-
-  async expectMemberPresent(username: string) {
-    await this.openParty();
-    await expect(this.page.getByText(new RegExp(username, 'i')).first()).toBeVisible({
       timeout: 15000,
     });
   }
@@ -82,12 +49,6 @@ export class RoomPOM {
 
   async expectControlsLockedByAdmin() {
     await expect(this.page.locator('[title="Controls locked by admin"]')).toBeVisible({
-      timeout: 15000,
-    });
-  }
-
-  async expectControlsLockedWhileSyncing() {
-    await expect(this.page.locator('[title="Controls locked while syncing"]')).toBeVisible({
       timeout: 15000,
     });
   }
@@ -120,17 +81,5 @@ export class RoomPOM {
     const sync = this.syncButton();
     await expect(sync).toBeDisabled({ timeout: 15000 });
     await expect(sync).toHaveAttribute('title', /Async mode disabled by admin/i);
-  }
-
-  async sendChatMessage(message: string) {
-    await this.openChat();
-    const input = this.page.locator('textarea[placeholder="Message"]');
-    await input.fill(message);
-    await input.press('Enter');
-  }
-
-  async expectChatMessage(message: string) {
-    await this.openChat();
-    await expect(this.page.getByText(message)).toBeVisible({ timeout: 15000 });
   }
 }

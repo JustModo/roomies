@@ -1,7 +1,6 @@
 import { test as base, Page, BrowserContext, APIRequestContext } from '@playwright/test';
 import { PlayerPOM } from '../pom/PlayerPOM';
 import { RoomPOM } from '../pom/RoomPOM';
-import { LobbyPOM } from '../pom/LobbyPOM';
 import { obtainAdminAndGuest } from '../helpers/auth';
 import { startMedia, stopMedia } from '../helpers/media';
 import { joinRoomViaLobby, setAuthToken } from '../helpers/room';
@@ -14,8 +13,6 @@ export interface MultiUserRoom {
   guestPlayer: PlayerPOM;
   adminRoom: RoomPOM;
   guestRoom: RoomPOM;
-  adminLobby: LobbyPOM;
-  guestLobby: LobbyPOM;
   adminContext: BrowserContext;
   guestContext: BrowserContext;
   adminToken: string;
@@ -51,7 +48,6 @@ async function buildRoom(
     await joinRoomViaLobby(adminPage);
     await joinRoomViaLobby(guestPage);
     if (startMovie) {
-      // Parallel: sequential wait hangs the 2nd page on a missed HLS response listener.
       await Promise.all([waitForMediaReady(adminPage), waitForMediaReady(guestPage)]);
     }
   }
@@ -63,8 +59,6 @@ async function buildRoom(
     guestPlayer: new PlayerPOM(guestPage),
     adminRoom: new RoomPOM(adminPage),
     guestRoom: new RoomPOM(guestPage),
-    adminLobby: new LobbyPOM(adminPage),
-    guestLobby: new LobbyPOM(guestPage),
     adminContext,
     guestContext,
     adminToken: tokens.adminToken,
@@ -97,4 +91,3 @@ export const test = base.extend<{
 });
 
 export { expect } from '@playwright/test';
-export { buildRoom };

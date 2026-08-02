@@ -24,6 +24,5 @@ playwright/.cache/
 **/playwright-report/
 **/blob-report/
 packages/test/.e2e/
-packages/test/.auth/
 packages/test/test-results/
 packages/test/playwright-report/
