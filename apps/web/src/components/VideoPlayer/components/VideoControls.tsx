@@ -1,10 +1,11 @@
 import React, { useCallback } from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Smile } from 'lucide-react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Smile, Minus, Plus } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
 import { useChat, DEFAULT_EMOJI_PICKER } from '../../../contexts/ChatContext';
 import { useMobileView } from '../../../hooks/useMobileView';
+import { ControlPopover, PopoverSection, PopoverItem, PopoverEmpty } from './ControlPopover';
 
 interface VideoControlsProps {
   isLocked: boolean;
@@ -241,31 +242,25 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   </button>
 
                   {activeMenu === 'quality' && (
-                    <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[110px] overflow-hidden z-50 shadow-2xl">
-                      <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Quality</div>
-                      <button
-                        onClick={() => { handleQualityChange(-1); setActiveMenu(null); }}
-                        className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                          currentLevel === -1 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
-                        }`}
-                      >
-                        Auto
-                      </button>
-                      {[...levels].reverse().map((level) => {
-                        const originalIndex = levels.indexOf(level);
-                        return (
-                          <button
-                            key={originalIndex}
-                            onClick={() => { handleQualityChange(originalIndex); setActiveMenu(null); }}
-                            className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                              currentLevel === originalIndex ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
-                            }`}
-                          >
-                            {level.height}p
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <ControlPopover className="bottom-full right-0 mb-3">
+                      <PopoverSection label="Quality">
+                        <PopoverItem active={currentLevel === -1} onClick={() => { handleQualityChange(-1); setActiveMenu(null); }}>
+                          Auto
+                        </PopoverItem>
+                        {[...levels].reverse().map((level) => {
+                          const originalIndex = levels.indexOf(level);
+                          return (
+                            <PopoverItem
+                              key={originalIndex}
+                              active={currentLevel === originalIndex}
+                              onClick={() => { handleQualityChange(originalIndex); setActiveMenu(null); }}
+                            >
+                              {level.height}p
+                            </PopoverItem>
+                          );
+                        })}
+                      </PopoverSection>
+                    </ControlPopover>
                   )}
                 </div>
               )}
@@ -283,76 +278,68 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   </Btn>
 
                   {activeMenu === 'subtitle' && (
-                    <div className="absolute bottom-full right-0 mb-3 bg-ink/95 backdrop-blur-md border border-ash/20 py-2 min-w-[140px] overflow-hidden z-50 shadow-2xl">
-                      <div className="px-3 py-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">Subtitles</div>
-                      {!(mediaInfo?.subtitles?.length) ? (
-                        <div className="px-3 py-2 text-[12px] lg:text-sm text-paper/50 italic">
-                          None
-                        </div>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => { setActiveSubtitleId(null); setActiveMenu(null); }}
-                            className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                              activeSubtitleId === null ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
-                            }`}
-                          >
-                            Off
-                          </button>
-                          {mediaInfo!.subtitles.map((sub) => (
-                            <button
-                              key={sub.id}
-                              onClick={() => { setActiveSubtitleId(sub.id); setActiveMenu(null); }}
-                              className={`w-full text-left px-3 py-2 text-[12px] lg:text-sm transition-colors ${
-                                activeSubtitleId === sub.id ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
-                              }`}
-                            >
-                              {displaySubtitleLabel(sub.language)}
-                            </button>
-                          ))}
-                        </>
-                      )}
+                    <ControlPopover className="bottom-full right-0 mb-3">
+                      <PopoverSection label="Subtitles">
+                        {!(mediaInfo?.subtitles?.length) ? (
+                          <PopoverEmpty>No subtitles available</PopoverEmpty>
+                        ) : (
+                          <>
+                            <PopoverItem active={activeSubtitleId === null} onClick={() => { setActiveSubtitleId(null); setActiveMenu(null); }}>
+                              Off
+                            </PopoverItem>
+                            {mediaInfo!.subtitles.map((sub) => (
+                              <PopoverItem
+                                key={sub.id}
+                                active={activeSubtitleId === sub.id}
+                                onClick={() => { setActiveSubtitleId(sub.id); setActiveMenu(null); }}
+                              >
+                                {displaySubtitleLabel(sub.language)}
+                              </PopoverItem>
+                            ))}
+                          </>
+                        )}
+                      </PopoverSection>
 
-                      {setSubtitleOffsetSec && (
-                        <>
-                          <div className="px-3 pt-2 pb-1 mt-1 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-t border-ash/10">Offset</div>
-                          <div className="flex items-center justify-between px-3 py-1.5 gap-2">
+                      {activeSubtitleId !== null && setSubtitleOffsetSec && (
+                        <PopoverSection label="Timing">
+                          <div className="flex items-center justify-center gap-3 px-3.5 py-2">
                             <button
                               onClick={() => setSubtitleOffsetSec(Math.round((subtitleOffsetSec - 0.5) * 10) / 10)}
-                              className="px-2 py-1 text-[12px] lg:text-sm text-paper hover:bg-ash/20"
+                              className="flex items-center justify-center w-7 h-7 text-paper/80 hover:text-paper hover:bg-ash/20 transition-colors flex-shrink-0"
+                              title="Shift earlier"
                             >
-                              -0.5s
+                              <Minus className="w-3.5 h-3.5" strokeWidth={2} />
                             </button>
-                            <span className="text-[12px] lg:text-sm text-paper/80 tabular-nums">
+                            <span className="text-[13px] lg:text-sm text-paper tabular-nums w-14 text-center">
                               {subtitleOffsetSec > 0 ? '+' : ''}{subtitleOffsetSec.toFixed(1)}s
                             </span>
                             <button
                               onClick={() => setSubtitleOffsetSec(Math.round((subtitleOffsetSec + 0.5) * 10) / 10)}
-                              className="px-2 py-1 text-[12px] lg:text-sm text-paper hover:bg-ash/20"
+                              className="flex items-center justify-center w-7 h-7 text-paper/80 hover:text-paper hover:bg-ash/20 transition-colors flex-shrink-0"
+                              title="Shift later"
                             >
-                              +0.5s
+                              <Plus className="w-3.5 h-3.5" strokeWidth={2} />
                             </button>
                           </div>
                           {subtitleOffsetSec !== 0 && (
                             <button
                               onClick={() => setSubtitleOffsetSec(0)}
-                              className="w-full text-center px-3 py-1 text-[11px] lg:text-xs text-paper/50 hover:text-paper"
+                              className="w-full text-center pb-1.5 text-[11px] lg:text-xs text-paper/50 hover:text-paper transition-colors"
                             >
-                              Reset offset
+                              Reset
                             </button>
                           )}
-                        </>
+                        </PopoverSection>
                       )}
 
-                      {setSubtitleFontScale && (
-                        <>
-                          <div className="px-3 pt-2 pb-1 mt-1 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-t border-ash/10">Size</div>
-                          <div className="flex items-center justify-center gap-2 px-3 py-1.5">
-                            {[{ label: 'S', scale: 0.75 }, { label: 'M', scale: 1 }, { label: 'L', scale: 1.5 }].map(({ label, scale }) => (
+                      {activeSubtitleId !== null && setSubtitleFontScale && (
+                        <PopoverSection label="Size">
+                          <div className="flex items-center mx-3.5 my-1.5 border border-ash/20">
+                            {[{ label: 'S', scale: 0.75 }, { label: 'M', scale: 1 }, { label: 'L', scale: 1.5 }].map(({ label, scale }, i) => (
                               <button
                                 key={label}
                                 onClick={() => setSubtitleFontScale(scale)}
-                                className={`px-2.5 py-1 text-[12px] lg:text-sm transition-colors ${
+                                className={`flex-1 py-1.5 text-[12px] lg:text-sm transition-colors ${i > 0 ? 'border-l border-ash/20' : ''} ${
                                   Math.abs(subtitleFontScale - scale) < 0.01 ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
                                 }`}
                               >
@@ -360,9 +347,9 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                               </button>
                             ))}
                           </div>
-                        </>
+                        </PopoverSection>
                       )}
-                    </div>
+                    </ControlPopover>
                   )}
                 </div>
               )}
@@ -379,21 +366,25 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                     <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
                   </Btn>
                   {!emojiMuted && activeMenu === 'emoji' && (
-                    <div className={`absolute p-2 bg-ink/95 backdrop-blur-md border border-ash/30 rounded-lg shadow-2xl flex gap-1 z-50 ${
-                      isMobileFullscreenLandscape
-                        ? 'right-full mr-2 top-1/2 -translate-y-1/2'
-                        : 'right-full mr-2 top-1/2 -translate-y-1/2 sm:bottom-full sm:right-0 sm:top-auto sm:translate-y-0 sm:mb-2'
-                    }`}>
-                      {(emojiPicker || DEFAULT_EMOJI_PICKER).map((emoji) => (
-                        <button
-                          key={emoji}
-                          onClick={() => handleEmojiClick(emoji)}
-                          className="p-2 text-sm sm:text-base md:text-lg lg:text-xl hover:bg-ash/30 hover:scale-110 transition-all duration-150 rounded"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
+                    <ControlPopover
+                      className={
+                        isMobileFullscreenLandscape
+                          ? 'right-full mr-2 top-1/2 -translate-y-1/2'
+                          : 'right-full mr-2 top-1/2 -translate-y-1/2 sm:bottom-full sm:right-0 sm:top-auto sm:translate-y-0 sm:mb-3'
+                      }
+                    >
+                      <div className="grid grid-cols-6 gap-6 p-2">
+                        {(emojiPicker || DEFAULT_EMOJI_PICKER).map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => handleEmojiClick(emoji)}
+                            className="flex items-center justify-center aspect-square text-base sm:text-lg lg:text-xl hover:bg-ash/30 hover:scale-110 transition-all duration-150"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </ControlPopover>
                   )}
                 </div>
               )}
