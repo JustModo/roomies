@@ -1,66 +1,34 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createTestServer, TestServerContext } from '../helpers/testServer';
-import { createTestDatabase, TestDbContext } from '../helpers/testDatabase';
+import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
 
 describe('WebSocket Real-Time Gateway & Event Synchronizer', () => {
-  let server: TestServerContext;
-  let db: TestDbContext;
-  let adminToken: string;
-  let guestToken: string;
+  let env: TestEnvironmentContext;
 
   beforeAll(async () => {
-    db = await createTestDatabase();
-    server = await createTestServer();
-
-    // Setup initial root user
-    const setupRes = await fetch(`${server.baseUrl}/api/auth/setup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: 'password123' }),
-    });
-    const setupData = await setupRes.json();
-    adminToken = setupData.token;
-
-    // Create guest user
-    await fetch(`${server.baseUrl}/api/users/guest`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
-      },
-      body: JSON.stringify({ username: 'wsuser', password: 'wspassword123' }),
-    });
-
-    const guestRes = await fetch(`${server.baseUrl}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'wsuser', password: 'wspassword123' }),
-    });
-    const guestData = await guestRes.json();
-    guestToken = guestData.token;
+    env = await setupTestEnvironment();
   });
 
   afterAll(async () => {
-    await server.close();
-    await db.cleanup();
+    await env.cleanup();
   });
 
   it('connects a WebSocket client and receives initial room state upon room.join', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
 
     wsClient.send('room.join', {});
     const roomStateMsg = await wsClient.waitForEvent('room.state');
 
     expect(roomStateMsg).toBeDefined();
     expect(roomStateMsg.payload).toBeDefined();
+    expect(roomStateMsg.payload.room).toBeDefined();
 
     await wsClient.close();
   });
 
   it('broadcasts chat messages between two connected WebSocket clients', async () => {
-    const client1 = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
-    const client2 = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const client1 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    const client2 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
 
     client1.send('room.join', {});
     client2.send('room.join', {});
@@ -81,8 +49,8 @@ describe('WebSocket Real-Time Gateway & Event Synchronizer', () => {
   });
 
   it('broadcasts emoji reaction events across room members', async () => {
-    const client1 = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
-    const client2 = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const client1 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    const client2 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
 
     client1.send('room.join', {});
     client2.send('room.join', {});

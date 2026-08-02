@@ -34,11 +34,24 @@ const loadOrCreateSecret = async (key: string): Promise<string> => {
   return config.value;
 };
 
-export const initializeConfig = async () => {
+export interface InitConfigOptions {
+  skipHardwareDetection?: boolean;
+}
+
+export const initializeConfig = async (options: InitConfigOptions = {}) => {
   console.log('[config] Initializing server configuration.');
 
   Config.JWT_SECRET = await loadOrCreateSecret('JWT_SECRET');
   Config.JWT_REFRESH_SECRET = await loadOrCreateSecret('JWT_REFRESH_SECRET');
 
-  await initTranscodeSettings();
+  if (!options.skipHardwareDetection) {
+    await initTranscodeSettings();
+  }
 };
+
+/** Resets the in-memory Config object. Useful for test teardown. */
+export const resetConfig = () => {
+  Config.JWT_SECRET = '';
+  Config.JWT_REFRESH_SECRET = '';
+};
+

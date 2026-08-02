@@ -1,4 +1,5 @@
-import fastify, { FastifyInstance } from 'fastify';
+import { FastifyInstance } from 'fastify';
+import { createApp, CreateAppOptions } from '@roomies/server';
 
 export interface TestServerContext {
   app: FastifyInstance;
@@ -8,14 +9,13 @@ export interface TestServerContext {
   close: () => Promise<void>;
 }
 
-export async function createTestServer(): Promise<TestServerContext> {
-  const { bootstrap } = await import('@roomies/server/src/bootstrap');
-
-  const app = fastify({
-    logger: false,
+export async function createTestServer(options?: CreateAppOptions): Promise<TestServerContext> {
+  const app = await createApp({
+    skipLibraryScan: true,
+    skipHardwareDetection: true,
+    skipTranscodeClean: true,
+    ...options,
   });
-
-  await bootstrap(app);
 
   const address = await app.listen({ port: 0, host: '127.0.0.1' });
   const urlObj = new URL(address);

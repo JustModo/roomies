@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { detectMediaType, processMovie, processShow } from '@roomies/library';
 import { createMockMediaDir, MockMediaDir } from '../helpers/mockMedia';
 import { createTestDatabase, TestDbContext } from '../helpers/testDatabase';
-import { prisma } from '@roomies/server/src/database/sqlite';
 
 describe('Library Scanner & Media Detection', () => {
   let mockMedia: MockMediaDir;
@@ -34,7 +33,7 @@ describe('Library Scanner & Media Detection', () => {
   });
 
   it('extracts metadata and creates a Movie database entry', async () => {
-    const library = await prisma.library.create({
+    const library = await db.prisma.library.create({
       data: { name: 'Test Movies', path: mockMedia.dirPath },
     });
 
@@ -46,7 +45,7 @@ describe('Library Scanner & Media Detection', () => {
     expect(movieResult!.type).toBe('movie');
 
     // Create database movie record
-    const movieRecord = await prisma.movie.create({
+    const movieRecord = await db.prisma.movie.create({
       data: {
         libraryId: library.id,
         name: movieResult!.name,

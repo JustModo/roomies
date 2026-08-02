@@ -1,87 +1,35 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { createTestServer, TestServerContext } from '../helpers/testServer';
-import { createTestDatabase, TestDbContext } from '../helpers/testDatabase';
+import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
 import { roomStore } from '@roomies/server/src/room/store';
 import { SYNC_CONFIG } from '@roomies/server/src/config';
-import { createMockMediaDir } from '../helpers/mockMedia';
-import { prisma } from '@roomies/server/src/database/sqlite';
 
 describe('Playback & Room Sync (Sync Mode)', () => {
-  let server: TestServerContext;
-  let db: TestDbContext;
-  let adminToken: string;
-  let guestToken: string;
-  let mockMedia: ReturnType<typeof createMockMediaDir>;
+  let env: TestEnvironmentContext;
 
   beforeAll(async () => {
-    mockMedia = createMockMediaDir();
-    db = await createTestDatabase();
-
-    // Seed dummy library and mediaFile in DB so coordinator checks pass
-    const library = await prisma.library.create({
-      data: { name: 'Mock Lib', path: mockMedia.dirPath },
-    });
-    const movie = await prisma.movie.create({
-      data: { name: 'Mock Movie', type: 'movie', libraryId: library.id, path: mockMedia.dirPath },
-    });
-    const mediaFile = await prisma.mediaFile.create({
-      data: {
-        movieId: movie.id,
-        title: 'Mock Movie',
-        path: mockMedia.createFile('mock.mp4'),
-        duration: 600,
-      },
-    });
-
-    server = await createTestServer();
-
-    // 1. Setup root admin user
-    const setupRes = await fetch(`${server.baseUrl}/api/auth/setup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: 'password123' }),
-    });
-    const setupData = await setupRes.json();
-    adminToken = setupData.token;
-
-    // 2. Create guest user
-    await fetch(`${server.baseUrl}/api/users/guest`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
-      },
-      body: JSON.stringify({ username: 'guestuser', password: 'guestpassword123' }),
-    });
-
-    const guestRes = await fetch(`${server.baseUrl}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'guestuser', password: 'guestpassword123' }),
-    });
-    const guestData = await guestRes.json();
-    guestToken = guestData.token;
-
-    (globalThis as any).testMediaFileId = mediaFile.id;
+    env = await setupTestEnvironment();
   });
 
   beforeEach(() => {
     roomStore.resetStore();
-    roomStore.updateMedia((globalThis as any).testMediaFileId, 'Mock Movie', `/hls/${(globalThis as any).testMediaFileId}/master.m3u8`, 600);
+    roomStore.updateMedia(
+      env.media.mediaFile.id,
+      'Mock Movie',
+      `/hls/${env.media.mediaFile.id}/master.m3u8`,
+      600
+    );
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused' });
   });
 
   afterAll(async () => {
-    await server.close();
-    await db.cleanup();
-    mockMedia.cleanup();
+    await env.cleanup();
   });
 
   // ── Room Playback State Machine ──
 
   it('generates initial room state on room join', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     const stateMsg = await wsClient.waitForEvent('room.state');
 
@@ -91,12 +39,12 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('transitions playback state from paused to playing', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('playback.play', { currentTime: 0 });
     const playState = await wsClient.waitForEvent('playback.state');
@@ -107,12 +55,12 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('transitions playback state from playing to paused', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('playback.play', {});
     await wsClient.waitForEvent('playback.state');
@@ -125,12 +73,12 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('executes seek command in paused state', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('playback.seek', { position: 120.0 });
     const state = await wsClient.waitForEvent('playback.state');
@@ -141,12 +89,12 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('executes seek command in playing state', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('playback.play', {});
     await wsClient.waitForEvent('playback.state');
@@ -160,12 +108,12 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('executes playback rate change (0.5x, 1.0x, 1.5x, 2.0x)', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('playback.set_rate', { rate: 1.5 });
     const state = await wsClient.waitForEvent('playback.state');
@@ -175,11 +123,11 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('handles media file change transition via changeMedia', async () => {
-    const res = await fetch(`${server.baseUrl}/api/playback/change-media`, {
+    const res = await fetch(`${env.server.baseUrl}/api/playback/change-media`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
+        Authorization: `Bearer ${env.admin.token}`,
       },
       body: JSON.stringify({ mediaFileId: 'invalid-id-test' }),
     });
@@ -188,9 +136,9 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('resets room state on playback stop command', async () => {
-    const res = await fetch(`${server.baseUrl}/api/playback/stop`, {
+    const res = await fetch(`${env.server.baseUrl}/api/playback/stop`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${adminToken}` },
+      headers: { Authorization: `Bearer ${env.admin.token}` },
     });
 
     expect(res.status).toBe(200);
@@ -199,11 +147,11 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('rejects invalid media file change requests', async () => {
-    const res = await fetch(`${server.baseUrl}/api/playback/change-media`, {
+    const res = await fetch(`${env.server.baseUrl}/api/playback/change-media`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
+        Authorization: `Bearer ${env.admin.token}`,
       },
       body: JSON.stringify({ mediaFileId: 'non-existent-uuid-999' }),
     });
@@ -212,7 +160,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('rejects unauthenticated media change requests', async () => {
-    const res = await fetch(`${server.baseUrl}/api/playback/change-media`, {
+    const res = await fetch(`${env.server.baseUrl}/api/playback/change-media`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mediaFileId: 'any-id' }),
@@ -242,11 +190,11 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('asserts zero drift stable playback state', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('sync.heartbeat', { position: 0, playbackRate: 1.0, timestamp: Date.now() });
     const ack = await wsClient.waitForEvent('sync.heartbeat_ack');
@@ -256,11 +204,11 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('evaluates boundary soft drift test (exactly 500ms)', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('sync.heartbeat', { position: 0.5, playbackRate: 1.0, timestamp: Date.now() });
     const ack = await wsClient.waitForEvent('sync.heartbeat_ack');
@@ -270,11 +218,11 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('evaluates boundary hard drift test (exactly 4000ms)', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     wsClient.send('sync.heartbeat', { position: 4.0, playbackRate: 1.0, timestamp: Date.now() });
     const ack = await wsClient.waitForEvent('sync.heartbeat_ack');
@@ -284,11 +232,11 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('returns heartbeat acknowledgment response', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
     wsClient.send('sync.status', { status: 'ready' });
-    await wsClient.waitForEvent('user.status_changed');
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     const ts = Date.now();
     wsClient.send('sync.heartbeat', { timestamp: ts });
@@ -301,20 +249,20 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   // ── Multi-User Buffering & Room Reconciliation ──
 
   it('asserts single client buffering state', async () => {
-    const wsClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'buffering' });
-    const statusMsg = await wsClient.waitForEvent('user.status_changed');
+    const statusMsg = await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     expect(statusMsg.payload.status).toBe('buffering');
     await wsClient.close();
   });
 
   it('reconciles multi-client buffering state across 2 clients', async () => {
-    const client1 = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
-    const client2 = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const client1 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    const client2 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
 
     client1.send('room.join', {});
     client2.send('room.join', {});
@@ -324,27 +272,27 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     client1.send('sync.status', { status: 'ready' });
     client2.send('sync.status', { status: 'buffering' });
 
-    const status1 = await client1.waitForEvent('user.status_changed');
-    expect(status1).toBeDefined();
+    const status1 = await client1.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.guest.user.id);
+    expect(status1.payload.status).toBe('buffering');
 
     await client1.close();
     await client2.close();
   });
 
   it('reconciles multi-client buffering state across 3 clients', async () => {
-    const client1 = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const client1 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     client1.send('room.join', {});
     await client1.waitForEvent('room.state');
 
     client1.send('sync.status', { status: 'ready' });
-    const status = await client1.waitForEvent('user.status_changed');
+    const status = await client1.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     expect(status.payload.status).toBe('ready');
     await client1.close();
   });
 
   it('recovers buffering state when a disconnected member leaves', async () => {
-    const client = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const client = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
     client.send('room.join', {});
     await client.waitForEvent('room.state');
 
@@ -352,16 +300,16 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     await client.close();
 
     const state = roomStore.getState();
-    expect(state).toBeDefined();
+    expect(state.members.some((m) => m.userId === env.guest.user.id)).toBe(false);
   });
 
   it('auto-pauses room state when last member disconnects', async () => {
-    const client = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const client = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     client.send('room.join', {});
     await client.waitForEvent('room.state');
 
     client.send('sync.status', { status: 'ready' });
-    await client.waitForEvent('user.status_changed');
+    await client.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     client.send('playback.play', { currentTime: 0 });
     await client.waitForEvent('playback.state');
@@ -372,17 +320,17 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('provides current room state to mid-playback joiner', async () => {
-    const client1 = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const client1 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     client1.send('room.join', {});
     await client1.waitForEvent('room.state');
 
     client1.send('sync.status', { status: 'ready' });
-    await client1.waitForEvent('user.status_changed');
+    await client1.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     client1.send('playback.play', {});
     await client1.waitForEvent('playback.state');
 
-    const client2 = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const client2 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
     client2.send('room.join', {});
     const state2 = await client2.waitForEvent('room.state');
 
@@ -393,25 +341,24 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('handles rapid status toggling cleanly', async () => {
-    const client = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const client = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     client.send('room.join', {});
     await client.waitForEvent('room.state');
 
     client.send('sync.status', { status: 'buffering' });
     client.send('sync.status', { status: 'ready' });
-    client.send('sync.status', { status: 'synced' });
 
-    const lastStatus = await client.waitForEvent('user.status_changed');
-    expect(lastStatus).toBeDefined();
+    const lastStatus = await client.waitForEventMatching('user.status_changed', (msg) => msg.payload.status === 'ready');
+    expect(lastStatus.payload.status).toBe('ready');
     await client.close();
   });
 
   it('records position telemetry via heartbeat', async () => {
-    const client = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const client = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     client.send('room.join', {});
     await client.waitForEvent('room.state');
     client.send('sync.status', { status: 'ready' });
-    await client.waitForEvent('user.status_changed');
+    await client.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     client.send('sync.heartbeat', { position: 42.1, timestamp: Date.now() });
     const ack = await client.waitForEvent('sync.heartbeat_ack');
@@ -423,23 +370,23 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   // ── Control Locks & Permissions ──
 
   it('allows root admin to set control lock on guest member', async () => {
-    const adminClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
-    const guestClient = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    const guestClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
 
     adminClient.send('room.join', {});
+    await adminClient.waitForEvent('room.state');
+
     guestClient.send('room.join', {});
-    await adminClient.waitForEvent('room.state');
-    await guestClient.waitForEvent('room.state');
-    await adminClient.waitForEvent('room.state');
+    await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+    );
 
-    const state = roomStore.getState();
-    const guestMember = state.members.find(m => m.username === 'guestuser');
-    expect(guestMember).toBeDefined();
+    adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: true });
+    const updatedState = await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true)
+    );
 
-    adminClient.send('room.set_control_lock', { userId: guestMember!.userId, locked: true });
-    const updatedState = await adminClient.waitForEvent('room.state');
-
-    const updatedGuest = updatedState.payload.room.members.find((m: any) => m.userId === guestMember!.userId);
+    const updatedGuest = updatedState.payload.room.members.find((m: any) => m.userId === env.guest.user.id);
     expect(updatedGuest.controlsLocked).toBe(true);
 
     await adminClient.close();
@@ -447,24 +394,24 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('prevents locked guest from issuing play or pause commands', async () => {
-    const adminClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
-    const guestClient = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    const guestClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
 
     adminClient.send('room.join', {});
+    await adminClient.waitForEvent('room.state');
+
     guestClient.send('room.join', {});
-    await adminClient.waitForEvent('room.state');
-    await guestClient.waitForEvent('room.state');
-    await adminClient.waitForEvent('room.state');
+    await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+    );
 
-    const state = roomStore.getState();
-    const guestMember = state.members.find(m => m.username === 'guestuser');
-    expect(guestMember).toBeDefined();
-
-    adminClient.send('room.set_control_lock', { userId: guestMember!.userId, locked: true });
-    await adminClient.waitForEvent('room.state');
+    adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: true });
+    await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true)
+    );
 
     guestClient.send('playback.play', { currentTime: 10 });
-    
+
     const adminState = roomStore.getState();
     expect(adminState.playback.state).toBe('paused');
 
@@ -473,7 +420,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('rejects control lock requests from non-root users', async () => {
-    const guestClient = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const guestClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
     guestClient.send('room.join', {});
     const state = await guestClient.waitForEvent('room.state');
 
@@ -481,33 +428,35 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     guestClient.send('room.set_control_lock', { userId: member.userId, locked: true });
 
     const currentState = roomStore.getState();
-    const currentMember = currentState.members.find(m => m.userId === member.userId);
+    const currentMember = currentState.members.find((m) => m.userId === member.userId);
     expect(currentMember?.controlsLocked).toBe(false);
 
     await guestClient.close();
   });
 
   it('allows root admin to unlock guest controls', async () => {
-    const adminClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
-    const guestClient = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    const guestClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
 
     adminClient.send('room.join', {});
+    await adminClient.waitForEvent('room.state');
+
     guestClient.send('room.join', {});
-    await adminClient.waitForEvent('room.state');
-    await guestClient.waitForEvent('room.state');
-    await adminClient.waitForEvent('room.state');
+    await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+    );
 
-    const state = roomStore.getState();
-    const guestMember = state.members.find(m => m.username === 'guestuser');
-    expect(guestMember).toBeDefined();
+    adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: true });
+    await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true)
+    );
 
-    adminClient.send('room.set_control_lock', { userId: guestMember!.userId, locked: true });
-    await adminClient.waitForEvent('room.state');
+    adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: false });
+    const finalState = await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && !m.controlsLocked)
+    );
 
-    adminClient.send('room.set_control_lock', { userId: guestMember!.userId, locked: false });
-    const finalState = await adminClient.waitForEvent('room.state');
-
-    const unlockedGuest = finalState.payload.room.members.find((m: any) => m.userId === guestMember!.userId);
+    const unlockedGuest = finalState.payload.room.members.find((m: any) => m.userId === env.guest.user.id);
     expect(unlockedGuest.controlsLocked).toBe(false);
 
     await adminClient.close();
@@ -515,29 +464,28 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('asserts individual member self-locking state', async () => {
-    const client = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const client = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     client.send('room.join', {});
-    await client.waitForEvent('room.state');
+    const roomState = await client.waitForEvent('room.state');
 
-    const state = roomStore.getState();
-    expect(state.members[0].controlsLocked).toBeDefined();
+    expect(roomState.payload.room.members[0].controlsLocked).toBeDefined();
     await client.close();
   });
 
   it('allows admin to update room settings to disable async mode', async () => {
-    const adminClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     adminClient.send('room.join', {});
     await adminClient.waitForEvent('room.state');
 
     adminClient.send('room.update_settings', { settings: { allowAsyncMode: false } });
-    const updatedState = await adminClient.waitForEvent('room.state');
+    const updatedState = await adminClient.waitForEventMatching('room.state', (msg) => msg.payload.room.settings.allowAsyncMode === false);
 
     expect(updatedState.payload.room.settings.allowAsyncMode).toBe(false);
     await adminClient.close();
   });
 
   it('rejects room setting updates from non-root users', async () => {
-    const guestClient = await createTestWsClient(`${server.wsUrl}/ws`, guestToken);
+    const guestClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
     guestClient.send('room.join', {});
     await guestClient.waitForEvent('room.state');
 
@@ -549,25 +497,27 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('ensures admin lock overrides self-lock', async () => {
-    const adminClient = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     adminClient.send('room.join', {});
     const state = await adminClient.waitForEvent('room.state');
 
     const member = state.payload.room.members[0];
     adminClient.send('room.set_control_lock', { userId: member.userId, locked: true });
-    const lockedState = await adminClient.waitForEvent('room.state');
+    const lockedState = await adminClient.waitForEventMatching('room.state', (msg) =>
+      msg.payload.room.members.some((m: any) => m.userId === member.userId && m.controlsLocked === true)
+    );
 
     expect(lockedState.payload.room.members[0].controlsLocked).toBe(true);
     await adminClient.close();
   });
 
   it('executes full sync mode lifecycle integration workflow', async () => {
-    const client = await createTestWsClient(`${server.wsUrl}/ws`, adminToken);
+    const client = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     client.send('room.join', {});
     await client.waitForEvent('room.state');
 
     client.send('sync.status', { status: 'ready' });
-    await client.waitForEvent('user.status_changed');
+    await client.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     client.send('playback.play', {});
     await client.waitForEvent('playback.state');
@@ -577,14 +527,14 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     await client.waitForEvent('playback.state');
 
     client.send('sync.status', { status: 'ready' });
-    await client.waitForEvent('user.status_changed');
-    await client.waitForEvent('playback.state');
+    await client.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
     client.send('playback.pause', {});
-    const pauseState = await client.waitForEvent('playback.state');
+    const pauseState = await client.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'paused');
 
     expect(pauseState.payload.state).toBe('paused');
 
     await client.close();
   });
 });
+

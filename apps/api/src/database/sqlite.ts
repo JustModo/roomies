@@ -21,6 +21,16 @@ export function getPrisma(): PrismaClient {
   return clientInstance;
 }
 
+export async function resetPrismaClient(): Promise<void> {
+  if (clientInstance) {
+    try {
+      await clientInstance.$disconnect();
+    } catch {}
+    clientInstance = null;
+    clientUrl = null;
+  }
+}
+
 export const prisma = new Proxy({} as PrismaClient, {
   get(_target, prop) {
     const client = getPrisma();
@@ -31,3 +41,4 @@ export const prisma = new Proxy({} as PrismaClient, {
     return val;
   },
 });
+

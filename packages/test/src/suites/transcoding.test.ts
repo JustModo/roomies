@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { TranscodeCache, RESOLUTION_PRESETS } from '@roomies/transcoding';
+import fs from 'fs';
 
 describe('Transcoding & Quality Variant Pipeline', () => {
   it('defines valid resolution presets for 1080p, 720p, and 360p', () => {
@@ -22,5 +23,12 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(RESOLUTION_PRESETS['1080p'].videoBitrate).toBe('5000k');
     expect(RESOLUTION_PRESETS['720p'].videoBitrate).toBe('2500k');
     expect(RESOLUTION_PRESETS['360p'].videoBitrate).toBe('800k');
+  });
+
+  it('ensures directory helper creates recursively', () => {
+    const testDir = `${process.env.CACHE_DIR}/nested/dir`;
+    TranscodeCache.ensureDirectory(testDir);
+    expect(fs.existsSync(testDir)).toBe(true);
+    TranscodeCache.cleanDirectory(testDir);
   });
 });

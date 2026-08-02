@@ -1,5 +1,7 @@
-export { TranscodeSessionManager } from './manager';
+export { TranscodeSessionManager, TranscodeSessionManagerClass, createTranscodeSessionManager } from './manager';
+export type { TranscodeManagerOptions } from './manager';
 export { TranscodeSession } from './session';
+
 export { TranscodeVariant } from './variant';
 export { TranscodeCache } from './cache';
 export { getAlignedPosition } from './utils';

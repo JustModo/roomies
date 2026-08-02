@@ -4,17 +4,25 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@roomies/web': path.resolve(__dirname, '../../apps/web'),
       '@roomies/server': path.resolve(__dirname, '../../apps/api'),
     },
   },
   test: {
     globals: true,
     environment: 'node',
-    testTimeout: 20000,
-    hookTimeout: 20000,
+    globalSetup: path.resolve(__dirname, 'src/setup/global.ts'),
+    setupFiles: [path.resolve(__dirname, 'src/setup/env.ts')],
+    testTimeout: 10000,
+    hookTimeout: 8000,
     include: ['src/suites/**/*.test.ts'],
-    fileParallelism: false,
+    fileParallelism: true,
+    pool: 'forks',
+
+    poolOptions: {
+      forks: {
+        isolate: true,
+      },
+    },
     server: {
       deps: {
         fallbackCjs: true,
@@ -22,3 +30,4 @@ export default defineConfig({
     },
   },
 });
+

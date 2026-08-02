@@ -20,8 +20,19 @@ import { registerStoreSocketEvents } from '../websocket/store';
 import { TranscodeSessionManager, TranscodeCache } from '@roomies/transcoding';
 import { getCorsOptions } from '../config/cors';
 
-export const bootstrap = async (app: FastifyInstance) => {
-  TranscodeCache.cleanGlobalCache();
+export interface BootstrapOptions {
+  /** Skip wiping the transcode cache directory on startup. Useful in tests. */
+  skipTranscodeClean?: boolean;
+  /** Skip the startup library disk scan. Useful in tests. */
+  skipLibraryScan?: boolean;
+  /** Skip hardware encoder detection (avoids spawning a subprocess). Useful in tests. */
+  skipHardwareDetection?: boolean;
+}
+
+export const bootstrap = async (app: FastifyInstance, options: BootstrapOptions = {}) => {
+  if (!options.skipTranscodeClean) {
+    TranscodeCache.cleanGlobalCache();
+  }
 
   await app.register(fastifyCors, getCorsOptions());
 
@@ -35,19 +46,21 @@ export const bootstrap = async (app: FastifyInstance) => {
     await prisma.$connect();
     console.log('[system] Connected to SQLite via Prisma.');
 
-    await initializeConfig();
+    await initializeConfig({ skipHardwareDetection: options.skipHardwareDetection });
 
-    try {
-      const movieCount = await prisma.movie.count();
-      if (movieCount === 0) {
-        console.log('[system] Database empty. Initiating initial library disk scan...');
-        await LibraryService.scanLibrary(prisma);
-        console.log('[system] Initial library scan completed.');
-      } else {
-        console.log('[system] Library loaded from database.');
+    if (!options.skipLibraryScan) {
+      try {
+        const movieCount = await prisma.movie.count();
+        if (movieCount === 0) {
+          console.log('[system] Database empty. Initiating initial library disk scan...');
+          await LibraryService.scanLibrary(prisma);
+          console.log('[system] Initial library scan completed.');
+        } else {
+          console.log('[system] Library loaded from database.');
+        }
+      } catch (scanErr) {
+        console.error('[system] Failed to check/execute startup library scan:', scanErr);
       }
-    } catch (scanErr) {
-      console.error('[system] Failed to check/execute startup library scan:', scanErr);
     }
   } catch (err) {
     console.error('[system] Database connection failed:', err);

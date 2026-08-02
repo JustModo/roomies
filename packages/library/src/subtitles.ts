@@ -36,3 +36,50 @@ export const convertSubtitleToVtt = (content: string, offsetSeconds = 0): string
   const trimmed = shifted.trim();
   return trimmed.startsWith('WEBVTT') ? `${trimmed}\n` : `WEBVTT\n\n${trimmed}\n`;
 };
+
+export interface ParsedAssTag {
+  alignment: number;
+  primaryColor: string | null;
+  isBold: boolean;
+  isItalic: boolean;
+  position: { x: number; y: number } | null;
+  cleanText: string;
+}
+
+export function parseAssDialogueTag(text: string): ParsedAssTag {
+  let alignment = 2; // Default bottom-center
+  let primaryColor: string | null = null;
+  let isBold = false;
+  let isItalic = false;
+  let position: { x: number; y: number } | null = null;
+
+  // Extract alignment \an<1-9>
+  const anMatch = text.match(/\\an([1-9])/);
+  if (anMatch) {
+    alignment = parseInt(anMatch[1], 10);
+  }
+
+  // Extract ASS color \c&HBBGGRR& or \1c&HBBGGRR&
+  const colorMatch = text.match(/\\(?:c|1c)&H([0-9A-Fa-f]{6})&?/);
+  if (colorMatch) {
+    const bgr = colorMatch[1];
+    const r = bgr.substring(4, 6);
+    const g = bgr.substring(2, 4);
+    const b = bgr.substring(0, 2);
+    primaryColor = `#${r}${g}${b}`.toUpperCase();
+  }
+
+  if (text.includes('\\b1')) isBold = true;
+  if (text.includes('\\i1')) isItalic = true;
+
+  const posMatch = text.match(/\\pos\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)/);
+  if (posMatch) {
+    position = { x: parseFloat(posMatch[1]), y: parseFloat(posMatch[2]) };
+  }
+
+  // Clean override tag blocks for raw text
+  const cleanText = text.replace(/\{[^}]*\}/g, '').replace(/\\N/g, '\n').trim();
+
+  return { alignment, primaryColor, isBold, isItalic, position, cleanText };
+}
+
