@@ -12,6 +12,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:all": "pnpm --filter @roomies/test test",
+    "test:e2e": "pnpm --filter @roomies/test test:e2e",
     "clean": "turbo run clean"
   },
   "devDependencies": {
