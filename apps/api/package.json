@@ -5,6 +5,12 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": [
+    "dist",
+    "prisma",
+    "prisma.config.ts",
+    "package.json"
+  ],
   "scripts": {
     "dev": "cross-env DATABASE_URL=file:../../config/roomies.db prisma generate && cross-env DATABASE_URL=file:../../config/roomies.db prisma db push --accept-data-loss && tsx watch src/index.ts",
     "build": "tsup",

@@ -1,28 +1,40 @@
-node_modules
-dist
-.turbo
-.next
+# Package manager
+node_modules/
+.pnpm-store/
+.pnp
+.pnp.js
+
+# Turbo / build (root)
+.turbo/
+dist/
+*.tsbuildinfo
+
+# Env / secrets
 .env
+.env.*
+!.env.example
+
+# Docker volume data (repo root)
 media/*
 !media/.keep
 cache/*
 !cache/.keep
 config/*
 !config/.keep
-apps/api/prisma/*.db
-apps/api/prisma/*.db-journal
-*.tsbuildinfo
-vite.config.js.timestamp-*
-todo.md
 
-# Playwright / test artifacts
-test-results/
-playwright-report/
-blob-report/
-playwright/.cache/
-**/test-results/
-**/playwright-report/
-**/blob-report/
-packages/test/.e2e/
-packages/test/test-results/
-packages/test/playwright-report/
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Misc
+todo.md
+*.log
+npm-debug.log*
+pnpm-debug.log*

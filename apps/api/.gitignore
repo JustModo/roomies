@@ -1,6 +1,11 @@
-node_modules
-# Keep environment variables out of version control
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
 .env
-/config
+.env.*
+!.env.example
+prisma/*.db
+prisma/*.db-journal
+src/generated/prisma/
 dev.db
-/src/generated/prisma
