@@ -16,6 +16,7 @@ export const ConfigSchema = z.object({
     'veryslow'
   ]).default('veryfast'),
   HWACCEL_MODE: z.enum(['auto', 'cpu']).default('auto'),
+  MAX_CONCURRENT_VARIANTS: z.coerce.number().int().positive().optional(),
 
   // Environment-backed / hardcoded settings
   PORT: z.coerce.number().default(3000),

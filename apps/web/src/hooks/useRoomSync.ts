@@ -303,6 +303,11 @@ export function useRoomSync() {
             }
           }
         }
+
+      // ── error (e.g. transcode failures) ────────────────────────────────
+      } else if (msg.event === 'error') {
+        console.error('[sync] Server error:', msg.payload.message);
+        window.dispatchEvent(new CustomEvent('roomies:server-error', { detail: msg.payload }));
       }
     });
 

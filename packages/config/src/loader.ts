@@ -41,6 +41,7 @@ export function loadConfig(): Config {
     FFMPEG_VIDEO_CODEC: parsedConf.FFMPEG_VIDEO_CODEC,
     FFMPEG_PRESET: parsedConf.FFMPEG_PRESET,
     HWACCEL_MODE: parsedConf.HWACCEL_MODE,
+    MAX_CONCURRENT_VARIANTS: parsedConf.MAX_CONCURRENT_VARIANTS,
 
     PORT: process.env.PORT,
     MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,

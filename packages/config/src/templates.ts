@@ -18,4 +18,7 @@ FFMPEG_PRESET=veryfast
 
 # Hardware acceleration mode (auto, cpu)
 HWACCEL_MODE=auto
+
+# Maximum concurrent FFmpeg transcode processes (default: 2x CPU cores, minimum 4)
+# MAX_CONCURRENT_VARIANTS=24
 `.trim() + '\n';

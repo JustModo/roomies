@@ -36,6 +36,8 @@ export class TranscodeVariant extends EventEmitter {
   private _isReady = false;
   private _isRunning = false;
   private _isSuspended = false;
+  private _newestSegmentTime: number = 0;
+  private _maxCoveredTime: number = 0;
   private _startPosition: number = 0;
   private preset: FfmpegPreset = 'veryfast';
   private hwAccelMode: HwAccelMode = 'auto';
@@ -62,6 +64,16 @@ export class TranscodeVariant extends EventEmitter {
 
   get startPosition(): number {
     return this._startPosition;
+  }
+
+  /** Newest segment's timeline position, tracked incrementally by the segment watcher (see watchForFirstSegment). */
+  get newestSegmentTime(): number {
+    return this._newestSegmentTime;
+  }
+
+  /** Furthest continuously-covered timeline position, tracked incrementally by the segment watcher. */
+  get maxCoveredTime(): number {
+    return this._maxCoveredTime;
   }
 
   /** Spawns the FFmpeg process to transcode the input file into HLS segments. */
@@ -259,11 +271,9 @@ export class TranscodeVariant extends EventEmitter {
     if (!this._isReady) return;
 
     try {
-      const { newestSegmentTime } = TranscodeCache.getVariantCacheStats(this.outputDir, this.startPosition);
-
       // NOTE: Suspend FFmpeg if ahead by >300s or NOT actively watched. Resume when <60s AND actively watched to protect CPU/disk.
       if (this.process && this._isRunning) {
-        const aheadBy = newestSegmentTime - currentPlayhead;
+        const aheadBy = this._newestSegmentTime - currentPlayhead;
 
         if ((!isActivelyWatched || aheadBy > 300) && !this._isSuspended) {
           const reason = !isActivelyWatched ? 'not actively watched' : `ahead by ${aheadBy.toFixed(1)}s`;
@@ -283,19 +293,24 @@ export class TranscodeVariant extends EventEmitter {
 
   /** Watches the output directory for the first .ts segment files. */
   private watchForFirstSegment(): void {
+    const recomputeCacheStats = () => {
+      const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(this.outputDir, this._startPosition);
+      this._newestSegmentTime = newestSegmentTime;
+      this._maxCoveredTime = maxCoveredTime;
+    };
+
     const checkReady = () => {
+      recomputeCacheStats();
       if (this._isReady) return;
       const tsCount = TranscodeCache.getSegmentCount(this.outputDir);
       // NOTE: Mark ready if lookahead segments are present OR if process finished and at least 1 segment exists
       if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
         this._isReady = true;
-        this.stopWatcher();
         this.emit('ready');
       }
     };
 
     checkReady();
-    if (this._isReady) return;
 
     // NOTE: fs.watch provides real-time OS events on native filesystems.
     try {
@@ -306,6 +321,8 @@ export class TranscodeVariant extends EventEmitter {
 
     // NOTE: Docker host bind mounts on Windows/WSL2 do NOT pass inotify events to fs.watch.
     // We add an active polling interval so segment creation is ALWAYS detected regardless of environment.
+    // NOTE: Kept running for the variant's full lifetime (not just until ready) so newestSegmentTime/
+    // maxCoveredTime stay current without callers re-scanning the output directory themselves.
     this.pollInterval = setInterval(checkReady, 300);
   }
 

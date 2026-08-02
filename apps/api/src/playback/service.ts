@@ -40,8 +40,15 @@ export class PlaybackService {
       resolutions.map(res =>
         session.ensureVariantReady(res, 0, ffmpegPreset, hwAccelMode)
       )
-    ).catch((err) => {
-      console.error(`[playback] Failed to pre-warm variants for ${mediaFileId}:`, err);
+    ).then((results) => {
+      results.forEach((result, i) => {
+        if (result.status === 'rejected') {
+          const resolution = resolutions[i];
+          const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+          console.error(`[playback] Failed to pre-warm ${resolution} for ${mediaFileId}:`, error.message);
+          session.reportError(resolution, error);
+        }
+      });
     });
 
     roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles);

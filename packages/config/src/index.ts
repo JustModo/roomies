@@ -22,6 +22,7 @@ export function reloadConfig() {
 export const CORS_ORIGIN = config.CORS_ORIGIN;
 export const FFMPEG_PRESET = config.FFMPEG_PRESET;
 export const HWACCEL_MODE = config.HWACCEL_MODE;
+export const MAX_CONCURRENT_VARIANTS = config.MAX_CONCURRENT_VARIANTS;
 export const PORT = config.PORT;
 export const MEDIA_ROOT = config.MEDIA_ROOT;
 export const CACHE_DIR = config.CACHE_DIR;

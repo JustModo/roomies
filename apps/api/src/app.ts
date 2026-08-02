@@ -10,6 +10,7 @@ import { libraryRoutes } from './library';
 import { chatRoutes } from './chat';
 import { playbackRoutes } from './playback/routes';
 import { LibraryService } from '@roomies/library';
+import { TranscodeCache } from '@roomies/transcoding';
 import { initializeConfig } from './config';
 import { registerChatSocketEvents } from './chat/socket';
 import { registerPlaybackSocketEvents, registerTranscodeEvents } from './playback/socket';
@@ -45,6 +46,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
 
   if (!options.skipTranscodeClean) {
     ctx.transcodeManager.stopAll();
+    TranscodeCache.cleanGlobalCache();
   }
 
   await app.register(fastifyCors, getCorsOptions());

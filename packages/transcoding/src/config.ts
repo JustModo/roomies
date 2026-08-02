@@ -1,5 +1,12 @@
 import path from 'path';
+import os from 'os';
 import { Resolution, ResolutionConfig } from './types';
+import {
+  FFMPEG_PATH as CONFIG_FFMPEG_PATH,
+  CACHE_DIR as CONFIG_CACHE_DIR,
+  VIDEO_CODEC as CONFIG_VIDEO_CODEC,
+  MAX_CONCURRENT_VARIANTS as CONFIG_MAX_CONCURRENT_VARIANTS,
+} from '@roomies/config';
 
 /** Encoding presets for each supported resolution. */
 export const RESOLUTION_PRESETS: Record<Resolution, ResolutionConfig> = {
@@ -38,10 +45,11 @@ export const HLS_LIST_SIZE = 0;
 /** Number of segments that must exist on disk before the variant is ready. */
 export const LOOK_AHEAD_SEGMENTS = 4;
 
-/** Upper bound on concurrent FFmpeg variant processes per session. */
-export const MAX_CONCURRENT_VARIANTS = 24;
-
-import { FFMPEG_PATH as CONFIG_FFMPEG_PATH, CACHE_DIR as CONFIG_CACHE_DIR, VIDEO_CODEC as CONFIG_VIDEO_CODEC } from '@roomies/config';
+/** Upper bound on concurrent FFmpeg variant processes per session.
+ *  Defaults to 2x logical CPU count (floor 4, so small/CI hosts can still
+ *  fit the 3-resolutions-per-offset prewarm); override via
+ *  MAX_CONCURRENT_VARIANTS in roomies.conf. */
+export const MAX_CONCURRENT_VARIANTS = CONFIG_MAX_CONCURRENT_VARIANTS ?? Math.max(4, os.cpus().length * 2);
 
 export const FFMPEG_PATH = CONFIG_FFMPEG_PATH;
 

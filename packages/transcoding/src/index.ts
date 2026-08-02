@@ -3,6 +3,7 @@ export type { TranscodeManagerOptions } from './manager';
 export { TranscodeSession } from './session';
 
 export { TranscodeVariant } from './variant';
+export { TranscodeVariantGroup, GroupedVariantLeg } from './variantGroup';
 export { TranscodeCache } from './cache';
 export { getAlignedPosition } from './utils';
 export { detectHardwareEncoder, getDetectedHardwareEncoder } from './hwaccel';

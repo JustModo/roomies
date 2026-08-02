@@ -2,10 +2,14 @@ import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution } from './types';
 import { TranscodeVariant } from './variant';
+import { TranscodeVariantGroup, GroupedVariantLeg } from './variantGroup';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
 import { getSourceFrameRate } from './ffprobe';
 import { TranscodeCache } from './cache';
 import { getAlignedPosition } from './utils';
+
+type VariantLike = TranscodeVariant | GroupedVariantLeg;
+const ALL_RESOLUTIONS: Resolution[] = ['360p', '720p', '1080p'];
 
 export interface PlayheadState {
   position: number;
@@ -21,24 +25,37 @@ export class TranscodeSession {
   public readonly outputBaseDir: string;
 
   // Map of offset -> Map of Resolution -> TranscodeVariant
-  private variantGroups = new Map<number, Map<Resolution, TranscodeVariant>>();
+  private variantGroups = new Map<number, Map<Resolution, VariantLike>>();
   private groupCreatedAt = new Map<number, number>();
   public mergedOffsets = new Map<number, number>();
   private playheads = new Map<string, PlayheadState>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
 
+  /** Sync sessions merge all resolutions into one shared decode process (TranscodeVariantGroup)
+   *  since they always prewarm every resolution together anyway; async sessions keep one
+   *  independent process per resolution (TranscodeVariant) to preserve per-resolution
+   *  SIGSTOP throttling, which matters there since users can each be watching a different
+   *  resolution (see updateVariantCache). */
+  private readonly useGroupedVariants: boolean;
+
   constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string) {
     this.sessionId = sessionId;
     this.mediaFileId = mediaFileId;
     this.inputPath = inputPath;
     this.outputBaseDir = outputBaseDir;
+    this.useGroupedVariants = sessionId === 'sync';
 
     TranscodeCache.ensureDirectory(this.outputBaseDir);
   }
 
   onError(callback: (resolution: Resolution, error: Error) => void): void {
     this.onErrorCallback = callback;
+  }
+
+  /** Reports a failure for a given resolution through the same channel as variant process errors. */
+  reportError(resolution: Resolution, error: Error): void {
+    if (this.onErrorCallback) this.onErrorCallback(resolution, error);
   }
 
   resolveMergedOffset(offset: number): number {
@@ -74,7 +91,7 @@ export class TranscodeSession {
 
     let group = this.variantGroups.get(offset);
     if (!group) {
-      group = new Map<Resolution, TranscodeVariant>();
+      group = new Map<Resolution, VariantLike>();
       this.variantGroups.set(offset, group);
       this.groupCreatedAt.set(offset, Date.now());
     }
@@ -83,6 +100,10 @@ export class TranscodeSession {
     if (existing) {
       if (existing.isReady) return;
       return new Promise((resolve) => existing.once('ready', resolve));
+    }
+
+    if (this.useGroupedVariants) {
+      return this.ensureGroupedVariantReady(resolution, offset, group, preset, hwAccelMode);
     }
 
     if (this.getTotalActiveVariants() >= MAX_CONCURRENT_VARIANTS) {
@@ -110,6 +131,54 @@ export class TranscodeSession {
     variant.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
 
     return new Promise((resolve) => variant.once('ready', resolve));
+  }
+
+  /**
+   * Sync-scope variant creation: spawns one shared TranscodeVariantGroup covering ALL
+   * resolutions at once (not just the one requested), since sync sessions always prewarm
+   * every resolution together (see coordinator.ts/service.ts callers) — there's no partial-
+   * group case to support. All 3 leg entries are populated into `group` synchronously,
+   * before any `await`, so concurrent ensureVariantReady calls for the other two resolutions
+   * (fired in the same Promise.allSettled batch by the caller) find `existing` already set
+   * instead of racing to create a second group for the same offset.
+   */
+  private async ensureGroupedVariantReady(
+    resolution: Resolution,
+    offset: number,
+    group: Map<Resolution, VariantLike>,
+    preset: FfmpegPreset,
+    hwAccelMode: HwAccelMode
+  ): Promise<void> {
+    if (this.getTotalActiveVariants() + ALL_RESOLUTIONS.length > MAX_CONCURRENT_VARIANTS) {
+      console.error(`[transcode] Refusing to spawn variant group at offset ${offset}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
+      throw new Error('Maximum concurrent transcode variants reached');
+    }
+
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const legDirs = new Map<Resolution, string>(
+      ALL_RESOLUTIONS.map(res => [res, path.join(this.outputBaseDir, offset.toString(), res, `ss-${offset}-${randomSuffix}`)])
+    );
+
+    const variantGroup = new TranscodeVariantGroup(ALL_RESOLUTIONS, legDirs, this.sessionId);
+
+    for (const res of ALL_RESOLUTIONS) {
+      const leg = variantGroup.getLeg(res);
+      leg.on('ready', () => console.log(`[transcode] [session ${this.sessionId}] Variant ${res}@${offset} ready (grouped)`));
+      leg.on('error', (err: Error) => {
+        console.error(`[transcode] [session ${this.sessionId}] Variant group @${offset} error:`, err.message);
+        if (this.onErrorCallback) this.onErrorCallback(res, err);
+      });
+      leg.on('exit', (code: number | null) => {
+        if (code === 0) console.log(`[transcode] [session ${this.sessionId}] Variant ${res}@${offset} completed (grouped)`);
+      });
+      group.set(res, leg);
+    }
+
+    const sourceFps = await this.getSourceFps();
+    variantGroup.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
+
+    const requestedLeg = group.get(resolution)!;
+    return new Promise((resolve) => requestedLeg.once('ready', resolve));
   }
 
   isVariantReady(resolution: Resolution, offset: number): boolean {
@@ -321,9 +390,17 @@ export class TranscodeSession {
     const alignedPosition = getAlignedPosition(newPosition);
 
     if (resolutionsToPrewarm.length > 0) {
-      await Promise.all(
+      const results = await Promise.allSettled(
         resolutionsToPrewarm.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
       );
+      results.forEach((result, i) => {
+        if (result.status === 'rejected') {
+          const resolution = resolutionsToPrewarm[i];
+          const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+          console.error(`[transcode] Prewarm failed for ${resolution} at offset ${alignedPosition}:`, error.message);
+          this.reportError(resolution, error);
+        }
+      });
     }
 
     return alignedPosition;
@@ -339,7 +416,7 @@ export class TranscodeSession {
     return variant.outputDir;
   }
 
-  private getMaxCoveredTime(variant: TranscodeVariant): number {
-    return TranscodeCache.getVariantCacheStats(variant.outputDir, variant.startPosition).maxCoveredTime;
+  private getMaxCoveredTime(variant: VariantLike): number {
+    return variant.maxCoveredTime;
   }
 }
