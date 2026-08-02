@@ -5,18 +5,19 @@ import { Button } from '../components/ui/Button';
 import { LogOut } from 'lucide-react';
 import { fetchApi } from '../api/client';
 import { setHasUserInteracted } from './Room';
+import { ActivePlaybackResponse } from '@roomies/contracts';
 
 export default function Lobby() {
   const { logout } = useAuth();
   const navigate = useNavigate();
 
-  const [activePlayback, setActivePlayback] = useState<any>(null);
+  const [activePlayback, setActivePlayback] = useState<ActivePlaybackResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchApi('/playback/active')
       .then(data => {
-        setActivePlayback(data);
+        setActivePlayback(data as ActivePlaybackResponse);
       })
       .catch(err => console.error('[playback] Failed to fetch active playback:', err))
       .finally(() => setLoading(false));

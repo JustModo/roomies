@@ -48,10 +48,3 @@ export const initializeConfig = async (options: InitConfigOptions = {}) => {
     await initTranscodeSettings();
   }
 };
-
-/** Resets the in-memory Config object. Useful for test teardown. */
-export const resetConfig = () => {
-  Config.JWT_SECRET = '';
-  Config.JWT_REFRESH_SECRET = '';
-};
-

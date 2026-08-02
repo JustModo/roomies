@@ -18,7 +18,16 @@ import { registerPartySocketEvents } from './party/socket';
 import { registerSyncSocketEvents } from './sync/socket';
 import { registerStoreSocketEvents } from './websocket/store';
 import { getCorsOptions } from './config/cors';
-import { BootstrapOptions } from './bootstrap';
+export interface BootstrapOptions {
+  /** Skip wiping the transcode cache directory on startup. Useful in tests. */
+  skipTranscodeClean?: boolean;
+  /** Skip the startup library disk scan. Useful in tests. */
+  skipLibraryScan?: boolean;
+  /** Skip hardware encoder detection (avoids spawning a subprocess). Useful in tests. */
+  skipHardwareDetection?: boolean;
+}
+
+export interface CreateAppOptions extends AppContextOptions, BootstrapOptions { }
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -26,7 +35,7 @@ declare module 'fastify' {
   }
 }
 
-export interface CreateAppOptions extends AppContextOptions, BootstrapOptions {}
+
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
   const ctx = createAppContext(options);

@@ -2,7 +2,8 @@ import { createTestDatabase, TestDbContext } from './testDatabase';
 import { createTestServer, TestServerContext } from './testServer';
 import { createMockMediaDir, MockMediaDir } from './mockMedia';
 import type { PrismaClient } from '@prisma/client';
-import type { BootstrapOptions } from '@roomies/server/src/bootstrap';
+import type { Library as PrismaLibrary, Movie as PrismaMovie, MediaFile as PrismaMediaFile } from '@prisma/client';
+import type { CreateAppOptions as BootstrapOptions } from '@roomies/server';
 
 export interface UserAccount {
   username: string;
@@ -15,10 +16,12 @@ export interface UserAccount {
 }
 
 export interface SeedingResult {
-  library: any;
-  movie: any;
-  mediaFile: any;
+  library: PrismaLibrary;
+  movie: PrismaMovie;
+  mediaFile: PrismaMediaFile;
 }
+
+
 
 export interface TestEnvironmentContext {
   db: TestDbContext;

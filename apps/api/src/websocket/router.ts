@@ -1,13 +1,22 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
 
+export interface RoomSocket extends WebSocket {
+  lastSeekTime?: number;
+  userId?: string;
+  socketId?: string;
+}
+
+
 export interface SocketContext {
   app: FastifyInstance;
-  socket: WebSocket;
+  socket: RoomSocket;
   userId: string;
   username: string;
+  role: string;
   socketId: string;
 }
+
 
 export type SocketEventHandler = (payload: unknown, ctx: SocketContext) => Promise<void> | void;
 
@@ -38,9 +47,6 @@ export class SocketRouter {
 
 export const defaultSocketRouter = new SocketRouter();
 
-export const clearSocketRegistry = () => {
-  defaultSocketRouter.clear();
-};
 
 export const registerSocketEvent = (event: string, handler: SocketEventHandler) => {
   defaultSocketRouter.register(event, handler);

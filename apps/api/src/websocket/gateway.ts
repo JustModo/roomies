@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
 import { IncomingSocketMessageSchema } from '@roomies/contracts';
 import { authenticateWebSocket } from '../auth/websocket';
-import { dispatchSocketEvent, SocketContext } from './router';
+import { dispatchSocketEvent, SocketContext, RoomSocket } from './router';
 import { createRateLimiter } from './middleware';
 import { socketSessionStore } from './store';
 
@@ -12,7 +12,7 @@ const MAX_MESSAGES_PER_WINDOW = 20;
 /** Force-closes any existing WebSocket connections for a user, e.g. after a new login elsewhere. */
 export const kickUserConnections = (app: FastifyInstance, userId: string): void => {
   for (const connection of app.room) {
-    if ((connection as any).userId !== userId) continue;
+    if ((connection as RoomSocket).userId !== userId) continue;
     try {
       connection.send(JSON.stringify({ event: 'auth.kicked', payload: { reason: 'logged_in_elsewhere' } }));
     } catch (e) {
@@ -24,7 +24,7 @@ export const kickUserConnections = (app: FastifyInstance, userId: string): void 
 
 /** Decorates the Fastify instance with a room registry and sets up the /ws route. */
 export const setupWebsocketGateway = (app: FastifyInstance) => {
-  app.decorate('room', new Set<WebSocket>());
+  app.decorate('room', new Set<RoomSocket>());
 
   app.route({
     method: 'GET',
@@ -34,6 +34,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
       reply.status(400).send({ error: 'WebSocket upgrade required' });
     },
     wsHandler: async (connection, req) => {
+      const roomSocket = connection as RoomSocket;
       const userPayload = await authenticateWebSocket(req);
 
       if (!userPayload) {
@@ -43,16 +44,17 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
         return;
       }
 
-      const { userId, username } = userPayload;
+      const { userId, username, role } = userPayload;
       const socketId = req.id;
 
-      const ctx: SocketContext = { app, socket: connection, userId, username, socketId };
+      const ctx: SocketContext = { app, socket: roomSocket, userId, username, role, socketId };
 
       console.log(`[sync] User connected via WebSocket: ${userId}`);
 
-      (connection as any).userId = userId;
-      (connection as any).socketId = socketId;
-      app.room.add(connection);
+      roomSocket.userId = userId;
+      roomSocket.socketId = socketId;
+      app.room.add(roomSocket);
+
 
       await dispatchSocketEvent('system.connect', null, ctx);
 

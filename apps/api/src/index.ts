@@ -1,16 +1,15 @@
-import { createApp, CreateAppOptions } from './app';
+import { createApp } from './app';
 import { PORT } from '@roomies/config';
-import { bootstrap } from './bootstrap';
 
-export { createApp, createAppContext } from './app';
+export { createApp } from './app';
+export { createAppContext } from './context';
 export type { CreateAppOptions } from './app';
 export type { AppContext, AppContextOptions } from './context';
-export { bootstrap };
 
 const start = async () => {
   try {
     const app = await createApp();
-    const port = app.ctx.config.PORT || PORT;
+    const port = (app as any).ctx?.config?.PORT || PORT;
 
     await app.listen({ port, host: '0.0.0.0' });
 

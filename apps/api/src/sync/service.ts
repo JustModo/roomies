@@ -110,7 +110,7 @@ export class SyncService {
     }
 
     // NOTE: Cooldown check for hard seeks to prevent feedback loops.
-    const lastSeekTime = (ctx.socket as any).lastSeekTime || 0;
+    const lastSeekTime = ctx.socket.lastSeekTime || 0;
     const now = Date.now();
     const isSeekingCooldown = (now - lastSeekTime) < 8000;
 
@@ -140,7 +140,8 @@ export class SyncService {
   }
 
   private static applyHardCorrection(ctx: SocketContext, expectedPosition: number, driftMs: number, now: number) {
-    (ctx.socket as any).lastSeekTime = now;
+    ctx.socket.lastSeekTime = now;
+
     console.warn(`[sync] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
     SocketEmitter.sendToClient(ctx.socket, {
       event: 'sync.correct',

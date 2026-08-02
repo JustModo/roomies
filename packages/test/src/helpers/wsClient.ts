@@ -1,11 +1,12 @@
 import WebSocket from 'ws';
+import type { OutgoingSocketMessage } from '@roomies/contracts';
 
 export interface TestWsClient {
   ws: WebSocket;
-  send: (event: string, payload?: any) => void;
+  send: (event: string, payload?: unknown) => void;
   waitForEvent: <T = any>(eventName: string, timeoutMs?: number) => Promise<T>;
   waitForEventMatching: <T = any>(eventName: string, predicate: (msg: any) => boolean, timeoutMs?: number) => Promise<T>;
-  getAllReceived: () => any[];
+  getAllReceived: () => OutgoingSocketMessage[];
   close: () => Promise<void>;
 }
 
@@ -14,13 +15,13 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
     const fullUrl = token ? `${url}?token=${token}` : url;
     const ws = new WebSocket(fullUrl);
 
-    const receivedMessages: any[] = [];
-    const messageListeners: Array<(msg: any) => boolean> = [];
+    const receivedMessages: OutgoingSocketMessage[] = [];
+    const messageListeners: Array<(msg: OutgoingSocketMessage) => boolean> = [];
 
     ws.on('open', () => {
       const client: TestWsClient = {
         ws,
-        send: (event: string, payload: any = {}) => {
+        send: (event: string, payload: unknown = {}) => {
           ws.send(JSON.stringify({ event, payload }));
         },
         waitForEventMatching: <T = any>(
@@ -34,7 +35,7 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
             );
             if (existingIdx !== -1) {
               const [msg] = receivedMessages.splice(existingIdx, 1);
-              return res(msg as T);
+              return res(msg as unknown as T);
             }
 
             const timer = setTimeout(() => {
@@ -43,14 +44,14 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
               rej(new Error(`Timeout waiting for WebSocket event "${eventName}" matching predicate`));
             }, timeoutMs);
 
-            const listener = (msg: any) => {
+            const listener = (msg: OutgoingSocketMessage) => {
               if (msg.event === eventName && predicate(msg)) {
                 clearTimeout(timer);
                 const idx = messageListeners.indexOf(listener);
                 if (idx !== -1) messageListeners.splice(idx, 1);
                 const msgIdx = receivedMessages.indexOf(msg);
                 if (msgIdx !== -1) receivedMessages.splice(msgIdx, 1);
-                res(msg as T);
+                res(msg as unknown as T);
                 return true;
               }
               return false;
@@ -80,7 +81,7 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
 
     ws.on('message', (data: WebSocket.Data) => {
       try {
-        const parsed = JSON.parse(data.toString());
+        const parsed = JSON.parse(data.toString()) as OutgoingSocketMessage;
         receivedMessages.push(parsed);
 
         // Notify listeners and remove any listener that matched
