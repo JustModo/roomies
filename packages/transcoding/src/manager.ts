@@ -1,13 +1,26 @@
 import path from 'path';
 import { TranscodeErrorCallback } from './types';
 import { TranscodeSession } from './session';
-import { CACHE_DIR } from './config';
+import { CACHE_DIR as DEFAULT_CACHE_DIR } from './config';
 import { TranscodeCache } from './cache';
 
-/** Singleton manager for active transcoding sessions. Manages one sync session and isolated async sessions. */
-class TranscodeSessionManagerImpl {
+export interface TranscodeManagerOptions {
+  cacheDir?: string;
+}
+
+/** Manager for active transcoding sessions. Manages one sync session and isolated async sessions. */
+export class TranscodeSessionManagerClass {
   private sessions = new Map<string, TranscodeSession>();
   private errorCallbacks: TranscodeErrorCallback[] = [];
+  private baseCacheDir: string;
+
+  constructor(options?: TranscodeManagerOptions) {
+    this.baseCacheDir = options?.cacheDir || DEFAULT_CACHE_DIR;
+  }
+
+  getCacheDir(): string {
+    return this.baseCacheDir;
+  }
 
   startSession(sessionId: string, mediaFileId: string, inputPath: string): TranscodeSession {
     this.stopSession(sessionId);
@@ -15,7 +28,7 @@ class TranscodeSessionManagerImpl {
     // Isolate cache directory per session, media, and run (uniqueId)
     // to prevent race conditions where a stopping session deletes the directory of a new session.
     const uniqueRunId = Math.random().toString(36).substring(2, 10);
-    const outputDir = path.join(CACHE_DIR, sessionId, mediaFileId, uniqueRunId);
+    const outputDir = path.join(this.baseCacheDir, sessionId, mediaFileId, uniqueRunId);
     TranscodeCache.cleanDirectory(outputDir);
 
     const session = new TranscodeSession(sessionId, mediaFileId, inputPath, outputDir);
@@ -36,8 +49,6 @@ class TranscodeSessionManagerImpl {
     return this.sessions.get(sessionId) || null;
   }
 
-
-
   stopSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
@@ -48,7 +59,7 @@ class TranscodeSessionManagerImpl {
   }
 
   stopAll(): void {
-    for (const sessionId of this.sessions.keys()) {
+    for (const sessionId of [...this.sessions.keys()]) {
       this.stopSession(sessionId);
     }
   }
@@ -58,4 +69,8 @@ class TranscodeSessionManagerImpl {
   }
 }
 
-export const TranscodeSessionManager = new TranscodeSessionManagerImpl();
+export function createTranscodeSessionManager(options?: TranscodeManagerOptions): TranscodeSessionManagerClass {
+  return new TranscodeSessionManagerClass(options);
+}
+
+export const TranscodeSessionManager = new TranscodeSessionManagerClass();

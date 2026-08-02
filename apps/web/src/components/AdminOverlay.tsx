@@ -4,15 +4,11 @@ import { X, Film, ChevronLeft, Play } from 'lucide-react';
 import { Input } from './ui/Input';
 import { IconButton } from './ui/IconButton';
 import { Button } from './ui/Button';
-import { Movie, MediaFile } from '@roomies/contracts';
+import { Movie, MediaFile, UserProfile, Library } from '@roomies/contracts';
 
-interface AdminOverlayProps {
-  isOpen: boolean;
-  onClose: () => void;
-  mediaTitle?: string | null;
-}
 
-type Tab = 'USERS' | 'MEDIA';
+import { AdminOverlayProps, AdminTab as Tab } from '../types';
+
 
 export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, mediaTitle }) => {
   const [activeTab, setActiveTab] = useState<Tab>('MEDIA');
@@ -101,8 +97,9 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
 };
 
 const UsersTab = () => {
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
   const [isCreating, setIsCreating] = useState(false);
 
   const [newUsername, setNewUsername] = useState('');
@@ -215,10 +212,10 @@ const UsersTab = () => {
                 <div className="flex items-center gap-3 sm:gap-6 min-w-0">
                   <div className="w-2 hidden sm:block" />
                   <div className="min-w-0">
-                    <p className="text-14 sm:text-15 font-medium text-paper/85 truncate">{u.username}</p>
                     <p className="text-11 sm:text-12 text-fog/60 font-mono mt-1 lowercase">
-                      {u.role === 'root' ? 'admin' : u.role} • joined {u.joined}
+                      {u.role === 'root' ? 'admin' : u.role}
                     </p>
+
                   </div>
                 </div>
 
@@ -266,7 +263,8 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          const allMovies: Movie[] = data.flatMap((lib: any) => lib.movies || []);
+          const allMovies: Movie[] = (data as Library[]).flatMap((lib) => lib.movies || []);
+
           setMovies(allMovies);
         }
       })

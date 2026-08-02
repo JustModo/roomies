@@ -112,10 +112,11 @@ export type ActivePlaybackResponse = z.infer<typeof ActivePlaybackResponseSchema
 
 export const ChatMessageResponseSchema = z.object({
   userId: z.string(),
-  username: z.string().optional(),
+  username: z.string(),
   message: z.string(),
   timestamp: z.string(),
 });
+
 export type ChatMessageResponse = z.infer<typeof ChatMessageResponseSchema>;
 
 export const ChatHistoryResponseSchema = z.array(ChatMessageResponseSchema);

@@ -20,7 +20,7 @@ export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
 
-    (req as any).user = decoded;
+    req.user = decoded;
   } catch (err) {
     return reply.status(401).send({ error: 'Unauthorized' });
   }
@@ -29,7 +29,8 @@ export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {
 /** NOTE: Requires the user to have one of the specified roles (runs after verifyJwt). */
 export const requireRole = (...roles: string[]) => {
   return async (req: FastifyRequest, reply: FastifyReply) => {
-    const user = (req as any).user as JWTPayload | undefined;
+    const user = req.user;
+
     if (!user || !roles.includes(user.role)) {
       return reply.status(403).send({ error: 'Forbidden' });
     }

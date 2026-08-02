@@ -51,10 +51,15 @@ export interface RoomState {
 }
 
 export class RoomStore {
-    private state: RoomState;
+    private state!: RoomState;
     private lockedUserIds = new Set<string>();
 
     constructor() {
+        this.resetStore();
+    }
+
+    public resetStore(): void {
+        this.lockedUserIds.clear();
         this.state = {
             settings: {
                 allowAsyncMode: true,

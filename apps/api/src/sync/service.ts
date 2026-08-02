@@ -65,15 +65,17 @@ export class SyncService {
     }
 
     const updatedMember = roomStore.getState().members.find(m => m.userId === ctx.userId);
-    if (updatedMember && updatedMember.status === 'async') {
-      this.handleAsyncHeartbeat(payload, ctx, updatedMember);
-    } else {
-      this.handleSyncHeartbeat(payload, ctx, roomStore.getState());
+    if (payload.position !== undefined) {
+      if (updatedMember && updatedMember.status === 'async') {
+        this.handleAsyncHeartbeat({ ...payload, position: payload.position }, ctx, updatedMember);
+      } else {
+        this.handleSyncHeartbeat({ ...payload, position: payload.position }, ctx, roomStore.getState());
+      }
     }
   }
 
   private static handleAsyncHeartbeat(
-    payload: HeartbeatPayload,
+    payload: HeartbeatPayload & { position: number },
     ctx: SocketContext,
     member: ReturnType<typeof roomStore.getState>['members'][0]
   ) {
@@ -85,10 +87,11 @@ export class SyncService {
   }
 
   private static handleSyncHeartbeat(
-    payload: HeartbeatPayload,
+    payload: HeartbeatPayload & { position: number },
     ctx: SocketContext,
     state: ReturnType<typeof roomStore.getState>
   ) {
+
     const { playback } = state;
     const expectedPosition = this.calculateExpectedPosition(playback);
     const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
@@ -107,7 +110,7 @@ export class SyncService {
     }
 
     // NOTE: Cooldown check for hard seeks to prevent feedback loops.
-    const lastSeekTime = (ctx.socket as any).lastSeekTime || 0;
+    const lastSeekTime = ctx.socket.lastSeekTime || 0;
     const now = Date.now();
     const isSeekingCooldown = (now - lastSeekTime) < 8000;
 
@@ -137,7 +140,8 @@ export class SyncService {
   }
 
   private static applyHardCorrection(ctx: SocketContext, expectedPosition: number, driftMs: number, now: number) {
-    (ctx.socket as any).lastSeekTime = now;
+    ctx.socket.lastSeekTime = now;
+
     console.warn(`[sync] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
     SocketEmitter.sendToClient(ctx.socket, {
       event: 'sync.correct',
@@ -148,7 +152,8 @@ export class SyncService {
     });
   }
 
-  private static applySoftCorrection(ctx: SocketContext, payload: HeartbeatPayload, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number, driftMs: number) {
+  private static applySoftCorrection(ctx: SocketContext, payload: HeartbeatPayload & { position: number }, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number, driftMs: number) {
+
     const isCorrecting = payload.playbackRate !== playback.playbackRate;
     if (!isCorrecting) {
       const isBehind = payload.position < expectedPosition;

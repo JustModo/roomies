@@ -1,6 +1,6 @@
 # ---- Base Stage ----
 FROM node:22-bookworm-slim AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 RUN apt-get update && apt-get install -y --no-install-recommends \
   wget gnupg ca-certificates curl \
   && mkdir -p /etc/apt/keyrings \
@@ -34,7 +34,7 @@ RUN cd apps/api && DATABASE_URL="file:./dummy.db" npx prisma generate
 RUN pnpm turbo run build --filter=@roomies/server --filter=@roomies/web
 
 # Extract only production dependencies and built files for the backend
-RUN pnpm deploy --legacy --filter=@roomies/server --prod /app/deploy/server
+RUN pnpm deploy --filter=@roomies/server --prod /app/deploy/server
 RUN cd /app/deploy/server && DATABASE_URL="file:./dummy.db" npx prisma generate
 
 # ---- Runner Stage ----

@@ -7,9 +7,14 @@
   "scripts": {
     "start": "docker compose up --build",
     "dev": "concurrently \"docker compose -f docker-compose.dev.yml up\" \"turbo run dev\"",
+    "dev:api": "concurrently -k \"docker compose -f docker-compose.dev.yml up\" \"pnpm --filter @roomies/server dev\"",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "pnpm --filter @roomies/test test:e2e",
+    "test:e2e:ui": "pnpm --filter @roomies/test test:e2e:ui",
+    "test:e2e:headed": "pnpm --filter @roomies/test test:e2e:headed",
     "clean": "turbo run clean"
   },
   "devDependencies": {
