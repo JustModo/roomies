@@ -10,6 +10,18 @@ export default defineConfig({
       'node:module': path.resolve(__dirname, 'src/shims/node-module.ts'),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-hls': ['hls.js'],
+          'vendor-icons': ['lucide-react'],
+        },
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     proxy: {

@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2, Lock, Unlock, Mic, MicOff } from 'lucide-react';
-import { AdminOverlay } from '../components/AdminOverlay';
 import { useRoomSync } from '../hooks/useRoomSync';
+
+const AdminOverlay = lazy(() => import('../components/AdminOverlay').then(m => ({ default: m.AdminOverlay })));
+
 import { RoomState, MediaInfo, SyncStatus } from '@roomies/contracts';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
@@ -419,8 +421,11 @@ function RoomInner({
       />
 
       {user?.role === 'root' && (
-        <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />
+        <Suspense fallback={null}>
+          <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />
+        </Suspense>
       )}
+
     </div>
   );
 }

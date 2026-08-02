@@ -1,9 +1,11 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import Login from '../pages/Login';
-import Register from '../pages/Register';
-import Lobby from '../pages/Lobby';
-import Room from '../pages/Room';
+
+const Login = lazy(() => import('../pages/Login'));
+const Register = lazy(() => import('../pages/Register'));
+const Lobby = lazy(() => import('../pages/Lobby'));
+const Room = lazy(() => import('../pages/Room'));
 
 const ProtectedRoute = () => {
   const { token, isLoading } = useAuth();
@@ -21,16 +23,18 @@ const ProtectedRoute = () => {
 
 export default function AppRouter() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      
-      <Route element={<ProtectedRoute />}>
-        <Route path="/" element={<Lobby />} />
-        <Route path="/room" element={<Room />} />
-      </Route>
-      
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={null}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route path="/" element={<Lobby />} />
+          <Route path="/room" element={<Room />} />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
