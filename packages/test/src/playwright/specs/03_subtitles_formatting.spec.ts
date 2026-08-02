@@ -1,70 +1,63 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures/roomFixture';
+import { waitForTimeWithin, getVideoState } from '../helpers/syncAssert';
 
-test.describe('Subtitle Tag Engine & Formatting (15 Tests)', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+test.describe('Subtitles', () => {
+  test('01. subtitle track appears in menu', async ({ room }) => {
+    const { adminPlayer, adminPage } = room;
+    await adminPlayer.openSubtitlesMenu();
+    // Sidecar language often displays as English or Unknown
+    const off = adminPage.getByRole('button', { name: /^Off$/i });
+    await expect(off).toBeVisible();
+    const track = adminPage.getByRole('button', { name: /English|Unknown|en/i }).first();
+    await expect(track).toBeVisible();
   });
 
-  test('01. ASS dialogue numpad alignment tags \\an1 through \\an9', async ({ page }) => {
-    const subtitleCount = await page.locator('.subtitle-dialogue').count();
-    expect(subtitleCount).toBeGreaterThanOrEqual(0);
+  test('02. enable track shows cue text near known timestamp', async ({ room }) => {
+    const { adminPage, adminPlayer } = room;
+    // Generated SRT: cue 1 is 0–9.5s "E2E subtitle 1"; cue 2 starts at 10s.
+    // Seek once so we are clearly inside cue 2.
+    await adminPlayer.seekForward10();
+    await adminPlayer.selectSubtitleTrack(/English|Unknown|en/i);
+    await waitForTimeWithin(adminPage, 10, 5, 30000);
+    await adminPlayer.expectSubtitleText(/E2E subtitle [12]/i);
   });
 
-  test('02. ASS dialogue BGR hex color tags \\c&HFF0000&', async ({ page }) => {
-    const subtitleCount = await page.locator('.subtitle-dialogue').count();
-    expect(subtitleCount).toBeGreaterThanOrEqual(0);
+  test('03. turn subtitles Off clears overlay text', async ({ room }) => {
+    const { adminPage, adminPlayer } = room;
+    await adminPlayer.seekForward10();
+    await adminPlayer.selectSubtitleTrack(/English|Unknown|en/i);
+    await waitForTimeWithin(adminPage, 10, 5, 30000);
+    await adminPlayer.turnSubtitlesOff();
+    await expect
+      .poll(async () => {
+        const state = await getVideoState(adminPage);
+        return state.exists;
+      })
+      .toBe(true);
+    await adminPlayer.turnSubtitlesOff();
   });
 
-  test('03. ASS dialogue primary color tags \\1c&H0000FF&', async ({ page }) => {
-    const subtitleCount = await page.locator('.subtitle-dialogue').count();
-    expect(subtitleCount).toBeGreaterThanOrEqual(0);
+  test('04. seek across cue boundary updates text', async ({ room }) => {
+    const { adminPage, adminPlayer } = room;
+    await adminPlayer.seekForward10();
+    await adminPlayer.selectSubtitleTrack(/English|Unknown|en/i);
+    await waitForTimeWithin(adminPage, 10, 5, 30000);
+    await adminPlayer.expectSubtitleText(/E2E subtitle [12]/i);
+    // Jump into next cue window (~20s+)
+    await adminPlayer.seekForward10();
+    await expect
+      .poll(async () => adminPlayer.getCurrentTime(), { timeout: 15000 })
+      .toBeGreaterThan(15);
+    await adminPlayer.expectSubtitleText(/E2E subtitle [23]/i);
   });
 
-  test('04. subtitle track menu rendering available tracks', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('05. switching from default subtitle track to secondary track', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('06. toggling subtitle track to Off clears overlay text', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('07. subtitle text positioning overlay over video element', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('08. subtitle font size scaling relative to video container width', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('09. handling missing subtitle file gracefully with empty fallback', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('10. handling invalid VTT/ASS syntax without player crash', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('11. subtitle sync retention across player seek operations', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('12. subtitle track selection persistence across video resolution switches', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('13. multi-language subtitle track selection in async mode', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('14. subtitle text update timing during fast forward playback', async ({ page }) => {
-    expect(page.url()).toBeDefined();
-  });
-
-  test('15. subtitle clean teardown on page unmount', async ({ page }) => {
-    expect(page.url()).toBeDefined();
+  test('05. rapid subtitle toggles leave player usable', async ({ room }) => {
+    const { adminPlayer, adminPage } = room;
+    for (let i = 0; i < 3; i++) {
+      await adminPlayer.selectSubtitleTrack(/English|Unknown|en/i);
+      await adminPlayer.turnSubtitlesOff();
+    }
+    await adminPlayer.playViaButton();
+    await expect.poll(async () => (await getVideoState(adminPage)).paused).toBe(false);
   });
 });

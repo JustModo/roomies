@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import type { PrismaClient } from '@prisma/client';
-import { getPrisma, resetPrismaClient } from '@roomies/server/src/database/sqlite';
+import { getPrisma, resetPrismaClient } from '../../../../../apps/api/src/database/sqlite';
 
 export interface TestDatabaseOptions {
   skipPush?: boolean;

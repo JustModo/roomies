@@ -1,114 +1,97 @@
 import { test, expect } from '../fixtures/roomFixture';
+import { setAllowAsyncMode } from '../helpers/room';
+import {
+  getVideoState,
+  waitForPaused,
+  waitForPlaying,
+  waitForTimesConverged,
+} from '../helpers/syncAssert';
+import { exitRoom, joinRoomViaLobby } from '../helpers/room';
 
-test.describe('Async Mode Isolation & Re-Sync Lifecycle (15 Tests)', () => {
-  test('01. entering async mode switches guest stream URL to user-scoped master playlist', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
+test.describe('Async Mode Isolation', () => {
+  test.beforeEach(async ({ room }) => {
+    await setAllowAsyncMode(room.adminPage, true);
   });
 
-  test('02. async guest play action does not emit room sync events to admin', async ({ room }) => {
-    const { adminPage, guestPage, guestPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await guestPlayer.play();
-    expect(adminPage.url()).toContain('/room');
+  test('01. guest enters async mode when allowed', async ({ room }) => {
+    const { guestRoom } = room;
+    await guestRoom.enterAsyncMode();
+    await expect(guestRoom.syncButton()).toHaveAttribute('title', /Resync with Room/i);
   });
 
-  test('03. async guest pause action does not emit room sync events to admin', async ({ room }) => {
-    const { adminPage, guestPage, guestPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await guestPlayer.pause();
-    expect(adminPage.url()).toContain('/room');
+  test('02. async guest pause does not pause admin', async ({ room }) => {
+    const { adminPage, guestPage, adminPlayer, guestPlayer, guestRoom } = room;
+    await adminPlayer.playViaButton();
+    await waitForPlaying(guestPage);
+    await guestRoom.enterAsyncMode();
+    await guestPlayer.pauseViaButton();
+    await waitForPaused(guestPage);
+    await waitForPlaying(adminPage);
   });
 
-  test('04. async guest seek action does not emit room sync events to admin', async ({ room }) => {
-    const { adminPage, guestPage, guestPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await guestPlayer.seekForward(10);
-    expect(adminPage.url()).toContain('/room');
+  test('03. async guest seek does not move admin playhead', async ({ room }) => {
+    const { adminPage, guestPage, guestPlayer, guestRoom } = room;
+    await guestRoom.enterAsyncMode();
+    const adminBefore = (await getVideoState(adminPage)).currentTime;
+    await guestPlayer.seekForward10();
+    await guestPlayer.seekForward10();
+    await pageWait(1500);
+    const adminAfter = (await getVideoState(adminPage)).currentTime;
+    const guestAfter = (await getVideoState(guestPage)).currentTime;
+    expect(Math.abs(adminAfter - adminBefore)).toBeLessThan(4);
+    expect(guestAfter).toBeGreaterThan(adminAfter + 5);
   });
 
-  test('05. admin play action in main room does not affect async guest', async ({ room }) => {
-    const { adminPage, guestPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await adminPlayer.play();
-    expect(guestPage.url()).toContain('/room');
+  test('04. admin play/pause does not force async guest paused state', async ({ room }) => {
+    const { adminPage, guestPage, adminPlayer, guestPlayer, guestRoom } = room;
+    await adminPlayer.playViaButton();
+    await waitForPlaying(guestPage);
+    await guestRoom.enterAsyncMode();
+    await guestPlayer.pauseViaButton();
+    await waitForPaused(guestPage);
+    await adminPlayer.pauseViaButton();
+    await waitForPaused(adminPage);
+    await adminPlayer.playViaButton();
+    await waitForPlaying(adminPage);
+    // Guest should remain paused in async
+    await waitForPaused(guestPage);
   });
 
-  test('06. admin pause action in main room does not affect async guest', async ({ room }) => {
-    const { adminPage, guestPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await adminPlayer.pause();
-    expect(guestPage.url()).toContain('/room');
+  test('05. guest resync returns to room state', async ({ room }) => {
+    const { adminPage, guestPage, adminPlayer, guestPlayer, guestRoom } = room;
+    await adminPlayer.playViaButton();
+    await waitForPlaying(guestPage);
+    await guestRoom.enterAsyncMode();
+    await guestPlayer.pauseViaButton();
+    await guestPlayer.seekForward10();
+    await guestRoom.resyncWithRoom();
+    await waitForPlaying(guestPage);
+    await waitForTimesConverged(adminPage, guestPage, 5, 30000);
   });
 
-  test('07. admin seek action in main room does not affect async guest', async ({ room }) => {
-    const { adminPage, guestPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await adminPlayer.seekForward(30);
-    expect(guestPage.url()).toContain('/room');
+  test('06. disabling Allow Async forces guest back to sync', async ({ room }) => {
+    const { adminPage, guestPage, adminPlayer, guestRoom } = room;
+    await adminPlayer.playViaButton();
+    await waitForPlaying(guestPage);
+    await guestRoom.enterAsyncMode();
+    await setAllowAsyncMode(adminPage, false);
+    await guestRoom.expectAsyncDisabled();
+    await waitForPlaying(guestPage);
+    await waitForTimesConverged(adminPage, guestPage, 5, 30000);
   });
 
-  test('08. admin disabling allowAsyncMode forces async guest back to room master playlist', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('09. forced exit from async mode restores room master playlist URL', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
-  });
-
-  test('10. forced exit from async mode re-reconciles room buffering state', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
-  });
-
-  test('11. async guest changing resolution creates isolated transcode variant', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
-  });
-
-  test('12. async guest leaving room cleans up user-scoped transcode session', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('13. async guest disconnecting cleans up user-scoped transcode session', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('14. re-entering async mode creates fresh isolated session ID', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('15. admin changing media resets all async guests to ready status', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
+  test('07. async guest leave does not break admin playback', async ({ room }) => {
+    const { adminPage, guestPage, adminPlayer, guestRoom } = room;
+    await adminPlayer.playViaButton();
+    await waitForPlaying(adminPage);
+    await guestRoom.enterAsyncMode();
+    await exitRoom(guestPage);
+    await waitForPlaying(adminPage);
+    await joinRoomViaLobby(guestPage);
+    await waitForPlaying(guestPage);
   });
 });
+
+async function pageWait(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}

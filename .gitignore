@@ -14,4 +14,16 @@ apps/api/prisma/*.db-journal
 *.tsbuildinfo
 vite.config.js.timestamp-*
 todo.md
-test-results
+
+# Playwright / test artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+**/test-results/
+**/playwright-report/
+**/blob-report/
+packages/test/.e2e/
+packages/test/.auth/
+packages/test/test-results/
+packages/test/playwright-report/

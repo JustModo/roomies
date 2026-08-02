@@ -1,78 +1,67 @@
 import { test, expect } from '../fixtures/roomFixture';
+import {
+  getVideoState,
+  waitForTimesConverged,
+  waitForTimeWithin,
+  waitForPlaying,
+  waitForPaused,
+} from '../helpers/syncAssert';
 
-test.describe('Transcode Variant Offset Merging & Playhead Shifting (10 Tests)', () => {
-  test('01. seeking past current transcode window spawns new variant offset', async ({ room }) => {
+test.describe('Seek / Transcode Offset (client-visible)', () => {
+  test('01. seek far ahead eventually reaches target region', async ({ room }) => {
     const { adminPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await adminPlayer.seekForward(60);
-    const time = await adminPlayer.getCurrentTime();
-    expect(time).toBeGreaterThanOrEqual(0);
+    // 6 × 10s = ~60s ahead
+    for (let i = 0; i < 6; i++) {
+      await adminPlayer.seekForward10();
+    }
+    await waitForTimeWithin(adminPage, 60, 12, 60000);
+    const state = await getVideoState(adminPage);
+    expect(state.exists).toBe(true);
   });
 
-  test('02. seeking within cached offset window avoids re-transcoding', async ({ room }) => {
+  test('02. second seek in window still plays without permanent stall', async ({ room }) => {
     const { adminPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await adminPlayer.seekForward(5);
-    const time = await adminPlayer.getCurrentTime();
-    expect(time).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < 3; i++) {
+      await adminPlayer.seekForward10();
+    }
+    await waitForTimeWithin(adminPage, 30, 10, 45000);
+    await adminPlayer.seekForward10();
+    await waitForTimeWithin(adminPage, 40, 10, 45000);
+    await adminPlayer.playViaButton();
+    await waitForPlaying(adminPage);
   });
 
-  test('03. multi-user seeking to same offset merges playheads into single FFmpeg process run', async ({ room }) => {
-    const { adminPage, guestPage, adminPlayer, guestPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await adminPlayer.seekForward(30);
-    await guestPlayer.seekForward(30);
-    const adminTime = await adminPlayer.getCurrentTime();
-    expect(adminTime).toBeGreaterThanOrEqual(0);
-  });
-
-  test('04. admin seeking away from offset leaves guest on original offset until guest seeks', async ({ room }) => {
+  test('03. admin long seek — guest converges to same region', async ({ room }) => {
     const { adminPage, guestPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await adminPlayer.seekForward(60);
-    expect(guestPage.url()).toContain('/room');
+    for (let i = 0; i < 5; i++) {
+      await adminPlayer.seekForward10();
+    }
+    await waitForTimesConverged(adminPage, guestPage, 8, 60000);
   });
 
-  test('05. departing offset with 0 remaining playheads triggers variant process teardown', async ({ room }) => {
+  test('04. rate change keeps playhead continuity', async ({ room }) => {
     const { adminPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await adminPlayer.seekForward(120);
-    expect(adminPage.url()).toContain('/room');
+    await adminPlayer.playViaButton();
+    const before = await adminPlayer.getCurrentTime();
+    await adminPlayer.cyclePlaybackRate();
+    await pageWait(1500);
+    const after = await adminPlayer.getCurrentTime();
+    expect(after).toBeGreaterThanOrEqual(before - 1);
+    await expect(adminPage.locator('button[title="Playback speed"]')).toBeVisible();
   });
 
-  test('06. resolution switching (360p -> 1080p) preserves exact currentTime position', async ({ room }) => {
-    const { adminPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    const time = await adminPlayer.getCurrentTime();
-    expect(time).toBeGreaterThanOrEqual(0);
-  });
-
-  test('07. resolution switching (1080p -> 720p) preserves exact currentTime position', async ({ room }) => {
-    const { adminPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    const time = await adminPlayer.getCurrentTime();
-    expect(time).toBeGreaterThanOrEqual(0);
-  });
-
-  test('08. resolution switching while paused preserves pause anchor timestamp', async ({ room }) => {
-    const { adminPage, adminPlayer } = room;
-    await adminPage.goto('/room');
-    await adminPlayer.pause();
-    const time = await adminPlayer.getCurrentTime();
-    expect(time).toBeGreaterThanOrEqual(0);
-  });
-
-  test('09. HLS master playlist variant selection based on bandwidth', async ({ room }) => {
-    const { adminPage } = room;
-    await adminPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('10. changing active media terminates all running variant processes for previous media', async ({ room }) => {
-    const { adminPage } = room;
-    await adminPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
+  test('05. seek storm settles with consistent shared state', async ({ room }) => {
+    const { adminPage, guestPage, adminPlayer } = room;
+    for (let i = 0; i < 8; i++) {
+      await adminPlayer.seekForward10();
+    }
+    await waitForTimesConverged(adminPage, guestPage, 8, 60000);
+    const a = await getVideoState(adminPage);
+    const b = await getVideoState(guestPage);
+    expect(a.paused).toBe(b.paused);
   });
 });
+
+async function pageWait(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}

@@ -1,31 +1,46 @@
 # `@roomies/test` — Test Infrastructure Package
 
-This package contains the test suites, environment sandboxing setup, and testing helpers for the Roomies monorepo.
+Vitest unit/integration suites and Playwright client E2E against the live stack.
 
 ## Structure
 
-- `src/setup/global.ts`: Vitest `globalSetup` hook. Runs once per test process run to provision temp directories (`media/`, `cache/`, `config/`, SQLite `test.db`) and set process environment variables (`ROOMIES_CONFIG_PATH`, `NODE_ENV=test`) before any application module is evaluated.
-- `src/setup/env.ts`: Vitest `setupFiles` hook. Runs before each test suite file to reset global registries, configurations, and Prisma connections.
-- `src/helpers/testFixtures.ts`: Reusable test environment builder (`setupTestEnvironment()`) provisioning database, test server, root admin user, guest user, and mock media.
-- `src/helpers/testDatabase.ts`: Provisions isolated SQLite database file per context and exports connected Prisma client.
-- `src/helpers/testServer.ts`: Starts Fastify test server with `BootstrapOptions` configured to bypass hardware probing and disk scans.
-- `src/helpers/wsClient.ts`: WebSocket test client with generic payload support, predicate-matching event listeners (`waitForEventMatching`), and race-free queue handling.
+```
+packages/test/
+├── .e2e/                   # Gitignored runtime sandbox (created per run)
+│   ├── media/              # ffmpeg-generated Movie/movie.mp4 + movie.srt
+│   ├── cache/              # HLS segments → CACHE_DIR / Caddy
+│   └── config/             # roomies.conf + roomies.db
+├── playwright.config.ts
+├── vitest.config.ts
+└── src/
+    ├── playwright/
+    └── vitest/
+```
+
+## E2E sandbox lifecycle
+
+On `pnpm test:e2e`:
+
+1. **webServer** (`start-stack.mjs`) prepares `.e2e/{media,cache,config}`: generates a 5-minute black `movie.mp4` + dummy `movie.srt` with host **ffmpeg**, Prisma push, `env.json`; then starts Caddy (`ROOMIES_MEDIA_DIR` / `ROOMIES_CACHE_DIR`) + API (`tsx` with `.e2e` env). Vite starts separately. Prep lives in the webServer command because Playwright starts webServers before `globalSetup`.
+2. Auth uses `POST /api/auth/setup` on the fresh DB (`admin` / `password123`)
+3. **globalTeardown** runs `docker compose down` and wipes `.e2e/config`, `.e2e/cache`, `.e2e/media` (including generated media)
+
+**Requirement:** `ffmpeg` must be on `PATH` for E2E runs.
 
 ## Running Tests
 
 ```bash
-# Run all test suites
+# Vitest (unit / protocol)
 pnpm --filter @roomies/test test
 
-# Run type check across test package
-pnpm --filter @roomies/test typecheck
-
-# Run a specific suite in isolation
-npx vitest run packages/test/src/suites/auth.test.ts
+# Playwright E2E
+pnpm test:e2e
 ```
 
 ## Best Practices
 
-1. **Avoid Hardcoded File Paths & Singletons**: Use `setupTestEnvironment()` or `createTestDatabase()` to get scoped Prisma clients and server URLs.
-2. **Use Event Matching**: When testing multi-client WebSocket flows, use `client.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === targetUserId)` to avoid event broadcast cross-talk.
-3. **Clean Teardown**: Always call `await env.cleanup()` in your suite's `afterAll` hook.
+1. Assert `video.paused` / `currentTime` / overlays / control titles — never URL alone.
+2. Enter the room via Lobby **JOIN ROOM** (direct `/room` redirects).
+3. Use `setupTestEnvironment()` for Vitest isolation; always `await env.cleanup()`.
+4. E2E runs with `workers: 1` because the room is a singleton.
+5. Prefer Vitest helpers for auth bootstrapping.

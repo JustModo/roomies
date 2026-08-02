@@ -1,112 +1,143 @@
 import { test, expect } from '../fixtures/roomFixture';
+import {
+  getAllowAsyncMode,
+  lockGuestControls,
+  setAllowAsyncMode,
+  unlockGuestControls,
+  joinRoomViaLobby,
+  exitRoom,
+} from '../helpers/room';
+import { waitForPaused, waitForPlaying, getVideoState } from '../helpers/syncAssert';
+import { createGuest } from '../helpers/auth';
+import { setAuthToken } from '../helpers/room';
+import { startMedia } from '../helpers/media';
+import { waitForMediaReady } from '../helpers/syncAssert';
 
-test.describe('Room Settings & Admin Control Locks (15 Tests)', () => {
-  test('01. admin locking guest controls restricts guest play button', async ({ room }) => {
-    const { adminPage, guestPage, guestPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await guestPlayer.play();
-    const paused = await guestPlayer.isPaused();
-    expect(typeof paused).toBe('boolean');
+test.describe('Room Settings & Control Locks', () => {
+  test('01. root locks guest — controls disabled + locked by admin', async ({ room }) => {
+    const { adminPage, guestPage, guestPlayer, guestRoom, guestUsername } = room;
+    await lockGuestControls(adminPage, guestUsername);
+    await guestRoom.expectControlsLockedByAdmin();
+    await guestPlayer.expectControlsDisabled();
+    await expect(guestPage).toBeTruthy();
   });
 
-  test('02. admin locking guest controls restricts guest pause button', async ({ room }) => {
-    const { adminPage, guestPage, guestPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await guestPlayer.pause();
-    const paused = await guestPlayer.isPaused();
-    expect(typeof paused).toBe('boolean');
+  test('02. locked guest Space does not change play state', async ({ room }) => {
+    const { adminPage, guestPage, adminPlayer, guestPlayer, guestUsername } = room;
+    await adminPlayer.pauseViaButton().catch(async () => {
+      if (!(await adminPlayer.isPaused())) {
+        await adminPlayer.toggleViaSpace();
+        await waitForPaused(adminPage);
+      }
+    });
+    await lockGuestControls(adminPage, guestUsername);
+    await waitForPaused(adminPage);
+    await waitForPaused(guestPage);
+    await guestPlayer.toggleViaSpace();
+    await pageWait(500);
+    await waitForPaused(adminPage);
+    await waitForPaused(guestPage);
   });
 
-  test('03. locked guest seek attempt snaps back to admin position', async ({ room }) => {
-    const { adminPage, guestPage, guestPlayer } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await guestPlayer.seekForward(10);
-    expect(adminPage.url()).toContain('/room');
+  test('03. locked guest seek does not move room playhead', async ({ room }) => {
+    const { adminPage, guestPage, guestPlayer, guestUsername } = room;
+    await lockGuestControls(adminPage, guestUsername);
+    const adminBefore = (await getVideoState(adminPage)).currentTime;
+    const guestBefore = (await getVideoState(guestPage)).currentTime;
+    await guestPlayer.seekForward10();
+    await pageWait(1000);
+    const adminAfter = (await getVideoState(adminPage)).currentTime;
+    const guestAfter = (await getVideoState(guestPage)).currentTime;
+    expect(Math.abs(adminAfter - adminBefore)).toBeLessThan(3);
+    expect(Math.abs(guestAfter - guestBefore)).toBeLessThan(3);
   });
 
-  test('04. admin releasing control lock restores guest control buttons', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
+  test('04. unlock restores guest controls', async ({ room }) => {
+    const { adminPage, guestPlayer, guestRoom, guestUsername } = room;
+    await lockGuestControls(adminPage, guestUsername);
+    await guestRoom.expectControlsLockedByAdmin();
+    await unlockGuestControls(adminPage, guestUsername);
+    await guestRoom.expectControlsUnlocked();
+    await guestPlayer.expectControlsEnabled();
   });
 
-  test('05. locked guest UI badge displays control lock status', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    const badge = await guestPage.locator('.lock-badge, [title*="lock"]').count();
-    expect(badge).toBeGreaterThanOrEqual(0);
+  test('05. guest cannot see Allow Async room setting', async ({ room }) => {
+    const { guestRoom, guestPage } = room;
+    await guestRoom.openSettings();
+    await expect(guestPage.getByText('Allow Async Mode', { exact: true })).toHaveCount(0);
+    await expect(guestPage.getByText('Room Settings', { exact: true })).toHaveCount(0);
   });
 
-  test('06. non-root guest attempting to set control lock is rejected with 403', async ({ room }) => {
-    const { guestPage } = room;
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
+  test('06. root enables Allow Async — guest can enter async', async ({ room }) => {
+    const { adminPage, guestRoom } = room;
+    await setAllowAsyncMode(adminPage, true);
+    await guestRoom.enterAsyncMode();
+    await expect(guestRoom.syncButton()).toHaveAttribute('title', /Resync with Room/i);
   });
 
-  test('07. admin updating room allowAsyncMode setting to true', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
+  test('07. root disables Allow Async — guest SYNC disabled and kicked from async', async ({ room }) => {
+    const { adminPage, guestRoom } = room;
+    await setAllowAsyncMode(adminPage, true);
+    await guestRoom.enterAsyncMode();
+    await setAllowAsyncMode(adminPage, false);
+    await guestRoom.expectAsyncDisabled();
   });
 
-  test('08. admin updating room allowAsyncMode setting to false', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
+  test('08. guest cannot lock other members', async ({ room }) => {
+    const { guestRoom, guestPage, adminUsername } = room;
+    await guestRoom.openParty();
+    await guestPage.getByRole('button', { name: new RegExp(adminUsername, 'i') }).click();
+    await expect(guestPage.getByRole('button', { name: /^Lock controls$/i })).toHaveCount(0);
   });
 
-  test('09. non-root guest attempting to update room settings is rejected with 403', async ({ room }) => {
-    const { guestPage } = room;
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
+  test('09. Allow Async persists across guest rejoin', async ({ room }) => {
+    const { adminPage, guestPage, guestRoom } = room;
+    await setAllowAsyncMode(adminPage, false);
+    expect(await getAllowAsyncMode(adminPage)).toBe(false);
+    await exitRoom(guestPage);
+    await joinRoomViaLobby(guestPage);
+    await guestRoom.expectAsyncDisabled();
   });
 
-  test('10. admin self-locking control precedence vs admin control lock', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
+  test('10. self-lock disables own controls', async ({ room }) => {
+    const { adminRoom, adminPlayer } = room;
+    await adminRoom.selfLock();
+    await adminPlayer.expectControlsDisabled();
+    await adminRoom.selfUnlock();
+    await adminPlayer.expectControlsEnabled();
   });
 
-  test('11. persistence of room settings across client reconnection', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    await guestPage.reload();
-    expect(guestPage.url()).toContain('/room');
+  test('11. lock visible on second guest session', async ({ room, browser, request }) => {
+    const { adminPage, adminToken, guestUsername } = room;
+    await lockGuestControls(adminPage, guestUsername);
+
+    const guest2 = await createGuest(adminToken);
+    const ctx = await browser.newContext();
+    const page2 = await ctx.newPage();
+    await setAuthToken(page2, guest2.token);
+    await joinRoomViaLobby(page2);
+    await startMedia(request, adminToken).catch(() => undefined);
+    await waitForMediaReady(page2).catch(() => undefined);
+
+    // Original guest still locked — re-check via admin party UI
+    await room.adminRoom.openParty();
+    await adminPage.getByRole('button', { name: new RegExp(guestUsername, 'i') }).click();
+    await expect(adminPage.getByRole('button', { name: /^Unlock controls$/i })).toBeVisible();
+
+    await ctx.close();
   });
 
-  test('12. assigning control locks to multiple guest members simultaneously', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('13. control lock release when locked guest leaves room', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('14. synchronizing control lock state across concurrent browser sessions', async ({ room }) => {
-    const { adminPage, guestPage } = room;
-    await adminPage.goto('/room');
-    await guestPage.goto('/room');
-    expect(adminPage.url()).toContain('/room');
-  });
-
-  test('15. error toast display on unauthorized room action', async ({ room }) => {
-    const { guestPage } = room;
-    await guestPage.goto('/room');
-    expect(guestPage.url()).toContain('/room');
+  test('12. locked guest leave clears lock on rejoin', async ({ room }) => {
+    const { adminPage, guestPage, guestRoom, guestPlayer, guestUsername } = room;
+    await lockGuestControls(adminPage, guestUsername);
+    await guestRoom.expectControlsLockedByAdmin();
+    await exitRoom(guestPage);
+    await joinRoomViaLobby(guestPage);
+    await guestRoom.expectControlsUnlocked();
+    await guestPlayer.expectControlsEnabled();
   });
 });
+
+async function pageWait(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}

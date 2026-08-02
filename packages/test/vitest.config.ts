@@ -10,8 +10,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    globalSetup: path.resolve(__dirname, 'src/setup/global.ts'),
-    setupFiles: [path.resolve(__dirname, 'src/setup/env.ts')],
+    globalSetup: path.resolve(__dirname, 'src/vitest/setup/global.ts'),
+    setupFiles: [path.resolve(__dirname, 'src/vitest/setup/env.ts')],
     testTimeout: 10000,
     hookTimeout: 8000,
     include: ['src/vitest/**/*.test.ts'],
