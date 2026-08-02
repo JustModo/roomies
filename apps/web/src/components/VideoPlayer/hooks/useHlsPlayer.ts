@@ -11,7 +11,6 @@ interface UseHlsPlayerParams {
   reportStatus: (status: 'ready' | 'buffering') => void;
   setIsPlaying: (playing: boolean) => void;
   isAsyncMode: boolean;
-  userId?: string;
   activeOffsetRef: MutableRefObject<number>;
   triggerQualitySeek: () => void;
 }
@@ -25,7 +24,6 @@ export function useHlsPlayer({
   reportStatus,
   setIsPlaying,
   isAsyncMode,
-  userId,
   activeOffsetRef,
   triggerQualitySeek,
 }: UseHlsPlayerParams) {
@@ -162,7 +160,7 @@ export function useHlsPlayer({
         reportStatus('ready');
       }, { once: true });
     }
-  }, [mediaInfo?.mediaFileId, seekKey, reportStatus, isAsyncMode, userId]);
+  }, [mediaInfo?.mediaFileId, seekKey, reportStatus]);
 
   const handleQualityChange = (index: number) => {
     if (hlsRef.current) {

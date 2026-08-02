@@ -35,7 +35,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isAsyncMode = false,
   onToggleAsync,
   allowAsyncMode = true,
-  userId,
   isLockedByAdmin = false,
   children,
 }) => {
@@ -94,6 +93,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setDragProgress(0);
     }
   }, [mediaInfo]);
+
+  // Self-lock is per-media; clear it whenever the active media changes (including to none).
+  const lastLockedMediaIdRef = useRef<string | undefined>(mediaInfo?.mediaFileId);
+  useEffect(() => {
+    if (lastLockedMediaIdRef.current !== mediaInfo?.mediaFileId) {
+      lastLockedMediaIdRef.current = mediaInfo?.mediaFileId;
+      setIsSelfLocked(false);
+    }
+  }, [mediaInfo?.mediaFileId]);
 
   // Listen for emoji reactions from other users
   useEffect(() => {
@@ -170,7 +178,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     reportStatus,
     setIsPlaying,
     isAsyncMode,
-    userId,
     activeOffsetRef,
     triggerQualitySeek,
   });
@@ -236,7 +243,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const transOffset = mediaInfo?.transcodeOffset || 0;
     const currentAbsolute = videoRef.current.currentTime + transOffset;
     const newPos = Math.max(0, currentAbsolute + offset);
-    videoRef.current.currentTime = Math.max(0, newPos - transOffset);
     onSeek(newPos);
   }, [mediaInfo?.transcodeOffset, onSeek, isLocked]);
 
@@ -309,10 +315,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const totalDuration = mediaInfo?.duration || duration;
       const newPos = pos * totalDuration;
       onSeek(newPos);
-      if (videoRef.current) {
-        const transOffset = activeOffsetRef.current;
-        videoRef.current.currentTime = Math.max(0, newPos - transOffset);
-      }
     };
 
     window.addEventListener('pointermove', handlePointerMove);

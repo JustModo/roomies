@@ -343,7 +343,6 @@ function RoomInner({
           isAsyncMode={isAsyncMode}
           onToggleAsync={handleToggleAsync}
           allowAsyncMode={roomState?.settings?.allowAsyncMode ?? true}
-          userId={user?.id}
           isLockedByAdmin={isLockedByAdmin}
         >
           {({ isSelfLocked, onToggleSelfLock, isServerLocked, activeLockByAdmin }) => (

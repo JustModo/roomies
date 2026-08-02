@@ -38,3 +38,4 @@ todo.md
 *.log
 npm-debug.log*
 pnpm-debug.log*
+.serena

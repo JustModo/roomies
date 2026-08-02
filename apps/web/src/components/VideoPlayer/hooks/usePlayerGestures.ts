@@ -154,7 +154,6 @@ export function usePlayerGestures({
             const currentAbsolute = video.currentTime + stateRef.current.transcodeOffset;
             const newPos = Math.max(0, currentAbsolute - 10);
             stateRef.current.onSeek(newPos);
-            video.currentTime = Math.max(0, newPos - stateRef.current.transcodeOffset);
           }
         } else if (xPercent > 0.7) {
           // Double click right: Seek forward 10s
@@ -163,7 +162,6 @@ export function usePlayerGestures({
             const currentAbsolute = video.currentTime + stateRef.current.transcodeOffset;
             const newPos = Math.min(stateRef.current.mediaDuration, currentAbsolute + 10);
             stateRef.current.onSeek(newPos);
-            video.currentTime = Math.max(0, newPos - stateRef.current.transcodeOffset);
           }
         } else {
           // Double click center: Toggle Fullscreen
