@@ -14,6 +14,7 @@ import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { SeekCommand } from '../components/VideoPlayer/types';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
+import { BAR_EDGE_X, ICON_BTN_PADDING, ICON_PRIMARY, ICON_SECONDARY } from '../components/VideoPlayer/styleTokens';
 
 /**
  * Tracks window.visualViewport height so the layout correctly shrinks when
@@ -346,7 +347,7 @@ function RoomInner({
           isLockedByAdmin={isLockedByAdmin}
         >
           {({ isSelfLocked, onToggleSelfLock, isServerLocked, activeLockByAdmin }) => (
-            <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative">
+            <div className={`flex justify-between items-center ${BAR_EDGE_X} py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative`}>
               <div className="flex-none flex justify-start w-14 sm:w-20 lg:w-24">
                 {!isFullscreen && (
                   <button onClick={handleExit} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors whitespace-nowrap">
@@ -364,31 +365,31 @@ function RoomInner({
 
               <div className="flex-none flex justify-end items-center gap-1.5 sm:gap-3 shrink-0">
                 {isServerLocked ? (
-                  <div 
-                    className={`p-1 sm:p-1.5 flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
+                  <div
+                    className={`${ICON_BTN_PADDING} flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
                     title={activeLockByAdmin ? 'Controls locked by admin' : 'Controls locked while syncing'}
                   >
-                    <Lock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                    <Lock className={ICON_PRIMARY} strokeWidth={1.5} />
                   </div>
                 ) : (
                   <button
                     onClick={onToggleSelfLock}
-                    className={`p-1 sm:p-1.5 flex items-center justify-center transition-colors ${
+                    className={`${ICON_BTN_PADDING} flex items-center justify-center transition-colors ${
                       isSelfLocked ? 'text-blue-400' : 'text-paper/60 hover:text-paper'
                     }`}
                     title={isSelfLocked ? 'Unlock controls' : 'Lock controls'}
                   >
                     {isSelfLocked ? (
-                      <Lock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                      <Lock className={ICON_PRIMARY} strokeWidth={1.5} />
                     ) : (
-                      <Unlock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                      <Unlock className={ICON_PRIMARY} strokeWidth={1.5} />
                     )}
                   </button>
                 )}
                 {user?.role === 'root' && (
-                  <button onClick={() => setShowAdmin(true)} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors p-1 sm:p-1.5">
+                  <button onClick={() => setShowAdmin(true)} className={`flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors ${ICON_BTN_PADDING}`}>
                     <span className="hidden sm:inline">Manage</span>
-                    <Settings2 className="sm:ml-1 lg:ml-2 w-4 h-4 sm:w-4 sm:h-4 lg:w-5 lg:h-5" />
+                    <Settings2 className={`sm:ml-1 lg:ml-2 ${ICON_SECONDARY}`} />
                   </button>
                 )}
               </div>

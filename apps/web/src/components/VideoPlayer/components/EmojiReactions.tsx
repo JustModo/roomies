@@ -49,12 +49,12 @@ export const EmojiReactions: React.FC<{ visible: boolean }> = ({ visible }) => {
         </button>
         {open && (
           <ControlPopover className="bottom-full right-0 mb-3">
-            <div className="grid grid-cols-6 gap-6 p-2">
+            <div className="grid grid-cols-6 gap-2 sm:gap-6 p-1.5 sm:p-2">
               {emojis.map((emoji) => (
                 <button
                   key={emoji}
                   onClick={() => handleEmojiClick(emoji)}
-                  className="flex items-center justify-center aspect-square text-base sm:text-lg lg:text-xl hover:bg-ash/30 transition-colors duration-150"
+                  className="flex items-center justify-center aspect-square text-sm sm:text-lg lg:text-xl hover:bg-ash/30 transition-colors duration-150"
                 >
                   {emoji}
                 </button>
@@ -70,11 +70,11 @@ export const EmojiReactions: React.FC<{ visible: boolean }> = ({ visible }) => {
   // many phones are wide enough in landscape to hit those width-based breakpoints
   // meant for tablet/desktop.
   const columnClass = isMobile
-    ? 'right-3'
-    : 'left-1.5 sm:left-2 lg:left-3 gap-1 sm:gap-1.5';
+    ? 'right-3 -mt-1'
+    : 'left-1.5 sm:left-2 lg:left-3 gap-1.5 sm:gap-2';
   const buttonClass = isMobile
     ? 'p-1.5 text-xl'
-    : 'p-2 sm:p-2.5 text-xl sm:text-2xl';
+    : 'p-1.5 sm:p-2 text-2xl sm:text-3xl';
 
   return (
     <div
@@ -84,7 +84,7 @@ export const EmojiReactions: React.FC<{ visible: boolean }> = ({ visible }) => {
         <button
           key={emoji}
           onClick={() => handleEmojiClick(emoji)}
-          className={`flex items-center justify-center opacity-80 hover:opacity-100 transition-opacity duration-150 ${buttonClass}`}
+          className={`flex items-center justify-center opacity-80 hover:opacity-100 drop-shadow-lg duration-200 transition-all ${buttonClass}`}
         >
           {emoji}
         </button>

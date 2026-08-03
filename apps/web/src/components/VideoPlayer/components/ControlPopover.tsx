@@ -10,15 +10,15 @@ import { Check } from 'lucide-react';
  */
 export const ControlPopover: React.FC<{ className?: string; children: React.ReactNode }> = ({ className = '', children }) => (
   <div
-    className={`absolute z-50 bg-ink/95 backdrop-blur-md border border-ash/30 min-w-[180px] max-w-[240px] max-h-[60vh] overflow-y-auto py-1.5 ${className}`}
+    className={`absolute z-50 bg-ink/95 backdrop-blur-md border border-ash/30 min-w-[150px] sm:min-w-[180px] max-w-[210px] sm:max-w-[240px] py-1 sm:py-1.5 ${className}`}
   >
     {children}
   </div>
 );
 
 export const PopoverSection: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div className="py-1 first:pt-0">
-    <div className="px-3.5 pt-1.5 pb-1.5 text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">
+  <div className="py-0.5 sm:py-1 first:pt-0">
+    <div className="px-3 sm:px-3.5 pt-1 sm:pt-1.5 pb-1 sm:pb-1.5 text-[9px] sm:text-[10px] lg:text-xs text-paper/50 uppercase tracking-widest font-semibold border-b border-ash/10 mb-1">
       {label}
     </div>
     {children}
@@ -28,15 +28,15 @@ export const PopoverSection: React.FC<{ label: string; children: React.ReactNode
 export const PopoverItem: React.FC<{ active?: boolean; onClick: () => void; children: React.ReactNode }> = ({ active, onClick, children }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 text-[13px] lg:text-sm transition-colors ${
-      active ? 'bg-blue-500/10 text-blue-400 font-medium' : 'text-paper hover:bg-ash/20'
+    className={`w-full flex items-center justify-between gap-2 text-left pl-[10px] sm:pl-[12px] pr-3 sm:pr-3.5 py-1.5 sm:py-2 text-[11px] sm:text-[13px] lg:text-sm border-l-2 transition-colors ${
+      active ? 'border-blue-500 text-blue-400 font-medium' : 'border-transparent text-paper hover:bg-ash/20'
     }`}
   >
     <span className="truncate">{children}</span>
-    {active && <Check className="w-4 h-4 flex-shrink-0" strokeWidth={2} />}
+    {active && <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" strokeWidth={2} />}
   </button>
 );
 
 export const PopoverEmpty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="px-3.5 py-2.5 text-[13px] lg:text-sm text-paper/50 italic">{children}</div>
+  <div className="px-3 sm:px-3.5 py-1.5 sm:py-2 text-[11px] sm:text-[13px] lg:text-sm text-paper/50 italic">{children}</div>
 );

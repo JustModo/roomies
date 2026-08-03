@@ -269,14 +269,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     transcodeOffset: mediaInfo?.transcodeOffset || 0,
   });
 
-  const cyclePlaybackRate = () => {
-    if (isLocked) return;
-    const rates = [0.5, 1, 1.25, 1.5, 2];
-    const currentRate = roomPlaybackState?.playbackRate || 1;
-    const next = rates[(rates.indexOf(currentRate) + 1) % rates.length];
-    onSetRate(next);
-  };
-
   // ── Scrubbing (seek bar drag) ──────────────────────────────────────────────
 
   const updateDragProgress = (clientX: number) => {
@@ -404,6 +396,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           totalDuration={totalDuration}
           isDragging={isDragging}
           onPointerDown={handlePointerDown}
+          formatTime={formatTime}
         />
 
         <VideoControls
@@ -416,7 +409,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           formatTime={formatTime}
           handlePlayPause={handlePlayPause}
           handleSeekOffset={handleSeekOffset}
-          cyclePlaybackRate={cyclePlaybackRate}
+          playbackRate={roomPlaybackState?.playbackRate || 1}
+          onSetRate={onSetRate}
           levels={levels}
           currentLevel={currentLevel}
           handleQualityChange={handleQualityChange}
@@ -434,6 +428,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSubtitleOffsetSec={setSubtitleOffsetSec}
           subtitleFontScale={subtitleFontScale}
           setSubtitleFontScale={setSubtitleFontScale}
+          uiVisible={uiVisible}
         />
       </div>
     </div>
