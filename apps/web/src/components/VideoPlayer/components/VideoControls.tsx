@@ -1,10 +1,9 @@
-import React, { useCallback } from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Smile, Minus, Plus } from 'lucide-react';
+import React from 'react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, ClosedCaption, Minus, Plus } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
-import { useChat, DEFAULT_EMOJI_PICKER } from '../../../contexts/ChatContext';
-import { useMobileView } from '../../../hooks/useMobileView';
+import { useChat } from '../../../contexts/ChatContext';
 import { ControlPopover, PopoverSection, PopoverItem, PopoverEmpty } from './ControlPopover';
 
 interface VideoControlsProps {
@@ -53,7 +52,7 @@ const Btn: React.FC<{
     title={title}
     className={`
       flex items-center justify-center
-      p-1.5 sm:p-2
+      p-1 sm:p-1.5
       bg-transparent border-none
       transition-colors duration-150
       ${active ? 'text-paper' : important ? 'text-paper/90' : 'text-fog'}
@@ -96,21 +95,15 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   onToggleAsync,
   allowAsyncMode = true,
 }) => {
-  const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle' | 'emoji'>();
-  const { unreadCount, emojiPicker, emojiMuted, sendEmoji } = useChat();
-  const { isMobileFullscreenLandscape, isMobilePortrait } = useMobileView();
-
-  const handleEmojiClick = useCallback((emoji: string) => {
-    sendEmoji(emoji);
-    // Don't close picker - allow multiple emoji sends
-  }, [sendEmoji]);
+  const { activeMenu, setActiveMenu, toggleMenu, containerRef } = useActiveMenu<'quality' | 'subtitle'>();
+  const { unreadCount } = useChat();
 
   const isPlaying = roomPlaybackState?.state === 'playing';
 
   return (
     <div
       data-video-controls="true"
-      className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-1 pb-2 sm:pt-1 sm:pb-3 lg:pt-1 lg:pb-4 gap-1"
+      className="flex items-center justify-between px-2 sm:px-4 lg:px-6 pt-0 pb-2 sm:pt-0 sm:pb-3 lg:pt-0 lg:pb-4 gap-1"
     >
       {/* ── Left cluster: play, seek offsets, volume, time ── */}
       <div className="flex items-center min-w-0">
@@ -122,25 +115,25 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
           important
         >
           {isPlaying
-            ? <Pause className="w-5 h-5 lg:w-6 lg:h-6" fill="currentColor" />
-            : <Play className="w-5 h-5 lg:w-6 lg:h-6" fill="currentColor" />}
+            ? <Pause className="w-4 h-4 lg:w-5 lg:h-5" fill="currentColor" />
+            : <Play className="w-4 h-4 lg:w-5 lg:h-5" fill="currentColor" />}
         </Btn>
 
         {/* Space / Divider after Play */}
-        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-3" />
+        <div className="w-px h-3.5 lg:h-4 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-3" />
 
         {/* The two seek buttons (Back & Forward) */}
         <div className="flex items-center gap-0.5 sm:gap-1">
           <Btn disabled={isLocked} onClick={() => handleSeekOffset(-10)} title="Back 10s">
-            <RotateCcw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+            <RotateCcw className="w-4 h-4 lg:w-4.5 lg:h-4.5" strokeWidth={1.5} />
           </Btn>
           <Btn disabled={isLocked} onClick={() => handleSeekOffset(10)} title="Forward 10s">
-            <RotateCw className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+            <RotateCw className="w-4 h-4 lg:w-4.5 lg:h-4.5" strokeWidth={1.5} />
           </Btn>
         </div>
 
         {/* Space / Divider after the two buttons */}
-        <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-3" />
+        <div className="w-px h-3.5 lg:h-4 bg-ash/20 mx-1.5 sm:mx-2 lg:mx-3" />
 
         {/* Volume & Play Time */}
         <div className="flex items-center gap-1 sm:gap-1.5">
@@ -148,8 +141,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
           <div className="group relative flex items-center justify-center">
             <Btn onClick={() => setVolume(volume === 0 ? 1 : 0)} title={volume === 0 ? 'Unmute' : 'Mute'}>
               {volume === 0
-                ? <VolumeX className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-                : <Volume2 className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />}
+                ? <VolumeX className="w-4 h-4 lg:w-4.5 lg:h-4.5" strokeWidth={1.5} />
+                : <Volume2 className="w-4 h-4 lg:w-4.5 lg:h-4.5" strokeWidth={1.5} />}
             </Btn>
             
             {/* Vertical Volume Slider Popup */}
@@ -187,7 +180,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
           </div>
 
           {/* Play time with little space before it */}
-          <span className="hidden xs:flex items-center h-7 lg:h-9 font-mono text-[11px] lg:text-base text-paper/70 whitespace-nowrap ml-0.5 sm:ml-1">
+          <span className="hidden xs:flex items-center h-6 lg:h-8 font-mono text-[11px] lg:text-base text-paper/70 whitespace-nowrap ml-0.5 sm:ml-1">
             {formatTime(currentTime)} / {formatTime(totalDuration)}
           </span>
         </div>
@@ -204,7 +197,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   <button
                     disabled={!allowAsyncMode}
                     onClick={onToggleAsync}
-                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed ${
+                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-6 lg:h-8 flex items-center justify-center flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed ${
                       !isAsyncMode ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
                     }`}
                     title={!allowAsyncMode ? 'Async mode disabled by admin' : (isAsyncMode ? 'Resync with Room' : 'Go Async Mode')}
@@ -212,7 +205,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                     SYNC
                   </button>
                 </div>
-                <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
+                <div className="w-px h-3.5 lg:h-4 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
               </>
             )}
 
@@ -222,7 +215,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               <button
                 disabled={isLocked}
                 onClick={() => { cyclePlaybackRate(); setActiveMenu(null); }}
-                className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                className="text-[11px] lg:text-base font-mono text-fog hover:text-paper transition-colors px-1 lg:px-2 h-6 lg:h-8 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
                 title="Playback speed"
               >
                 {roomPlaybackState?.playbackRate || 1}x
@@ -233,7 +226,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                 <div className="relative">
                   <button
                     onClick={() => toggleMenu('quality')}
-                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-7 lg:h-9 flex items-center justify-center flex-shrink-0 ${
+                    className={`text-[11px] lg:text-base font-mono transition-colors px-1 lg:px-2 h-6 lg:h-8 flex items-center justify-center flex-shrink-0 ${
                       currentLevel !== -1 ? 'text-blue-400 font-medium' : 'text-fog hover:text-paper'
                     }`}
                     title="Quality"
@@ -274,7 +267,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                     className={activeSubtitleId !== null ? '!text-blue-400' : ''}
                     title="Subtitles"
                   >
-                    <ClosedCaption className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+                    <ClosedCaption className="w-4 h-4 lg:w-4.5 lg:h-4.5" strokeWidth={1.5} />
                   </Btn>
 
                   {activeMenu === 'subtitle' && (
@@ -353,45 +346,9 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   )}
                 </div>
               )}
-
-              {/* Emoji picker — disabled when reactions are muted */}
-              {onToggleChat && !isMobilePortrait && (
-                <div className="relative">
-                  <Btn
-                    disabled={emojiMuted}
-                    onClick={() => !emojiMuted && toggleMenu('emoji')}
-                    active={activeMenu === 'emoji'}
-                    title={emojiMuted ? 'Reactions muted' : 'Reactions'}
-                  >
-                    <Smile className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
-                  </Btn>
-                  {!emojiMuted && activeMenu === 'emoji' && (
-                    <ControlPopover
-                      className={
-                        isMobileFullscreenLandscape
-                          ? 'right-full mr-2 top-1/2 -translate-y-1/2'
-                          : 'right-full mr-2 top-1/2 -translate-y-1/2 sm:bottom-full sm:right-0 sm:top-auto sm:translate-y-0 sm:mb-3'
-                      }
-                    >
-                      <div className="grid grid-cols-6 gap-6 p-2">
-                        {(emojiPicker || DEFAULT_EMOJI_PICKER).map((emoji) => (
-                          <button
-                            key={emoji}
-                            onClick={() => handleEmojiClick(emoji)}
-                            className="flex items-center justify-center aspect-square text-base sm:text-lg lg:text-xl hover:bg-ash/30 hover:scale-110 transition-all duration-150"
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    </ControlPopover>
-                  )}
-                </div>
-              )}
-
             </div>
 
-            <div className="w-px h-4 lg:h-5 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
+            <div className="w-px h-3.5 lg:h-4 bg-ash/20 mx-1 sm:mx-1.5 lg:mx-3" />
           </>
         )}
 
@@ -405,7 +362,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
               className="hidden lg:flex relative"
               title="Toggle chat"
             >
-              <MessageSquare className="w-[18px] h-[18px] lg:w-5 lg:h-5" strokeWidth={1.5} />
+              <MessageSquare className="w-4 h-4 lg:w-4.5 lg:h-4.5" strokeWidth={1.5} />
               {unreadCount > 0 && !showChat && (
                 <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-blue-400 text-[9px] flex items-center justify-center text-white font-bold">
                   {unreadCount > 99 ? '99+' : unreadCount}
@@ -427,8 +384,8 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             important
           >
             {isFullscreen
-              ? <Minimize className="w-5 h-5 lg:w-6 lg:h-6" strokeWidth={1.5} />
-              : <Maximize className="w-5 h-5 lg:w-6 lg:h-6" strokeWidth={1.5} />}
+              ? <Minimize className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+              : <Maximize className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />}
           </Btn>
         </div>
       </div>

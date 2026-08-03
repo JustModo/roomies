@@ -10,6 +10,7 @@ import { SeekBar } from './components/SeekBar';
 import { VideoControls } from './components/VideoControls';
 import { SubtitleOverlay } from './components/SubtitleOverlay';
 import { FloatingEmoji } from './components/FloatingEmoji';
+import { EmojiReactions } from './components/EmojiReactions';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
 import { useChat } from '../../contexts/ChatContext';
 
@@ -390,6 +391,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             })
           : children}
       </div>
+
+      <EmojiReactions visible={uiVisible} />
 
       {/* Bottom Controls */}
       <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
