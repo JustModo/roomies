@@ -4,12 +4,10 @@ interface UsePlayerGesturesParams {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   isLocked: boolean;
-  isPlaying: boolean;
   playbackRate: number;
   volume: number;
   setVolume: (volume: number) => void;
-  onPlay: () => void;
-  onPause: () => void;
+  handlePlayPause: () => void;
   onSeek: (position: number) => void;
   onSetRate: (rate: number) => void;
   idle: boolean;
@@ -24,12 +22,10 @@ export function usePlayerGestures({
   videoRef,
   containerRef,
   isLocked,
-  isPlaying,
   playbackRate,
   volume,
   setVolume,
-  onPlay,
-  onPause,
+  handlePlayPause,
   onSeek,
   onSetRate,
   idle,
@@ -46,15 +42,13 @@ export function usePlayerGestures({
 
   // Sync volatile state/callbacks to refs to prevent effect teardown
   const stateRef = useRef({
-    isPlaying,
     playbackRate,
     volume,
     idle,
     mediaDuration,
     transcodeOffset,
     setVolume,
-    onPlay,
-    onPause,
+    handlePlayPause,
     onSeek,
     onSetRate,
     showControls,
@@ -63,15 +57,13 @@ export function usePlayerGestures({
   
   useEffect(() => {
     stateRef.current = {
-      isPlaying,
       playbackRate,
       volume,
       idle,
       mediaDuration,
       transcodeOffset,
       setVolume,
-      onPlay,
-      onPause,
+      handlePlayPause,
       onSeek,
       onSetRate,
       showControls,
@@ -186,11 +178,7 @@ export function usePlayerGestures({
           } else {
             if (xPercent >= 0.3 && xPercent <= 0.7) {
               // Single click center: Toggle Play/Pause
-              if (stateRef.current.isPlaying) {
-                stateRef.current.onPause();
-              } else {
-                stateRef.current.onPlay();
-              }
+              stateRef.current.handlePlayPause();
             } else {
               // Single click outer bounds: Hide UI
               stateRef.current.hideControls();
