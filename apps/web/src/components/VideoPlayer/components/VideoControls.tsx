@@ -397,9 +397,11 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                   /* ── Quality sub-panel ── */
                   <>
                     <SubPanelHeader label="Quality" onBack={() => setSettingsSubMenu(null)} />
-                    <PopoverItem active={currentLevel === -1} onClick={() => handleQualityChange(-1)}>
-                      Auto
-                    </PopoverItem>
+                    {!isAsyncMode && (
+                      <PopoverItem active={currentLevel === -1} onClick={() => handleQualityChange(-1)}>
+                        Auto
+                      </PopoverItem>
+                    )}
                     {[...levels].reverse().map((level) => {
                       const originalIndex = levels.indexOf(level);
                       return (

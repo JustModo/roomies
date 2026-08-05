@@ -19,3 +19,9 @@ export {
   HLS_BASE_URL,
   AUDIO_BITRATE,
 } from './config';
+export { SyncPolicy, AsyncPolicy, policyForSessionId } from './modePolicy';
+export type { PlaybackModePolicy, EncodeStrategy, SeekNotifyPolicy } from './modePolicy';
+export { buildHlsMuxArgs, buildSeparateAudioEncodeArgs, appendAudioTrackHlsOutput } from './hlsArgs';
+export { startSegmentReadyWatcher } from './readyWatcher';
+export type { SegmentReadyTarget, SegmentReadyWatcherOptions } from './readyWatcher';
+export { AsyncOffsetResolutionLockedError } from './errors';

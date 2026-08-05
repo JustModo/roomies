@@ -1,20 +1,18 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import fs from 'fs';
 import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution, HardwareEncoder, AudioTrackDescriptor } from './types';
 import {
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
-  HLS_LIST_SIZE,
-  LOOK_AHEAD_SEGMENTS,
   FFMPEG_PATH,
   VIDEO_CODEC,
-  AUDIO_BITRATE,
 } from './config';
 import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
 import { TranscodeCache } from './cache';
+import { appendAudioTrackHlsOutput, buildHlsMuxArgs } from './hlsArgs';
+import { startSegmentReadyWatcher } from './readyWatcher';
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
 const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
@@ -58,8 +56,7 @@ export class TranscodeVariantGroup extends EventEmitter {
   private readonly audioLegs: Map<string, LegState>;
 
   private process: ChildProcess | null = null;
-  private watchers: fs.FSWatcher[] = [];
-  private pollInterval: NodeJS.Timeout | null = null;
+  private stopReadyWatcher: (() => void) | null = null;
   private _isRunning = false;
   private _isSuspended = false;
   private _startPosition: number = 0;
@@ -214,14 +211,7 @@ export class TranscodeVariantGroup extends EventEmitter {
 
         ...(this.hasSeparateAudio ? [] : ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2']),
 
-        '-f', 'hls',
-        '-hls_time', String(SEGMENT_DURATION),
-        '-hls_list_size', String(HLS_LIST_SIZE),
-        '-hls_segment_type', 'mpegts',
-        '-hls_flags', 'independent_segments+temp_file',
-        '-hls_segment_filename', segmentPattern,
-        '-hls_allow_cache', '1',
-
+        ...buildHlsMuxArgs(segmentPattern),
         playlistPath,
       );
     });
@@ -229,24 +219,11 @@ export class TranscodeVariantGroup extends EventEmitter {
     if (this.hasSeparateAudio) {
       for (const track of this.audioTracks) {
         const dir = this.audioLegOutputDir(track.id);
-        const playlistPath = path.join(dir, 'playlist.m3u8');
-        const segmentPattern = path.join(dir, 'audio_%05d.ts');
-
-        outputArgs.push(
-          '-map', `0:${track.streamIndex}`,
-          '-c:a', 'aac',
-          '-b:a', AUDIO_BITRATE,
-          '-ac', '2',
-
-          '-f', 'hls',
-          '-hls_time', String(SEGMENT_DURATION),
-          '-hls_list_size', String(HLS_LIST_SIZE),
-          '-hls_segment_type', 'mpegts',
-          '-hls_flags', 'independent_segments+temp_file',
-          '-hls_segment_filename', segmentPattern,
-          '-hls_allow_cache', '1',
-
-          playlistPath,
+        appendAudioTrackHlsOutput(
+          outputArgs,
+          track.streamIndex,
+          path.join(dir, 'playlist.m3u8'),
+          path.join(dir, 'audio_%05d.ts'),
         );
       }
     }
@@ -417,82 +394,53 @@ export class TranscodeVariantGroup extends EventEmitter {
     }
   }
 
-  /** Watches every leg's output directory for segment files, same fs.watch+poll pattern as
-   *  TranscodeVariant, kept running for the group's full lifetime (see Phase 2 rationale). */
+  /** Watches every leg's output directory for segment files via shared readyWatcher. */
   private watchSegments(): void {
-    const recomputeLeg = (res: Resolution) => {
-      const leg = this.legs.get(res)!;
-      const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(this.legOutputDir(res), this._startPosition);
-      leg.newestSegmentTime = newestSegmentTime;
-      leg.maxCoveredTime = maxCoveredTime;
-    };
+    const targets = [
+      ...this.resolutions.map((res) => ({
+        dir: this.legOutputDir(res),
+        isReady: () => this.legs.get(res)?.isReady ?? false,
+        onReady: () => {
+          const leg = this.legs.get(res)!;
+          leg.isReady = true;
+          this.emit('ready', res);
+        },
+        onStats: ({ newestSegmentTime, maxCoveredTime }: { newestSegmentTime: number; maxCoveredTime: number }) => {
+          const leg = this.legs.get(res)!;
+          leg.newestSegmentTime = newestSegmentTime;
+          leg.maxCoveredTime = maxCoveredTime;
+        },
+      })),
+      ...(this.hasSeparateAudio
+        ? this.audioTracks.map((track) => ({
+            dir: this.audioLegOutputDir(track.id),
+            isReady: () => this.audioLegs.get(track.id)?.isReady ?? false,
+            onReady: () => {
+              const leg = this.audioLegs.get(track.id)!;
+              leg.isReady = true;
+              this.emit('audio-ready', track.id);
+            },
+            onStats: ({ newestSegmentTime, maxCoveredTime }: { newestSegmentTime: number; maxCoveredTime: number }) => {
+              const leg = this.audioLegs.get(track.id)!;
+              leg.newestSegmentTime = newestSegmentTime;
+              leg.maxCoveredTime = maxCoveredTime;
+            },
+          }))
+        : []),
+    ];
 
-    const checkLeg = (res: Resolution) => {
-      recomputeLeg(res);
-      const leg = this.legs.get(res)!;
-      if (leg.isReady) return;
-      const tsCount = TranscodeCache.getSegmentCount(this.legOutputDir(res));
-      if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
-        leg.isReady = true;
-        this.emit('ready', res);
-      }
-    };
-
-    const recomputeAudioLeg = (trackId: string) => {
-      const leg = this.audioLegs.get(trackId)!;
-      const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(this.audioLegOutputDir(trackId), this._startPosition);
-      leg.newestSegmentTime = newestSegmentTime;
-      leg.maxCoveredTime = maxCoveredTime;
-    };
-
-    const checkAudioLeg = (trackId: string) => {
-      recomputeAudioLeg(trackId);
-      const leg = this.audioLegs.get(trackId)!;
-      if (leg.isReady) return;
-      const tsCount = TranscodeCache.getSegmentCount(this.audioLegOutputDir(trackId));
-      if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
-        leg.isReady = true;
-        this.emit('audio-ready', trackId);
-      }
-    };
-
-    const checkAll = () => {
-      for (const res of this.resolutions) checkLeg(res);
-      if (this.hasSeparateAudio) {
-        for (const track of this.audioTracks) checkAudioLeg(track.id);
-      }
-    };
-
-    checkAll();
-
-    for (const res of this.resolutions) {
-      try {
-        this.watchers.push(fs.watch(this.legOutputDir(res), () => checkLeg(res)));
-      } catch (err) {
-        // Ignore watch setup error
-      }
-    }
-    if (this.hasSeparateAudio) {
-      for (const track of this.audioTracks) {
-        try {
-          this.watchers.push(fs.watch(this.audioLegOutputDir(track.id), () => checkAudioLeg(track.id)));
-        } catch (err) {
-          // Ignore watch setup error
-        }
-      }
-    }
-
-    // NOTE: Docker host bind mounts on Windows/WSL2 do NOT pass inotify events to fs.watch.
-    // One shared poll interval covers all legs, kept running for the group's full lifetime.
-    this.pollInterval = setInterval(checkAll, 300);
+    const watcher = startSegmentReadyWatcher({
+      startPosition: this._startPosition,
+      isRunning: () => this._isRunning,
+      targets,
+    });
+    this.stopReadyWatcher = watcher.stop;
   }
 
   private stopWatchers(): void {
-    for (const watcher of this.watchers) watcher.close();
-    this.watchers = [];
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
+    if (this.stopReadyWatcher) {
+      this.stopReadyWatcher();
+      this.stopReadyWatcher = null;
     }
   }
 }

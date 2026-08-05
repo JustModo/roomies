@@ -8,7 +8,7 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 
-import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS } from '@roomies/transcoding';
+import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
 import fs from 'fs';
 import { spawn as mockedSpawn } from 'child_process';
 
@@ -130,6 +130,41 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(newestSegmentTime).toBe(0);
     expect(maxCoveredTime).toBe(0);
 
+    TranscodeCache.cleanDirectory(testDir);
+  });
+
+  it('exposes shared HLS mux args used by both encode strategies', () => {
+    const args = buildHlsMuxArgs('/tmp/seg_%05d.ts');
+    expect(args).toContain('-f');
+    expect(args).toContain('hls');
+    expect(args).toContain('-hls_time');
+    expect(args).toContain(String(SEGMENT_DURATION));
+    expect(args).toContain('/tmp/seg_%05d.ts');
+  });
+
+  it('defines sync vs async mode policies with distinct encode strategies', () => {
+    expect(SyncPolicy.encode).toBe('grouped');
+    expect(SyncPolicy.prewarmOnSeek).toEqual(['360p', '720p', '1080p']);
+    expect(AsyncPolicy.encode).toBe('perResolution');
+    expect(AsyncPolicy.throttleUnused).toBe(true);
+    expect(policyForSessionId('sync')).toBe(SyncPolicy);
+    expect(policyForSessionId('async')).toBe(AsyncPolicy);
+  });
+
+  it('locks async offsets to a single resolution (second res at same offset is refused)', async () => {
+    const { AsyncOffsetResolutionLockedError } = await import('@roomies/transcoding');
+    const testDir = `${process.env.CACHE_DIR}/async-lock-test`;
+    const session = new TranscodeSession('async', 'media-1', '/dev/null', testDir);
+
+    session.ensureVariantReady('720p', 0).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(session.ensureVariantReady('1080p', 0)).rejects.toBeInstanceOf(AsyncOffsetResolutionLockedError);
+    expect(session.getLockedResolution(0)).toBe('720p');
+    expect(session.canWarmResolution(0, '720p')).toBe(true);
+    expect(session.canWarmResolution(0, '1080p')).toBe(false);
+
+    await session.stop();
     TranscodeCache.cleanDirectory(testDir);
   });
 });

@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, MutableRefObject } from 'react';
 import Hls, { Level, Events, ErrorData, ManifestParsedData, MediaPlaylist } from 'hls.js';
 import { MediaInfo, RoomState } from '@roomies/contracts';
+import {
+  ASYNC_QUALITY_OPTIONS,
+  buildHlsMasterUrl,
+  PreferredResolution,
+  relativeStartPosition,
+} from '../hlsOffset';
 
 interface UseHlsPlayerParams {
   videoRef: MutableRefObject<HTMLVideoElement | null>;
@@ -13,6 +19,33 @@ interface UseHlsPlayerParams {
   isAsyncMode: boolean;
   activeOffsetRef: MutableRefObject<number>;
   triggerQualitySeek: () => void;
+  /** Sync activeResolutionRef after HLS settles (not before quality force-seek). */
+  onReportResolution?: (resolution: string) => void;
+}
+
+function isPreferredResolution(name: string | undefined): name is PreferredResolution {
+  return name === '360p' || name === '720p' || name === '1080p';
+}
+
+/** Synthetic levels for async quality UI (master only advertises the active ladder). */
+function asyncUiLevels(): Level[] {
+  return ASYNC_QUALITY_OPTIONS.map((o) => ({
+    name: o.name,
+    height: o.height,
+    width: Math.round((o.height * 16) / 9),
+    bitrate: 0,
+    url: [],
+    details: undefined,
+    attrs: {} as never,
+    audioCodec: undefined,
+    videoCodec: undefined,
+    unknownCodecs: [],
+    codecSet: '',
+    realBitrate: 0,
+    averageBitrate: 0,
+    fragmentError: 0,
+    loadError: 0,
+  })) as unknown as Level[];
 }
 
 export function useHlsPlayer({
@@ -26,19 +59,19 @@ export function useHlsPlayer({
   isAsyncMode,
   activeOffsetRef,
   triggerQualitySeek,
+  onReportResolution,
 }: UseHlsPlayerParams) {
   const hlsRef = useRef<Hls | null>(null);
   const [levels, setLevels] = useState<Level[]>([]);
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [activeResolution, setActiveResolution] = useState<string | undefined>();
-  const preferredLevelRef = useRef<number>(-1);
+  /** Sync: index into hls.levels. Async: index into ASYNC_QUALITY_OPTIONS. */
+  const preferredLevelRef = useRef<number>(1);
+  const preferredResolutionRef = useRef<PreferredResolution>('720p');
 
-  // ── Audio tracks ────────────────────────────────────────────────────────────
   const [audioTracks, setAudioTracks] = useState<MediaPlaylist[]>([]);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number>(-1);
-  // Ref used inside event callbacks to avoid stale closure over mediaInfo
   const mediaFileIdRef = useRef<string | undefined>();
-
   const lastMediaIdRef = useRef<string | undefined>();
 
   useEffect(() => {
@@ -54,7 +87,6 @@ export function useHlsPlayer({
     if (!mediaInfo?.hlsUrl) {
       setLevels([]);
       setCurrentLevel(-1);
-      preferredLevelRef.current = -1;
       lastMediaIdRef.current = undefined;
       return;
     }
@@ -63,25 +95,24 @@ export function useHlsPlayer({
     lastMediaIdRef.current = mediaInfo.mediaFileId;
     mediaFileIdRef.current = mediaInfo.mediaFileId;
 
-    // NOTE: Do NOT call reportStatus('buffering') here — useVideoEvents handles
-    // the buffering/ready lifecycle via DOM events (waiting, canplay, seeked, progress).
-    // Calling it here causes a double-report and confuses the reconcile flow.
     if (isNewMedia) {
       setLevels([]);
-      setCurrentLevel(-1);
-      preferredLevelRef.current = -1;
+      setCurrentLevel(isAsyncMode ? 1 : -1);
+      preferredLevelRef.current = isAsyncMode ? 1 : -1;
+      preferredResolutionRef.current = '720p';
       setAudioTracks([]);
       setCurrentAudioTrack(-1);
     }
 
     if (Hls.isSupported()) {
-      // Unified offset: always use server-provided transcodeOffset.
-      // No more client-side Math.floor(localTime / 10) * 10 computation.
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
       activeOffsetRef.current = transcodeOffset;
 
+      const preferredRes = isAsyncMode ? preferredResolutionRef.current : undefined;
+
       const hls = new Hls({
-        startPosition: Math.max(0, localTime - transcodeOffset),
+        startPosition: relativeStartPosition(localTime, transcodeOffset),
+        startLevel: isAsyncMode ? 0 : preferredLevelRef.current >= 0 ? preferredLevelRef.current : -1,
         enableWorker: true,
         lowLatencyMode: false,
         manifestLoadingMaxRetry: 10,
@@ -95,26 +126,31 @@ export function useHlsPlayer({
         backBufferLength: 15,
       });
 
-      const baseUrl = mediaInfo.hlsUrl;
-      const hlsUrl = new URL(baseUrl, window.location.origin);
-      hlsUrl.searchParams.set('t', Date.now().toString());
-      if (transcodeOffset > 0) {
-        hlsUrl.searchParams.set('offset', transcodeOffset.toString());
-      }
-
-      hls.loadSource(hlsUrl.toString());
+      hls.loadSource(
+        buildHlsMasterUrl(mediaInfo.hlsUrl, transcodeOffset, {
+          preferredResolution: preferredRes,
+        }),
+      );
       hls.attachMedia(videoRef.current);
 
       hls.on(Events.MANIFEST_PARSED, (_event: Events.MANIFEST_PARSED, data: ManifestParsedData) => {
-        setLevels(data.levels);
-
-        if (preferredLevelRef.current !== -1 && preferredLevelRef.current < data.levels.length) {
-          hls.currentLevel = preferredLevelRef.current;
+        if (isAsyncMode) {
+          setLevels(asyncUiLevels());
+          const uiIdx = ASYNC_QUALITY_OPTIONS.findIndex((o) => o.name === preferredResolutionRef.current);
+          const chosenUi = uiIdx >= 0 ? uiIdx : 1;
+          preferredLevelRef.current = chosenUi;
+          setCurrentLevel(chosenUi);
+          hls.currentLevel = 0;
+          const name = preferredResolutionRef.current;
+          setActiveResolution(name);
+          onReportResolution?.(name);
+        } else {
+          setLevels(data.levels);
+          if (preferredLevelRef.current !== -1 && preferredLevelRef.current < data.levels.length) {
+            hls.currentLevel = preferredLevelRef.current;
+          }
         }
 
-        // Populate audio tracks and restore persisted preference.
-        // NOTE: hls.audioTrack is an INDEX (0-based) into hls.audioTracks[], NOT a MediaPlaylist.id.
-        // We track currentAudioTrack as that index throughout.
         if (hls.audioTracks && hls.audioTracks.length > 1) {
           setAudioTracks([...hls.audioTracks]);
           const saved = mediaFileIdRef.current
@@ -123,15 +159,13 @@ export function useHlsPlayer({
           if (saved !== null) {
             const preferredIdx = Number(saved);
             if (preferredIdx >= 0 && preferredIdx < hls.audioTracks.length && preferredIdx !== hls.audioTrack) {
-              // Only switch if the saved preference differs from hls.js's default — avoids
-              // a spurious audio reload that triggers 'waiting' → buffering in async mode.
               hls.audioTrack = preferredIdx;
               setCurrentAudioTrack(preferredIdx);
             } else {
               setCurrentAudioTrack(hls.audioTrack);
             }
           } else {
-            setCurrentAudioTrack(hls.audioTrack); // hls.audioTrack is already an index
+            setCurrentAudioTrack(hls.audioTrack);
           }
         }
 
@@ -144,7 +178,7 @@ export function useHlsPlayer({
       hls.on(Events.AUDIO_TRACKS_UPDATED, () => {
         if (hls.audioTracks && hls.audioTracks.length > 1) {
           setAudioTracks([...hls.audioTracks]);
-          setCurrentAudioTrack(hls.audioTrack); // index
+          setCurrentAudioTrack(hls.audioTrack);
         } else {
           setAudioTracks([]);
           setCurrentAudioTrack(-1);
@@ -152,8 +186,6 @@ export function useHlsPlayer({
       });
 
       hls.on(Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
-        // data extends MediaPlaylist, so data.id is the MediaPlaylist.id — NOT the index.
-        // Find the index so currentAudioTrack stays index-based throughout.
         const switchedIdx = hls.audioTracks.findIndex(t => t.id === data.id);
         const idx = switchedIdx !== -1 ? switchedIdx : hls.audioTrack;
         setCurrentAudioTrack(idx);
@@ -163,6 +195,7 @@ export function useHlsPlayer({
       });
 
       hls.on(Events.LEVEL_SWITCHED, (_event: Events.LEVEL_SWITCHED, data) => {
+        if (isAsyncMode) return;
         setCurrentLevel(hls.autoLevelEnabled ? -1 : data.level);
         if (hls.levels && hls.levels[data.level]) {
           setActiveResolution(hls.levels[data.level].name);
@@ -170,6 +203,7 @@ export function useHlsPlayer({
       });
 
       hls.on(Events.FRAG_LOADING, (_event, data) => {
+        if (isAsyncMode) return;
         const levelIndex = data.frag.level;
         if (hls.levels && hls.levels[levelIndex]) {
           setActiveResolution(hls.levels[levelIndex].name);
@@ -194,28 +228,28 @@ export function useHlsPlayer({
         hlsRef.current = null;
       };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS (Safari): same unified offset logic.
       const transcodeOffset = mediaInfo.transcodeOffset || 0;
       activeOffsetRef.current = transcodeOffset;
 
-      const baseUrl = mediaInfo.hlsUrl;
-      const hlsUrl = new URL(baseUrl, window.location.origin);
-      if (transcodeOffset > 0) {
-        hlsUrl.searchParams.set('offset', transcodeOffset.toString());
-      }
-
-      videoRef.current.src = hlsUrl.toString();
-      const targetTime = Math.max(0, localTime - transcodeOffset);
+      videoRef.current.src = buildHlsMasterUrl(mediaInfo.hlsUrl, transcodeOffset, {
+        preferredResolution: isAsyncMode ? preferredResolutionRef.current : undefined,
+      });
+      const targetTime = relativeStartPosition(localTime, transcodeOffset);
       const videoEl = videoRef.current;
       videoEl.addEventListener('loadedmetadata', () => {
         if (videoRef.current) {
           videoRef.current.currentTime = targetTime;
         }
 
-        // Safari native audio track list
+        if (isAsyncMode) {
+          setLevels(asyncUiLevels());
+          setCurrentLevel(preferredLevelRef.current >= 0 ? preferredLevelRef.current : 1);
+          setActiveResolution(preferredResolutionRef.current);
+          onReportResolution?.(preferredResolutionRef.current);
+        }
+
         const nativeTracks = (videoEl as HTMLVideoElement & { audioTracks?: AudioTrackList }).audioTracks;
         if (nativeTracks && nativeTracks.length > 1) {
-          // Build a minimal MediaPlaylist-like array for the UI
           const syntheticTracks: MediaPlaylist[] = [];
           for (let i = 0; i < nativeTracks.length; i++) {
             const t = nativeTracks[i];
@@ -241,7 +275,6 @@ export function useHlsPlayer({
           }
           setAudioTracks(syntheticTracks);
 
-          // Restore persisted preference
           const savedId = mediaFileIdRef.current
             ? localStorage.getItem(`roomies_audio_${mediaFileIdRef.current}`)
             : null;
@@ -255,38 +288,48 @@ export function useHlsPlayer({
         reportStatus('ready');
       }, { once: true });
     }
-  }, [mediaInfo?.mediaFileId, seekKey, reportStatus]);
+  }, [mediaInfo?.mediaFileId, mediaInfo?.transcodeOffset, seekKey, reportStatus, isAsyncMode, onReportResolution]);
 
   const handleQualityChange = (index: number) => {
+    if (isAsyncMode) {
+      if (index < 0 || index >= ASYNC_QUALITY_OPTIONS.length) return;
+      const opt = ASYNC_QUALITY_OPTIONS[index];
+      preferredLevelRef.current = index;
+      preferredResolutionRef.current = opt.name;
+      setCurrentLevel(index);
+      setActiveResolution(opt.name);
+      // Update ref for seek heartbeat. Soft warm skips if old offset is locked to another res;
+      // forceNewOffset creates a fresh offset that can encode this quality.
+      onReportResolution?.(opt.name);
+      triggerQualitySeek();
+      return;
+    }
+
     if (hlsRef.current) {
       hlsRef.current.currentLevel = index;
       setCurrentLevel(index);
       preferredLevelRef.current = index;
       if (hlsRef.current.levels && hlsRef.current.levels[index]) {
-        setActiveResolution(hlsRef.current.levels[index].name);
-      }
-
-      // NOTE: In sync mode, all 3 variants are actively running and perfectly aligned,
-      // so HLS.js can seamlessly switch natively. We only need to force a hard seek 
-      // in async mode, where unused variants are suspended and left behind!
-      if (isAsyncMode) {
-        triggerQualitySeek();
+        const name = hlsRef.current.levels[index].name;
+        setActiveResolution(name);
+        if (isPreferredResolution(name)) {
+          preferredResolutionRef.current = name;
+        }
+        if (name && onReportResolution) {
+          onReportResolution(name);
+        }
       }
     }
   };
 
-  // idx = 0-based index into audioTracks[]. hls.audioTrack getter/setter works by index.
   const handleAudioTrackChange = (idx: number) => {
     if (hlsRef.current) {
-      // Pure client-side hls.js switch — no loadSource/reload, no server round-trip.
-      // Only new audio segments are fetched; the video buffer is untouched.
       hlsRef.current.audioTrack = idx;
       setCurrentAudioTrack(idx);
       if (mediaFileIdRef.current) {
         localStorage.setItem(`roomies_audio_${mediaFileIdRef.current}`, String(idx));
       }
     } else {
-      // Safari native HLS fallback
       const videoEl = videoRef.current as (HTMLVideoElement & { audioTracks?: AudioTrackList }) | null;
       if (videoEl?.audioTracks) {
         for (let i = 0; i < videoEl.audioTracks.length; i++) {

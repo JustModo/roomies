@@ -2,6 +2,12 @@ import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'reac
 import { RoomState } from '@roomies/contracts';
 import { WEB_CONFIG } from '../config';
 
+/**
+ * Owns async-local play / pause / rate / status only.
+ * Offset + HLS URL come from unicast media.changed (see buildMediaChangedPayload);
+ * room buffering consensus is intentionally not driven by async users.
+ */
+
 interface UseAsyncPlaybackParams {
   isConnected: boolean;
   sendMessage: (msg: any) => void;

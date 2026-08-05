@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { ChangeMediaRequest } from '@roomies/contracts';
 import { PlaybackService } from './service';
-import { Resolution } from '@roomies/transcoding';
+import { AsyncOffsetResolutionLockedError, Resolution } from '@roomies/transcoding';
 
 export const PlaybackController = {
   async changeMedia(req: FastifyRequest<{ Body: ChangeMediaRequest }>, reply: FastifyReply) {
@@ -35,10 +35,17 @@ export const PlaybackController = {
   },
 
   async getMasterPlaylist(req: FastifyRequest, reply: FastifyReply) {
-    const { mediaId } = req.params as { mediaId: string };
-    const { offset } = req.query as { offset?: string };
-    const offsetNum = offset ? parseInt(offset, 10) : undefined;
-    const playlist = await PlaybackService.generateMasterPlaylist(mediaId, offsetNum);
+    const { mediaId, sessionId } = req.params as { mediaId: string; sessionId: string };
+    const { offset, res } = req.query as { offset?: string; res?: string };
+    const offsetNum = offset !== undefined ? parseInt(offset, 10) : undefined;
+    const preferred =
+      res === '360p' || res === '720p' || res === '1080p' ? (res as Resolution) : undefined;
+    const playlist = await PlaybackService.generateMasterPlaylist(
+      mediaId,
+      offsetNum,
+      sessionId || 'sync',
+      preferred,
+    );
     return reply
       .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
       .type('application/vnd.apple.mpegurl')
@@ -48,7 +55,7 @@ export const PlaybackController = {
   async getVariantStream(req: FastifyRequest, reply: FastifyReply) {
     const { mediaId, sessionId, resolution } = req.params as { mediaId: string; sessionId: string; resolution: Resolution };
     const { offset } = req.query as { offset?: string };
-    const offsetNum = offset ? parseInt(offset, 10) : undefined;
+    const offsetNum = offset !== undefined ? parseInt(offset, 10) : undefined;
     try {
       const playlistContent = await PlaybackService.getVariantPlaylist(mediaId, sessionId, resolution, offsetNum);
       return reply
@@ -56,6 +63,13 @@ export const PlaybackController = {
         .type('application/vnd.apple.mpegurl')
         .send(playlistContent);
     } catch (error: any) {
+      if (error instanceof AsyncOffsetResolutionLockedError || error?.name === 'AsyncOffsetResolutionLocked') {
+        return reply.status(409).send({
+          error: error.message,
+          lockedResolution: error.lockedResolution,
+          requestedResolution: error.requestedResolution,
+        });
+      }
       if (error.message === 'Session not found') {
         return reply.status(404).send({ error: error.message });
       }

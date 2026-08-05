@@ -1,20 +1,18 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import fs from 'fs';
 import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution, HardwareEncoder, AudioTrackDescriptor } from './types';
 import {
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
-  HLS_LIST_SIZE,
-  LOOK_AHEAD_SEGMENTS,
   FFMPEG_PATH,
   VIDEO_CODEC,
-  AUDIO_BITRATE,
 } from './config';
 import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
 import { TranscodeCache } from './cache';
+import { appendAudioTrackHlsOutput, buildHlsMuxArgs } from './hlsArgs';
+import { startSegmentReadyWatcher } from './readyWatcher';
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
 const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
@@ -45,9 +43,7 @@ export class TranscodeVariant extends EventEmitter {
   private readonly audioLegs: Map<string, AudioLegState>;
 
   private process: ChildProcess | null = null;
-  private watcher: fs.FSWatcher | null = null;
-  private audioWatchers: fs.FSWatcher[] = [];
-  private pollInterval: NodeJS.Timeout | null = null;
+  private stopReadyWatcher: (() => void) | null = null;
   private _isReady = false;
   private _isRunning = false;
   private _isSuspended = false;
@@ -205,15 +201,7 @@ export class TranscodeVariant extends EventEmitter {
       // audio stays muxed into the video output exactly like before this feature existed.
       ...(this.hasSeparateAudio ? [] : ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2']),
 
-      // NOTE: HLS VOD mode configuration to keep all segments and ensure they are independent.
-      '-f', 'hls',
-      '-hls_time', String(SEGMENT_DURATION),
-      '-hls_list_size', String(HLS_LIST_SIZE),
-      '-hls_segment_type', 'mpegts',
-      '-hls_flags', 'independent_segments+temp_file',
-      '-hls_segment_filename', segmentPattern,
-      '-hls_allow_cache', '1',
-
+      ...buildHlsMuxArgs(segmentPattern),
       playlistPath,
 
       ...(this.hasSeparateAudio ? this.buildAudioOutputArgs() : []),
@@ -224,24 +212,11 @@ export class TranscodeVariant extends EventEmitter {
     const args: string[] = [];
     for (const track of this.audioTracks) {
       const dir = this.audioOutputDir(track.id);
-      const trackPlaylistPath = path.join(dir, 'playlist.m3u8');
-      const trackSegmentPattern = path.join(dir, 'audio_%05d.ts');
-
-      args.push(
-        '-map', `0:${track.streamIndex}`,
-        '-c:a', 'aac',
-        '-b:a', AUDIO_BITRATE,
-        '-ac', '2',
-
-        '-f', 'hls',
-        '-hls_time', String(SEGMENT_DURATION),
-        '-hls_list_size', String(HLS_LIST_SIZE),
-        '-hls_segment_type', 'mpegts',
-        '-hls_flags', 'independent_segments+temp_file',
-        '-hls_segment_filename', trackSegmentPattern,
-        '-hls_allow_cache', '1',
-
-        trackPlaylistPath,
+      appendAudioTrackHlsOutput(
+        args,
+        track.streamIndex,
+        path.join(dir, 'playlist.m3u8'),
+        path.join(dir, 'audio_%05d.ts'),
       );
     }
     return args;
@@ -361,7 +336,8 @@ export class TranscodeVariant extends EventEmitter {
     if (!this._isReady) return;
 
     try {
-      // NOTE: Suspend FFmpeg if ahead by >300s or NOT actively watched. Resume when <60s AND actively watched to protect CPU/disk.
+      // Suspend if ahead by >300s or NOT actively watched.
+      // Resume only when actively watched AND ahead <60s (hysteresis — avoids thrash with soft warm).
       if (this.process && this._isRunning) {
         const aheadBy = this._newestSegmentTime - currentPlayhead;
 
@@ -383,84 +359,49 @@ export class TranscodeVariant extends EventEmitter {
 
   /** Watches the output directory for the first .ts segment files. */
   private watchForFirstSegment(): void {
-    const recomputeCacheStats = () => {
-      const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(this.outputDir, this._startPosition);
-      this._newestSegmentTime = newestSegmentTime;
-      this._maxCoveredTime = maxCoveredTime;
-    };
+    const targets = [
+      {
+        dir: this.outputDir,
+        isReady: () => this._isReady,
+        onReady: () => {
+          this._isReady = true;
+          this.emit('ready');
+        },
+        onStats: ({ newestSegmentTime, maxCoveredTime }: { newestSegmentTime: number; maxCoveredTime: number }) => {
+          this._newestSegmentTime = newestSegmentTime;
+          this._maxCoveredTime = maxCoveredTime;
+        },
+      },
+      ...(this.hasSeparateAudio
+        ? this.audioTracks.map((track) => ({
+            dir: this.audioOutputDir(track.id),
+            isReady: () => this.audioLegs.get(track.id)?.isReady ?? false,
+            onReady: () => {
+              const leg = this.audioLegs.get(track.id)!;
+              leg.isReady = true;
+              this.emit('audio-ready', track.id);
+            },
+            onStats: ({ newestSegmentTime, maxCoveredTime }: { newestSegmentTime: number; maxCoveredTime: number }) => {
+              const leg = this.audioLegs.get(track.id)!;
+              leg.newestSegmentTime = newestSegmentTime;
+              leg.maxCoveredTime = maxCoveredTime;
+            },
+          }))
+        : []),
+    ];
 
-    const checkReady = () => {
-      recomputeCacheStats();
-      if (this._isReady) return;
-      const tsCount = TranscodeCache.getSegmentCount(this.outputDir);
-      // NOTE: Mark ready if lookahead segments are present OR if process finished and at least 1 segment exists
-      if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
-        this._isReady = true;
-        this.emit('ready');
-      }
-    };
-
-    const recomputeAudioLeg = (trackId: string) => {
-      const leg = this.audioLegs.get(trackId)!;
-      const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(this.audioOutputDir(trackId), this._startPosition);
-      leg.newestSegmentTime = newestSegmentTime;
-      leg.maxCoveredTime = maxCoveredTime;
-    };
-
-    const checkAudioReady = (trackId: string) => {
-      recomputeAudioLeg(trackId);
-      const leg = this.audioLegs.get(trackId)!;
-      if (leg.isReady) return;
-      const tsCount = TranscodeCache.getSegmentCount(this.audioOutputDir(trackId));
-      if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
-        leg.isReady = true;
-        this.emit('audio-ready', trackId);
-      }
-    };
-
-    checkReady();
-    if (this.hasSeparateAudio) {
-      for (const track of this.audioTracks) checkAudioReady(track.id);
-    }
-
-    // NOTE: fs.watch provides real-time OS events on native filesystems.
-    try {
-      this.watcher = fs.watch(this.outputDir, checkReady);
-    } catch (err) {
-      // Ignore watch setup error
-    }
-    if (this.hasSeparateAudio) {
-      for (const track of this.audioTracks) {
-        try {
-          this.audioWatchers.push(fs.watch(this.audioOutputDir(track.id), () => checkAudioReady(track.id)));
-        } catch (err) {
-          // Ignore watch setup error
-        }
-      }
-    }
-
-    // NOTE: Docker host bind mounts on Windows/WSL2 do NOT pass inotify events to fs.watch.
-    // We add an active polling interval so segment creation is ALWAYS detected regardless of environment.
-    // NOTE: Kept running for the variant's full lifetime (not just until ready) so newestSegmentTime/
-    // maxCoveredTime stay current without callers re-scanning the output directory themselves.
-    this.pollInterval = setInterval(() => {
-      checkReady();
-      if (this.hasSeparateAudio) {
-        for (const track of this.audioTracks) checkAudioReady(track.id);
-      }
-    }, 300);
+    const watcher = startSegmentReadyWatcher({
+      startPosition: this._startPosition,
+      isRunning: () => this._isRunning,
+      targets,
+    });
+    this.stopReadyWatcher = watcher.stop;
   }
 
   private stopWatcher(): void {
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
-    }
-    for (const w of this.audioWatchers) w.close();
-    this.audioWatchers = [];
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
+    if (this.stopReadyWatcher) {
+      this.stopReadyWatcher();
+      this.stopReadyWatcher = null;
     }
   }
 }

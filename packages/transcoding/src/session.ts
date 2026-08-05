@@ -2,11 +2,13 @@ import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
 import { Resolution, AudioTrackDescriptor } from './types';
 import { TranscodeVariant } from './variant';
-import { TranscodeVariantGroup, GroupedVariantLeg, GroupedAudioLeg } from './variantGroup';
-import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
+import { TranscodeVariantGroup, GroupedVariantLeg } from './variantGroup';
+import { MAX_CONCURRENT_VARIANTS } from './config';
 import { getSourceFrameRate } from './ffprobe';
 import { TranscodeCache } from './cache';
 import { getAlignedPosition } from './utils';
+import { policyForSessionId } from './modePolicy';
+import { AsyncOffsetResolutionLockedError } from './errors';
 
 type VariantLike = TranscodeVariant | GroupedVariantLeg;
 const ALL_RESOLUTIONS: Resolution[] = ['360p', '720p', '1080p'];
@@ -39,7 +41,7 @@ export class TranscodeSession {
   private variantGroupInstances = new Map<number, TranscodeVariantGroup>();
   // Only used for non-grouped (async) sessions — since each resolution independently duplicates
   // all audio tracks there (see TranscodeVariant), audio for a given offset is sourced from
-  // whichever resolution was most recently requested for that offset.
+  // the playhead's current resolution when available (else last requested / first in group).
   private lastResolutionByOffset = new Map<number, Resolution>();
 
   /** Sync sessions merge all resolutions into one shared decode process (TranscodeVariantGroup)
@@ -48,13 +50,18 @@ export class TranscodeSession {
    *  SIGSTOP throttling, which matters there since users can each be watching a different
    *  resolution (see updateVariantCache). */
   private readonly useGroupedVariants: boolean;
+  private readonly keepLatestEmptyOffset: boolean;
+  private readonly throttleUnused: boolean;
 
   constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string, audioTracks: AudioTrackDescriptor[] = []) {
     this.sessionId = sessionId;
     this.mediaFileId = mediaFileId;
     this.inputPath = inputPath;
     this.outputBaseDir = outputBaseDir;
-    this.useGroupedVariants = sessionId === 'sync';
+    const policy = policyForSessionId(sessionId);
+    this.useGroupedVariants = policy.encode === 'grouped';
+    this.keepLatestEmptyOffset = policy.keepLatestEmptyOffset;
+    this.throttleUnused = policy.throttleUnused;
     this.audioTracks = audioTracks;
 
     TranscodeCache.ensureDirectory(this.outputBaseDir);
@@ -99,7 +106,6 @@ export class TranscodeSession {
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
     offset = this.resolveMergedOffset(offset);
-    this.lastResolutionByOffset.set(offset, resolution);
 
     let group = this.variantGroups.get(offset);
     if (!group) {
@@ -108,8 +114,17 @@ export class TranscodeSession {
       this.groupCreatedAt.set(offset, Date.now());
     }
 
+    // Async: one video quality per offset — refuse a second resolution at the same offset.
+    if (!this.useGroupedVariants && group.size > 0 && !group.has(resolution)) {
+      const locked = this.getLockedResolution(offset)!;
+      throw new AsyncOffsetResolutionLockedError(locked, resolution, offset);
+    }
+
+    this.lastResolutionByOffset.set(offset, resolution);
+
     const existing = group.get(resolution);
     if (existing) {
+      // Do not force-resume here — manageCache owns SIGSTOP/SIGCONT (incl. ahead>300 look-ahead).
       if (existing.isReady) return;
       return new Promise((resolve) => existing.once('ready', resolve));
     }
@@ -143,6 +158,23 @@ export class TranscodeSession {
     variant.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
 
     return new Promise((resolve) => variant.once('ready', resolve));
+  }
+
+  /** Locked video resolution for an async offset, or null if none started yet. */
+  getLockedResolution(offset: number): Resolution | null {
+    offset = this.resolveMergedOffset(offset);
+    const group = this.variantGroups.get(offset);
+    if (!group || group.size === 0) return null;
+    const last = this.lastResolutionByOffset.get(offset);
+    if (last && group.has(last)) return last;
+    return group.keys().next().value ?? null;
+  }
+
+  /** True if soft-warm may ensure this resolution at offset (empty or same locked res). */
+  canWarmResolution(offset: number, resolution: Resolution): boolean {
+    if (this.useGroupedVariants) return true;
+    const locked = this.getLockedResolution(offset);
+    return locked === null || locked === resolution;
   }
 
   /**
@@ -281,7 +313,7 @@ export class TranscodeSession {
         this.mergedOffsets.set(offset, nextOffset);
         this.stopGroup(offset);
       } else {
-        if (this.sessionId === 'sync') {
+        if (this.keepLatestEmptyOffset) {
           console.log(`[transcode] Keeping latest offset group ${offset} active for sync session`);
           return;
         }
@@ -307,11 +339,23 @@ export class TranscodeSession {
       }
     }
 
-    if (maxPlayheadInGroup !== -1) {
-      for (const variant of group.values()) {
-        const isActivelyWatched = this.sessionId === 'sync' || activeResolutions.size === 0 || activeResolutions.has(variant.resolution);
-        variant.manageCache(maxPlayheadInGroup, isActivelyWatched);
+    if (maxPlayheadInGroup === -1) return;
+
+    const fallbackRes = this.lastResolutionByOffset.get(offset);
+    for (const variant of group.values()) {
+      let isActivelyWatched: boolean;
+      if (!this.throttleUnused) {
+        isActivelyWatched = true;
+      } else if (activeResolutions.size > 0) {
+        isActivelyWatched = activeResolutions.has(variant.resolution);
+      } else if (fallbackRes) {
+        // No playhead resolution yet — only keep last-requested res awake, not every variant.
+        isActivelyWatched = variant.resolution === fallbackRes;
+      } else {
+        // Unknown: skip inactivity suspend; still allow ahead>300 via manageCache(…, true).
+        isActivelyWatched = true;
       }
+      variant.manageCache(maxPlayheadInGroup, isActivelyWatched);
     }
   }
 
@@ -435,8 +479,8 @@ export class TranscodeSession {
   }
 
   /** Ensures an audio track's HLS output is ready. Grouped (sync) sessions share one audio
-   *  encode across all resolutions; non-grouped (async) sessions source audio from whichever
-   *  resolution was most recently requested for this offset (see lastResolutionByOffset). */
+   *  encode across all resolutions; non-grouped (async) sessions source audio from the
+   *  playhead's current resolution when available (see resolveAsyncAudioResolution). */
   async ensureAudioTrackReady(
     trackId: string,
     offset: number = 0,
@@ -454,7 +498,7 @@ export class TranscodeSession {
       return new Promise((resolve) => leg.once('ready', resolve));
     }
 
-    const resolution = this.lastResolutionByOffset.get(offset) ?? ALL_RESOLUTIONS[0];
+    const resolution = this.resolveAsyncAudioResolution(offset);
     await this.ensureVariantReady(resolution, offset, preset, hwAccelMode);
     const group = this.variantGroups.get(offset);
     const variant = group?.get(resolution) as TranscodeVariant | undefined;
@@ -480,11 +524,40 @@ export class TranscodeSession {
       return group.audioLegOutputDir(trackId);
     }
 
-    const resolution = this.lastResolutionByOffset.get(offset) ?? ALL_RESOLUTIONS[0];
+    const resolution = this.resolveAsyncAudioResolution(offset);
     const group = this.variantGroups.get(offset);
     const variant = group?.get(resolution) as TranscodeVariant | undefined;
     if (!variant) throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
     return variant.audioOutputDir(trackId);
+  }
+
+  /** Preferred resolution for async demuxed audio: playhead on this offset, else any
+   *  existing variant in the group, else last-requested, else 360p. */
+  private resolveAsyncAudioResolution(offset: number): Resolution {
+    for (const ph of this.playheads.values()) {
+      if (ph.currentOffset === offset && (ph.resolution === '360p' || ph.resolution === '720p' || ph.resolution === '1080p')) {
+        const group = this.variantGroups.get(offset);
+        if (group?.has(ph.resolution)) return ph.resolution;
+      }
+    }
+
+    const group = this.variantGroups.get(offset);
+    if (group) {
+      for (const res of ALL_RESOLUTIONS) {
+        if (group.has(res)) return res;
+      }
+    }
+
+    return this.lastResolutionByOffset.get(offset) ?? ALL_RESOLUTIONS[0];
+  }
+
+  getPlayheadResolution(playheadId: string): string | undefined {
+    return this.playheads.get(playheadId)?.resolution;
+  }
+
+  getPlayheadOffset(playheadId: string): number | undefined {
+    const offset = this.playheads.get(playheadId)?.currentOffset;
+    return offset !== undefined && offset >= 0 ? offset : undefined;
   }
 
   private getMaxCoveredTime(variant: VariantLike): number {
