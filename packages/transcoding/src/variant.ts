@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
-import { Resolution, HardwareEncoder } from './types';
+import { Resolution, HardwareEncoder, AudioTrackDescriptor } from './types';
 import {
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
@@ -11,6 +11,7 @@ import {
   LOOK_AHEAD_SEGMENTS,
   FFMPEG_PATH,
   VIDEO_CODEC,
+  AUDIO_BITRATE,
 } from './config';
 import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
 import { TranscodeCache } from './cache';
@@ -24,14 +25,28 @@ const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
   slow: 'p6',
 };
 
+interface AudioLegState {
+  isReady: boolean;
+  newestSegmentTime: number;
+  maxCoveredTime: number;
+}
+
 /** Manages a single FFmpeg child process that transcodes one resolution variant. */
 export class TranscodeVariant extends EventEmitter {
   public readonly resolution: Resolution;
   public readonly outputDir: string;
   public readonly sessionId: string;
+  public readonly audioTracks: AudioTrackDescriptor[];
+  /** Only when there's a genuine choice do we pay for separate audio-only HLS outputs;
+   *  a single audio track keeps today's behavior (muxed into the video output). */
+  public readonly hasSeparateAudio: boolean;
+
+  private readonly audioOutputDirs: Map<string, string>;
+  private readonly audioLegs: Map<string, AudioLegState>;
 
   private process: ChildProcess | null = null;
   private watcher: fs.FSWatcher | null = null;
+  private audioWatchers: fs.FSWatcher[] = [];
   private pollInterval: NodeJS.Timeout | null = null;
   private _isReady = false;
   private _isRunning = false;
@@ -46,12 +61,35 @@ export class TranscodeVariant extends EventEmitter {
   private sourceFps: number = 24;
   private stopRequested = false;
 
-  constructor(resolution: Resolution, outputDir: string, sessionId: string) {
+  constructor(
+    resolution: Resolution,
+    outputDir: string,
+    sessionId: string,
+    audioTracks: AudioTrackDescriptor[] = []
+  ) {
     super();
     this.setMaxListeners(50);
     this.resolution = resolution;
     this.outputDir = outputDir;
     this.sessionId = sessionId;
+    this.audioTracks = audioTracks;
+    this.hasSeparateAudio = audioTracks.length > 1;
+    this.audioOutputDirs = new Map(audioTracks.map(t => [t.id, path.join(outputDir, 'audio', t.id)]));
+    this.audioLegs = new Map(audioTracks.map(t => [t.id, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
+  }
+
+  audioOutputDir(trackId: string): string {
+    const dir = this.audioOutputDirs.get(trackId);
+    if (!dir) throw new Error(`No output directory registered for audio track ${trackId}`);
+    return dir;
+  }
+
+  isAudioReady(trackId: string): boolean {
+    return this.audioLegs.get(trackId)?.isReady ?? false;
+  }
+
+  audioMaxCoveredTime(trackId: string): number {
+    return this.audioLegs.get(trackId)?.maxCoveredTime ?? 0;
   }
 
   get isReady(): boolean {
@@ -152,14 +190,20 @@ export class TranscodeVariant extends EventEmitter {
       // NOTE: Disable scene-cut adaptive keyframes to keep fixed GOP.
       '-sc_threshold', '0',
 
+      // NOTE: with no explicit -map, ffmpeg implicitly includes a default audio stream in this
+      // output — fine for the muxed single-track case, but once audio has its own sibling
+      // outputs below it must be excluded here explicitly or it'd be implicitly duplicated in.
+      ...(this.hasSeparateAudio ? ['-map', '0:v:0', '-an'] : []),
+
       ...videoArgs,
       '-b:v', preset.videoBitrate,
       '-maxrate', preset.maxRate,
       '-bufsize', preset.bufSize,
 
-      '-c:a', 'aac',
-      '-b:a', preset.audioBitrate,
-      '-ac', '2',
+      // NOTE: with >1 audio track, audio is demuxed into its own sibling HLS outputs below
+      // (so hls.js can switch tracks without touching the video buffer); with 0-1 tracks,
+      // audio stays muxed into the video output exactly like before this feature existed.
+      ...(this.hasSeparateAudio ? [] : ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2']),
 
       // NOTE: HLS VOD mode configuration to keep all segments and ensure they are independent.
       '-f', 'hls',
@@ -171,11 +215,45 @@ export class TranscodeVariant extends EventEmitter {
       '-hls_allow_cache', '1',
 
       playlistPath,
+
+      ...(this.hasSeparateAudio ? this.buildAudioOutputArgs() : []),
     ];
+  }
+
+  private buildAudioOutputArgs(): string[] {
+    const args: string[] = [];
+    for (const track of this.audioTracks) {
+      const dir = this.audioOutputDir(track.id);
+      const trackPlaylistPath = path.join(dir, 'playlist.m3u8');
+      const trackSegmentPattern = path.join(dir, 'audio_%05d.ts');
+
+      args.push(
+        '-map', `0:${track.streamIndex}`,
+        '-c:a', 'aac',
+        '-b:a', AUDIO_BITRATE,
+        '-ac', '2',
+
+        '-f', 'hls',
+        '-hls_time', String(SEGMENT_DURATION),
+        '-hls_list_size', String(HLS_LIST_SIZE),
+        '-hls_segment_type', 'mpegts',
+        '-hls_flags', 'independent_segments+temp_file',
+        '-hls_segment_filename', trackSegmentPattern,
+        '-hls_allow_cache', '1',
+
+        trackPlaylistPath,
+      );
+    }
+    return args;
   }
 
   private spawnProcess(hw: HardwareEncoder | null): void {
     TranscodeCache.ensureDirectory(this.outputDir);
+    if (this.hasSeparateAudio) {
+      for (const track of this.audioTracks) {
+        TranscodeCache.ensureDirectory(this.audioOutputDir(track.id));
+      }
+    }
 
     const args = this.buildArgs(hw);
     const proc = spawn(FFMPEG_PATH, args, {
@@ -206,6 +284,18 @@ export class TranscodeVariant extends EventEmitter {
       if (tsCount > 0 && !this._isReady && (code === 0 || this.stopRequested)) {
         this._isReady = true;
         this.emit('ready');
+      }
+      if (this.hasSeparateAudio) {
+        for (const track of this.audioTracks) {
+          const leg = this.audioLegs.get(track.id)!;
+          if (!leg.isReady) {
+            const audioTsCount = TranscodeCache.getSegmentCount(this.audioOutputDir(track.id));
+            if (audioTsCount > 0 && (code === 0 || this.stopRequested)) {
+              leg.isReady = true;
+              this.emit('audio-ready', track.id);
+            }
+          }
+        }
       }
       this.stopWatcher();
       // NOTE: FFmpeg traps SIGTERM to shut down gracefully (flushing the final segment/playlist)
@@ -310,7 +400,28 @@ export class TranscodeVariant extends EventEmitter {
       }
     };
 
+    const recomputeAudioLeg = (trackId: string) => {
+      const leg = this.audioLegs.get(trackId)!;
+      const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(this.audioOutputDir(trackId), this._startPosition);
+      leg.newestSegmentTime = newestSegmentTime;
+      leg.maxCoveredTime = maxCoveredTime;
+    };
+
+    const checkAudioReady = (trackId: string) => {
+      recomputeAudioLeg(trackId);
+      const leg = this.audioLegs.get(trackId)!;
+      if (leg.isReady) return;
+      const tsCount = TranscodeCache.getSegmentCount(this.audioOutputDir(trackId));
+      if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
+        leg.isReady = true;
+        this.emit('audio-ready', trackId);
+      }
+    };
+
     checkReady();
+    if (this.hasSeparateAudio) {
+      for (const track of this.audioTracks) checkAudioReady(track.id);
+    }
 
     // NOTE: fs.watch provides real-time OS events on native filesystems.
     try {
@@ -318,12 +429,26 @@ export class TranscodeVariant extends EventEmitter {
     } catch (err) {
       // Ignore watch setup error
     }
+    if (this.hasSeparateAudio) {
+      for (const track of this.audioTracks) {
+        try {
+          this.audioWatchers.push(fs.watch(this.audioOutputDir(track.id), () => checkAudioReady(track.id)));
+        } catch (err) {
+          // Ignore watch setup error
+        }
+      }
+    }
 
     // NOTE: Docker host bind mounts on Windows/WSL2 do NOT pass inotify events to fs.watch.
     // We add an active polling interval so segment creation is ALWAYS detected regardless of environment.
     // NOTE: Kept running for the variant's full lifetime (not just until ready) so newestSegmentTime/
     // maxCoveredTime stay current without callers re-scanning the output directory themselves.
-    this.pollInterval = setInterval(checkReady, 300);
+    this.pollInterval = setInterval(() => {
+      checkReady();
+      if (this.hasSeparateAudio) {
+        for (const track of this.audioTracks) checkAudioReady(track.id);
+      }
+    }, 300);
   }
 
   private stopWatcher(): void {
@@ -331,6 +456,8 @@ export class TranscodeVariant extends EventEmitter {
       this.watcher.close();
       this.watcher = null;
     }
+    for (const w of this.audioWatchers) w.close();
+    this.audioWatchers = [];
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;

@@ -34,6 +34,13 @@ export interface SubtitleTrack {
     language: string | null;
 }
 
+export interface AudioTrackInfo {
+    id: string;
+    language: string | null;
+    title: string | null;
+    channels: number | null;
+}
+
 export interface RoomSettingsState {
     allowAsyncMode: boolean;
 }
@@ -46,6 +53,7 @@ export interface RoomState {
     duration: number;
     transcodeOffset: number;
     subtitles: SubtitleTrack[];
+    audioTracks: AudioTrackInfo[];
     playback: RoomPlaybackState;
     members: MemberState[];
 }
@@ -70,6 +78,7 @@ export class RoomStore {
             duration: 0,
             transcodeOffset: 0,
             subtitles: [],
+            audioTracks: [],
             playback: {
                 state: 'waiting',
                 intendedState: 'paused',
@@ -92,13 +101,14 @@ export class RoomStore {
         return this.state;
     }
 
-    public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number, transcodeOffset = 0, subtitles: SubtitleTrack[] = []): void {
+    public updateMedia(mediaId: string, mediaTitle: string, hlsUrl: string, duration: number, transcodeOffset = 0, subtitles: SubtitleTrack[] = [], audioTracks: AudioTrackInfo[] = []): void {
         this.state.mediaId = mediaId;
         this.state.mediaTitle = mediaTitle;
         this.state.hlsUrl = hlsUrl;
         this.state.duration = duration;
         this.state.transcodeOffset = transcodeOffset;
         this.state.subtitles = subtitles;
+        this.state.audioTracks = audioTracks;
     }
 
     public updateTranscodeOffset(offset: number): void {

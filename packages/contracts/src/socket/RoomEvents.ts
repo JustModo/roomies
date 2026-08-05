@@ -25,6 +25,7 @@ export const ServerRoomStateSchema = z.object({
       duration: z.number().optional(),
       transcodeOffset: z.number().optional(),
       subtitles: z.array(z.object({ id: z.string(), language: z.string().nullable() })).optional(),
+      audioTracks: z.array(z.object({ id: z.string(), language: z.string().nullable(), title: z.string().nullable(), channels: z.number().nullable() })).optional(),
       playback: z.object({
         state: z.enum(['waiting', 'playing', 'paused', 'buffering']),
         intendedState: z.enum(['playing', 'paused']),

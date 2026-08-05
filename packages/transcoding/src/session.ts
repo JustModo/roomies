@@ -1,8 +1,8 @@
 import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
-import { Resolution } from './types';
+import { Resolution, AudioTrackDescriptor } from './types';
 import { TranscodeVariant } from './variant';
-import { TranscodeVariantGroup, GroupedVariantLeg } from './variantGroup';
+import { TranscodeVariantGroup, GroupedVariantLeg, GroupedAudioLeg } from './variantGroup';
 import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from './config';
 import { getSourceFrameRate } from './ffprobe';
 import { TranscodeCache } from './cache';
@@ -32,6 +32,16 @@ export class TranscodeSession {
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
 
+  public readonly audioTracks: AudioTrackDescriptor[];
+  // Only populated for grouped (sync) sessions — the underlying TranscodeVariantGroup instance
+  // per offset, needed to reach getAudioLeg/audioLegOutputDir (GroupedVariantLeg only proxies
+  // the per-resolution view, not the group itself).
+  private variantGroupInstances = new Map<number, TranscodeVariantGroup>();
+  // Only used for non-grouped (async) sessions — since each resolution independently duplicates
+  // all audio tracks there (see TranscodeVariant), audio for a given offset is sourced from
+  // whichever resolution was most recently requested for that offset.
+  private lastResolutionByOffset = new Map<number, Resolution>();
+
   /** Sync sessions merge all resolutions into one shared decode process (TranscodeVariantGroup)
    *  since they always prewarm every resolution together anyway; async sessions keep one
    *  independent process per resolution (TranscodeVariant) to preserve per-resolution
@@ -39,12 +49,13 @@ export class TranscodeSession {
    *  resolution (see updateVariantCache). */
   private readonly useGroupedVariants: boolean;
 
-  constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string) {
+  constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string, audioTracks: AudioTrackDescriptor[] = []) {
     this.sessionId = sessionId;
     this.mediaFileId = mediaFileId;
     this.inputPath = inputPath;
     this.outputBaseDir = outputBaseDir;
     this.useGroupedVariants = sessionId === 'sync';
+    this.audioTracks = audioTracks;
 
     TranscodeCache.ensureDirectory(this.outputBaseDir);
   }
@@ -88,6 +99,7 @@ export class TranscodeSession {
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
     offset = this.resolveMergedOffset(offset);
+    this.lastResolutionByOffset.set(offset, resolution);
 
     let group = this.variantGroups.get(offset);
     if (!group) {
@@ -114,7 +126,7 @@ export class TranscodeSession {
     const randomSuffix = Math.random().toString(36).substring(2, 8);
     // Include offset in the directory path so groups are isolated
     const variantDir = path.join(this.outputBaseDir, offset.toString(), resolution, `ss-${offset}-${randomSuffix}`);
-    const variant = new TranscodeVariant(resolution, variantDir, this.sessionId);
+    const variant = new TranscodeVariant(resolution, variantDir, this.sessionId, this.audioTracks);
 
     variant.on('ready', () => console.log(`[transcode] [session ${this.sessionId}] Variant ${resolution}@${offset} ready`));
     variant.on('error', (err: Error) => {
@@ -158,8 +170,12 @@ export class TranscodeSession {
     const legDirs = new Map<Resolution, string>(
       ALL_RESOLUTIONS.map(res => [res, path.join(this.outputBaseDir, offset.toString(), res, `ss-${offset}-${randomSuffix}`)])
     );
+    const audioLegDirs = new Map<string, string>(
+      this.audioTracks.map(t => [t.id, path.join(this.outputBaseDir, offset.toString(), 'audio', t.id)])
+    );
 
-    const variantGroup = new TranscodeVariantGroup(ALL_RESOLUTIONS, legDirs, this.sessionId);
+    const variantGroup = new TranscodeVariantGroup(ALL_RESOLUTIONS, legDirs, this.sessionId, this.audioTracks, audioLegDirs);
+    this.variantGroupInstances.set(offset, variantGroup);
 
     for (const res of ALL_RESOLUTIONS) {
       const leg = variantGroup.getLeg(res);
@@ -307,6 +323,8 @@ export class TranscodeSession {
     // instead of latching onto this dying one.
     this.variantGroups.delete(offset);
     this.groupCreatedAt.delete(offset);
+    this.variantGroupInstances.delete(offset);
+    this.lastResolutionByOffset.delete(offset);
 
     console.log(`[transcode] Stopping all variants for offset ${offset}`);
     const promises: Promise<void>[] = [];
@@ -414,6 +432,59 @@ export class TranscodeSession {
       throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
     }
     return variant.outputDir;
+  }
+
+  /** Ensures an audio track's HLS output is ready. Grouped (sync) sessions share one audio
+   *  encode across all resolutions; non-grouped (async) sessions source audio from whichever
+   *  resolution was most recently requested for this offset (see lastResolutionByOffset). */
+  async ensureAudioTrackReady(
+    trackId: string,
+    offset: number = 0,
+    preset: FfmpegPreset = 'veryfast',
+    hwAccelMode: HwAccelMode = 'auto'
+  ): Promise<void> {
+    offset = this.resolveMergedOffset(offset);
+
+    if (this.useGroupedVariants) {
+      await this.ensureVariantReady(ALL_RESOLUTIONS[0], offset, preset, hwAccelMode);
+      const group = this.variantGroupInstances.get(offset);
+      if (!group) throw new Error(`Variant group not found for offset ${offset}`);
+      const leg = group.getAudioLeg(trackId);
+      if (leg.isReady) return;
+      return new Promise((resolve) => leg.once('ready', resolve));
+    }
+
+    const resolution = this.lastResolutionByOffset.get(offset) ?? ALL_RESOLUTIONS[0];
+    await this.ensureVariantReady(resolution, offset, preset, hwAccelMode);
+    const group = this.variantGroups.get(offset);
+    const variant = group?.get(resolution) as TranscodeVariant | undefined;
+    if (!variant) throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
+    if (variant.isAudioReady(trackId)) return;
+    return new Promise((resolve) => {
+      const onReady = (id: string) => {
+        if (id === trackId) {
+          variant.removeListener('audio-ready', onReady);
+          resolve();
+        }
+      };
+      variant.on('audio-ready', onReady);
+    });
+  }
+
+  getAudioOutputDir(trackId: string, offset: number = 0): string {
+    offset = this.resolveMergedOffset(offset);
+
+    if (this.useGroupedVariants) {
+      const group = this.variantGroupInstances.get(offset);
+      if (!group) throw new Error(`Variant group not found for offset ${offset}`);
+      return group.audioLegOutputDir(trackId);
+    }
+
+    const resolution = this.lastResolutionByOffset.get(offset) ?? ALL_RESOLUTIONS[0];
+    const group = this.variantGroups.get(offset);
+    const variant = group?.get(resolution) as TranscodeVariant | undefined;
+    if (!variant) throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
+    return variant.audioOutputDir(trackId);
   }
 
   private getMaxCoveredTime(variant: VariantLike): number {

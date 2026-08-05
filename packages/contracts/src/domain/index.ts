@@ -1,5 +1,5 @@
 import { OutgoingSocketMessage } from '../socket';
-import { SubtitleTrack } from '../api';
+import { SubtitleTrack, AudioTrackInfo } from '../api';
 
 export type RoomState = Extract<OutgoingSocketMessage, { event: 'room.state' }>['payload']['room'];
 export type MemberState = RoomState['members'][0];
@@ -15,6 +15,7 @@ export interface MediaInfo {
   seekKey?: number;
   transcodeOffset: number;
   subtitles: SubtitleTrack[];
+  audioTracks: AudioTrackInfo[];
 }
 
 export interface VoicePeerState {

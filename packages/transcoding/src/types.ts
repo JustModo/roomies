@@ -23,3 +23,10 @@ export interface VariantState {
 export type TranscodeErrorCallback = (resolution: Resolution, error: Error) => void;
 
 export type HardwareEncoder = 'vaapi' | 'nvenc' | 'qsv' | 'cpu';
+
+/** streamIndex is the absolute ffprobe stream index in the source file (not an audio-relative
+ *  ordinal) — used directly as `-map 0:<streamIndex>`, same convention as subtitle extraction. */
+export interface AudioTrackDescriptor {
+  id: string;
+  streamIndex: number;
+}

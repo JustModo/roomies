@@ -1,5 +1,5 @@
 import path from 'path';
-import { TranscodeErrorCallback } from './types';
+import { TranscodeErrorCallback, AudioTrackDescriptor } from './types';
 import { TranscodeSession } from './session';
 import { CACHE_DIR as DEFAULT_CACHE_DIR } from './config';
 import { TranscodeCache } from './cache';
@@ -22,7 +22,7 @@ export class TranscodeSessionManagerClass {
     return this.baseCacheDir;
   }
 
-  startSession(sessionId: string, mediaFileId: string, inputPath: string): TranscodeSession {
+  startSession(sessionId: string, mediaFileId: string, inputPath: string, audioTracks: AudioTrackDescriptor[] = []): TranscodeSession {
     this.stopSession(sessionId);
 
     // Isolate cache directory per session, media, and run (uniqueId)
@@ -31,7 +31,7 @@ export class TranscodeSessionManagerClass {
     const outputDir = path.join(this.baseCacheDir, sessionId, mediaFileId, uniqueRunId);
     TranscodeCache.cleanDirectory(outputDir);
 
-    const session = new TranscodeSession(sessionId, mediaFileId, inputPath, outputDir);
+    const session = new TranscodeSession(sessionId, mediaFileId, inputPath, outputDir, audioTracks);
 
     session.onError((resolution, error) => {
       for (const cb of this.errorCallbacks) {

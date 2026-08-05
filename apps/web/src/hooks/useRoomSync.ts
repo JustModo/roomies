@@ -142,6 +142,7 @@ export function useRoomSync() {
               seekKey: nextKey,
               transcodeOffset: effectiveOffset,
               subtitles: room.subtitles || [],
+              audioTracks: room.audioTracks || [],
             };
           });
         } else {
@@ -205,6 +206,7 @@ export function useRoomSync() {
               seekKey: nextKey,
               transcodeOffset: effectiveOffset,
               subtitles: msg.payload.subtitles || [],
+              audioTracks: msg.payload.audioTracks || [],
             };
           });
         } else {
@@ -219,6 +221,7 @@ export function useRoomSync() {
               duration: undefined,
               transcodeOffset: undefined,
               subtitles: undefined,
+              audioTracks: undefined,
               playback: { ...prev.playback, state: 'waiting' },
             };
           });

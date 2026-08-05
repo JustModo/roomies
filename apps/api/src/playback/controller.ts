@@ -35,9 +35,10 @@ export const PlaybackController = {
   },
 
   async getMasterPlaylist(req: FastifyRequest, reply: FastifyReply) {
+    const { mediaId } = req.params as { mediaId: string };
     const { offset } = req.query as { offset?: string };
     const offsetNum = offset ? parseInt(offset, 10) : undefined;
-    const playlist = PlaybackService.generateMasterPlaylist(offsetNum);
+    const playlist = await PlaybackService.generateMasterPlaylist(mediaId, offsetNum);
     return reply
       .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
       .type('application/vnd.apple.mpegurl')
@@ -60,6 +61,25 @@ export const PlaybackController = {
       }
       req.log.error(error, 'Failed to start transcoding variant');
       return reply.status(500).send({ error: 'Failed to start transcoding variant' });
+    }
+  },
+
+  async getAudioStream(req: FastifyRequest, reply: FastifyReply) {
+    const { mediaId, sessionId, trackId } = req.params as { mediaId: string; sessionId: string; trackId: string };
+    const { offset } = req.query as { offset?: string };
+    const offsetNum = offset ? parseInt(offset, 10) : undefined;
+    try {
+      const playlistContent = await PlaybackService.getAudioPlaylist(mediaId, sessionId, trackId, offsetNum);
+      return reply
+        .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+        .type('application/vnd.apple.mpegurl')
+        .send(playlistContent);
+    } catch (error: any) {
+      if (error.message === 'Session not found') {
+        return reply.status(404).send({ error: error.message });
+      }
+      req.log.error(error, 'Failed to start transcoding audio track');
+      return reply.status(500).send({ error: 'Failed to start transcoding audio track' });
     }
   }
 };

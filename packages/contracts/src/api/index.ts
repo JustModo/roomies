@@ -48,6 +48,16 @@ export const SubtitleSchema = z.object({
 });
 export type Subtitle = z.infer<typeof SubtitleSchema>;
 
+export const AudioTrackSchema = z.object({
+  id: z.string(),
+  mediaFileId: z.string(),
+  streamIndex: z.number(),
+  language: z.string().nullable(),
+  title: z.string().nullable(),
+  channels: z.number().nullable(),
+});
+export type AudioTrack = z.infer<typeof AudioTrackSchema>;
+
 export const MediaFileSchema = z.object({
   id: z.string(),
   movieId: z.string(),
@@ -57,6 +67,7 @@ export const MediaFileSchema = z.object({
   number: z.number().nullable(),
   createdAt: z.string(),
   subtitles: z.array(SubtitleSchema),
+  audioTracks: z.array(AudioTrackSchema),
 });
 export type MediaFile = z.infer<typeof MediaFileSchema>;
 
@@ -92,11 +103,20 @@ export const SubtitleTrackSchema = z.object({
 });
 export type SubtitleTrack = z.infer<typeof SubtitleTrackSchema>;
 
+export const AudioTrackInfoSchema = z.object({
+  id: z.string(),
+  language: z.string().nullable(),
+  title: z.string().nullable(),
+  channels: z.number().nullable(),
+});
+export type AudioTrackInfo = z.infer<typeof AudioTrackInfoSchema>;
+
 export const ChangeMediaResponseSchema = z.object({
   hlsUrl: z.string(),
   mediaFileId: z.string(),
   title: z.string(),
   subtitles: z.array(SubtitleTrackSchema).optional(),
+  audioTracks: z.array(AudioTrackInfoSchema).optional(),
 });
 export type ChangeMediaResponse = z.infer<typeof ChangeMediaResponseSchema>;
 
@@ -107,6 +127,7 @@ export const ActivePlaybackResponseSchema = z.object({
   state: z.string().optional(),
   hlsUrl: z.string().optional(),
   subtitles: z.array(SubtitleTrackSchema).optional(),
+  audioTracks: z.array(AudioTrackInfoSchema).optional(),
 });
 export type ActivePlaybackResponse = z.infer<typeof ActivePlaybackResponseSchema>;
 

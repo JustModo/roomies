@@ -1,10 +1,11 @@
 import path from 'path';
 import type { PrismaClient } from '@prisma/client';
 import { MEDIA_ROOT as CONFIG_MEDIA_ROOT } from '@roomies/config';
-import { Library, MediaFile as MediaFileContract, Subtitle, Movie } from '@roomies/contracts';
+import { Library, MediaFile as MediaFileContract, Subtitle, AudioTrack, Movie } from '@roomies/contracts';
 import { scanLibraryFolder } from './scanner';
 import { getMediaDuration } from './ffprobe';
 import { extractEmbeddedSubtitles } from './subtitleExtractor';
+import { probeAudioTracks } from './audioProbe';
 import { runWithConcurrency } from './concurrency';
 import { ScannedEpisode, ScannedMedia } from './types';
 
@@ -17,9 +18,19 @@ const serializeSubtitle = (s: { id: string; mediaFileId: string; path: string; l
   language: s.language,
 });
 
+const serializeAudioTrack = (a: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null }): AudioTrack => ({
+  id: a.id,
+  mediaFileId: a.mediaFileId,
+  streamIndex: a.streamIndex,
+  language: a.language,
+  title: a.title,
+  channels: a.channels,
+});
+
 const serializeMediaFile = (mf: {
   id: string; movieId: string; title: string; path: string; duration: number; number: number | null;
   createdAt: Date; subtitles: { id: string; mediaFileId: string; path: string; language: string | null }[];
+  audioTracks: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null }[];
 }): MediaFileContract => ({
   id: mf.id,
   movieId: mf.movieId,
@@ -29,6 +40,7 @@ const serializeMediaFile = (mf: {
   number: mf.number,
   createdAt: mf.createdAt.toISOString(),
   subtitles: mf.subtitles.map(serializeSubtitle),
+  audioTracks: mf.audioTracks.map(serializeAudioTrack),
 });
 
 const serializeMovie = (movie: {
@@ -44,7 +56,7 @@ const serializeMovie = (movie: {
 });
 
 const libraryInclude = {
-  movies: { include: { mediaFiles: { include: { subtitles: true } } } },
+  movies: { include: { mediaFiles: { include: { subtitles: true, audioTracks: true } } } },
 } as const;
 
 const serializeLibrary = (lib: {
@@ -99,6 +111,11 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
     const mediaFilePath = mediaFile.path;
     extractEmbeddedSubtitles(prisma, mediaFileId, mediaFilePath).catch((err) => {
       console.error(`[library] Embedded subtitle extraction failed for ${mediaFilePath}:`, err);
+    });
+
+    // Fire-and-forget: audio track probing shouldn't block the scan either.
+    probeAudioTracks(prisma, mediaFileId, mediaFilePath).catch((err) => {
+      console.error(`[library] Audio track probing failed for ${mediaFilePath}:`, err);
     });
   });
 };

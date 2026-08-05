@@ -51,7 +51,8 @@ model MediaFile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  subtitles Subtitle[]
+  subtitles   Subtitle[]
+  audioTracks AudioTrack[]
 }
 
 model Subtitle {
@@ -60,6 +61,17 @@ model Subtitle {
   mediaFile   MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
   path        String
   language    String?
+  createdAt   DateTime  @default(now())
+}
+
+model AudioTrack {
+  id          String    @id @default(uuid())
+  mediaFileId String
+  mediaFile   MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  streamIndex Int
+  language    String?
+  title       String?
+  channels    Int?
   createdAt   DateTime  @default(now())
 }
 

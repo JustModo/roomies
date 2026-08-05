@@ -6,7 +6,7 @@ import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
-import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings, SEGMENT_DURATION } from '@roomies/transcoding';
+import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings, SEGMENT_DURATION, AUDIO_BITRATE, AudioTrackDescriptor } from '@roomies/transcoding';
 import { coordinator } from './coordinator';
 import { SessionScope } from './types';
 
@@ -21,7 +21,7 @@ export class PlaybackService {
   static async changeMedia(mediaFileId: string, server: FastifyInstance) {
     const mediaFile = await prisma.mediaFile.findUnique({
       where: { id: mediaFileId },
-      include: { subtitles: true },
+      include: { subtitles: true, audioTracks: true },
     });
 
     if (!mediaFile) {
@@ -29,8 +29,10 @@ export class PlaybackService {
     }
 
     const subtitles = mediaFile.subtitles.map((s) => ({ id: s.id, language: s.language }));
+    const audioTrackDescriptors: AudioTrackDescriptor[] = mediaFile.audioTracks.map((a) => ({ id: a.id, streamIndex: a.streamIndex }));
+    const audioTracks = mediaFile.audioTracks.map((a) => ({ id: a.id, language: a.language, title: a.title, channels: a.channels }));
 
-    const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path);
+    const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path, audioTrackDescriptors);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
 
     // NOTE: Pre-warm all variants in parallel to ensure immediate availability when requested.
@@ -51,13 +53,13 @@ export class PlaybackService {
       });
     });
 
-    roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles);
+    roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles, audioTracks);
     roomStore.updatePlayback({ state: 'buffering', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
 
     SocketEmitter.broadcastToRoom(server, {
       event: 'media.changed',
-      payload: { mediaFileId, title: mediaFile.title, hlsUrl, duration: mediaFile.duration, subtitles },
+      payload: { mediaFileId, title: mediaFile.title, hlsUrl, duration: mediaFile.duration, subtitles, audioTracks },
     });
 
     SocketEmitter.broadcastToRoom(server, {
@@ -65,18 +67,18 @@ export class PlaybackService {
       payload: { room: roomStore.getState() },
     });
 
-    return { hlsUrl, mediaFileId, title: mediaFile.title, subtitles };
+    return { hlsUrl, mediaFileId, title: mediaFile.title, subtitles, audioTracks };
   }
 
   static async stopMedia(server: FastifyInstance) {
     TranscodeSessionManager.stopAll();
-    roomStore.updateMedia('', '', '', 0, 0, []);
+    roomStore.updateMedia('', '', '', 0, 0, [], []);
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
 
     SocketEmitter.broadcastToRoom(server, {
       event: 'media.changed',
-      payload: { mediaFileId: '', title: '', hlsUrl: '', duration: 0, subtitles: [] },
+      payload: { mediaFileId: '', title: '', hlsUrl: '', duration: 0, subtitles: [], audioTracks: [] },
     });
 
     SocketEmitter.broadcastToRoom(server, {
@@ -96,19 +98,45 @@ export class PlaybackService {
       state: state.playback.state,
       hlsUrl: session ? getMasterPlaylistUrl(session.mediaFileId) : undefined,
       subtitles: state.subtitles,
+      audioTracks: state.audioTracks,
     };
   }
 
-  static generateMasterPlaylist(offset?: number): string {
+  static async generateMasterPlaylist(mediaId: string, offset?: number): Promise<string> {
+    const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId }, include: { audioTracks: true } });
+    const audioTracks = mediaFile?.audioTracks ?? [];
+    const hasSeparateAudio = audioTracks.length > 1;
+
     const lines = ['#EXTM3U'];
+
+    if (hasSeparateAudio) {
+      audioTracks.forEach((track, i) => {
+        const label = track.title || track.language || `Track ${i + 1}`;
+        const url = offset !== undefined ? `audio/${track.id}/stream.m3u8?offset=${offset}` : `audio/${track.id}/stream.m3u8`;
+        const attrs = [
+          'TYPE=AUDIO',
+          'GROUP-ID="audio"',
+          `NAME="${label}"`,
+          ...(track.language ? [`LANGUAGE="${track.language}"`] : []),
+          'AUTOSELECT=YES',
+          `DEFAULT=${i === 0 ? 'YES' : 'NO'}`,
+          `URI="${url}"`,
+        ];
+        lines.push(`#EXT-X-MEDIA:${attrs.join(',')}`);
+      });
+    }
+
     const resolutions: Resolution[] = ['1080p', '720p', '360p'];
+    const sharedAudioKbps = parseInt(AUDIO_BITRATE, 10);
 
     for (const res of resolutions) {
       const preset = RESOLUTION_PRESETS[res];
-      const bandwidth = parseInt(preset.videoBitrate) * 1000 + parseInt(preset.audioBitrate) * 1000;
+      const audioKbps = hasSeparateAudio ? sharedAudioKbps : parseInt(preset.audioBitrate, 10);
+      const bandwidth = parseInt(preset.videoBitrate, 10) * 1000 + audioKbps * 1000;
       const url = offset !== undefined ? `${res}/stream.m3u8?offset=${offset}` : `${res}/stream.m3u8`;
+      const audioAttr = hasSeparateAudio ? ',AUDIO="audio"' : '';
       lines.push(
-        `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${res}"`,
+        `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${res}"${audioAttr}`,
         url
       );
     }
@@ -118,31 +146,62 @@ export class PlaybackService {
   static async getVariantPlaylist(mediaId: string, sessionId: string, resolution: Resolution, reqOffset?: number): Promise<string> {
     let session = TranscodeSessionManager.getSession(sessionId);
     if (!session) {
-      const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId } });
+      const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId }, include: { audioTracks: true } });
       if (!mediaFile) throw new Error('Media not found for session creation');
-      session = TranscodeSessionManager.startSession(sessionId, mediaId, mediaFile.path);
+      const audioTrackDescriptors: AudioTrackDescriptor[] = mediaFile.audioTracks.map((a) => ({ id: a.id, streamIndex: a.streamIndex }));
+      session = TranscodeSessionManager.startSession(sessionId, mediaId, mediaFile.path, audioTrackDescriptors);
     }
     if (session.mediaFileId !== mediaId) {
       throw new Error('Session media mismatch');
     }
-    
+
     // NOTE: Align variant startup position with requested offset or room transcode offset.
     const originalPosition = reqOffset !== undefined ? reqOffset : (roomStore.getState().transcodeOffset || 0);
 
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
     await session.ensureVariantReady(resolution, originalPosition, ffmpegPreset, hwAccelMode);
-    
+
     const variantDir = session.getVariantOutputDir(resolution, originalPosition);
     const playlistPath = path.join(variantDir, 'stream.m3u8');
-    
+
     let content = await fs.promises.readFile(playlistPath, 'utf8');
-    
+
     // NOTE: Rewrite segment URIs to point to Caddy absolute paths
     const relativeDir = path.relative(CACHE_DIR, variantDir);
     const baseUrl = `${HLS_BASE_URL}/${relativeDir}/`;
-    
+
     content = content.replace(/^(?!#)(.+)$/gm, `${baseUrl}$1`);
-    
+
+    return content;
+  }
+
+  static async getAudioPlaylist(mediaId: string, sessionId: string, trackId: string, reqOffset?: number): Promise<string> {
+    let session = TranscodeSessionManager.getSession(sessionId);
+    if (!session) {
+      const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId }, include: { audioTracks: true } });
+      if (!mediaFile) throw new Error('Media not found for session creation');
+      const audioTrackDescriptors: AudioTrackDescriptor[] = mediaFile.audioTracks.map((a) => ({ id: a.id, streamIndex: a.streamIndex }));
+      session = TranscodeSessionManager.startSession(sessionId, mediaId, mediaFile.path, audioTrackDescriptors);
+    }
+    if (session.mediaFileId !== mediaId) {
+      throw new Error('Session media mismatch');
+    }
+
+    const originalPosition = reqOffset !== undefined ? reqOffset : (roomStore.getState().transcodeOffset || 0);
+
+    const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+    await session.ensureAudioTrackReady(trackId, originalPosition, ffmpegPreset, hwAccelMode);
+
+    const audioDir = session.getAudioOutputDir(trackId, originalPosition);
+    const playlistPath = path.join(audioDir, 'playlist.m3u8');
+
+    let content = await fs.promises.readFile(playlistPath, 'utf8');
+
+    const relativeDir = path.relative(CACHE_DIR, audioDir);
+    const baseUrl = `${HLS_BASE_URL}/${relativeDir}/`;
+
+    content = content.replace(/^(?!#)(.+)$/gm, `${baseUrl}$1`);
+
     return content;
   }
 
@@ -222,6 +281,7 @@ export class PlaybackService {
         transcodeOffset: effectiveOffset,
         sessionScope: 'room',
         subtitles: state.subtitles,
+        audioTracks: state.audioTracks,
       }
     });
 
@@ -262,6 +322,7 @@ export class PlaybackService {
           transcodeOffset: effectiveOffset,
           sessionScope: 'user',
           subtitles: state.subtitles,
+          audioTracks: state.audioTracks,
         }
       });
     }

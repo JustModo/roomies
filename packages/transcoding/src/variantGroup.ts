@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
 import { FfmpegPreset, HwAccelMode } from './settings';
-import { Resolution, HardwareEncoder } from './types';
+import { Resolution, HardwareEncoder, AudioTrackDescriptor } from './types';
 import {
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
@@ -11,6 +11,7 @@ import {
   LOOK_AHEAD_SEGMENTS,
   FFMPEG_PATH,
   VIDEO_CODEC,
+  AUDIO_BITRATE,
 } from './config';
 import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
 import { TranscodeCache } from './cache';
@@ -46,9 +47,15 @@ interface LegState {
 export class TranscodeVariantGroup extends EventEmitter {
   public readonly resolutions: Resolution[];
   public readonly sessionId: string;
+  public readonly audioTracks: AudioTrackDescriptor[];
+  /** Only when there's a genuine choice do we pay for separate audio-only HLS outputs;
+   *  a single audio track keeps today's behavior (muxed into each resolution, zero extra cost). */
+  public readonly hasSeparateAudio: boolean;
 
   private readonly legDirs: Map<Resolution, string>;
   private readonly legs: Map<Resolution, LegState>;
+  private readonly audioLegDirs: Map<string, string>;
+  private readonly audioLegs: Map<string, LegState>;
 
   private process: ChildProcess | null = null;
   private watchers: fs.FSWatcher[] = [];
@@ -64,13 +71,23 @@ export class TranscodeVariantGroup extends EventEmitter {
   private stopRequested = false;
   private stopPromise: Promise<void> | null = null;
 
-  constructor(resolutions: Resolution[], legDirs: Map<Resolution, string>, sessionId: string) {
+  constructor(
+    resolutions: Resolution[],
+    legDirs: Map<Resolution, string>,
+    sessionId: string,
+    audioTracks: AudioTrackDescriptor[] = [],
+    audioLegDirs: Map<string, string> = new Map()
+  ) {
     super();
     this.setMaxListeners(50);
     this.resolutions = resolutions;
     this.legDirs = legDirs;
     this.sessionId = sessionId;
     this.legs = new Map(resolutions.map(res => [res, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
+    this.audioTracks = audioTracks;
+    this.hasSeparateAudio = audioTracks.length > 1;
+    this.audioLegDirs = audioLegDirs;
+    this.audioLegs = new Map(audioTracks.map(t => [t.id, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
   }
 
   get isRunning(): boolean {
@@ -99,6 +116,25 @@ export class TranscodeVariantGroup extends EventEmitter {
    *  existing per-offset-group bookkeeping (Map<Resolution, ...>) doesn't need to branch. */
   getLeg(resolution: Resolution): GroupedVariantLeg {
     return new GroupedVariantLeg(this, resolution);
+  }
+
+  audioLegOutputDir(trackId: string): string {
+    const dir = this.audioLegDirs.get(trackId);
+    if (!dir) throw new Error(`No output directory registered for audio track ${trackId}`);
+    return dir;
+  }
+
+  isAudioLegReady(trackId: string): boolean {
+    return this.audioLegs.get(trackId)?.isReady ?? false;
+  }
+
+  audioLegMaxCoveredTime(trackId: string): number {
+    return this.audioLegs.get(trackId)?.maxCoveredTime ?? 0;
+  }
+
+  /** A view over one audio track leg, shaped like GroupedVariantLeg. */
+  getAudioLeg(trackId: string): GroupedAudioLeg {
+    return new GroupedAudioLeg(this, trackId);
   }
 
   start(
@@ -166,15 +202,17 @@ export class TranscodeVariantGroup extends EventEmitter {
       }
 
       outputArgs.push(
-        '-map', `[${outLabels[i]}]`, '-map', '0:a',
+        '-map', `[${outLabels[i]}]`,
+        // NOTE: with >1 audio track, audio is demuxed into its own sibling HLS outputs below
+        // (so hls.js can switch tracks without touching the video buffer); with 0-1 tracks,
+        // audio stays muxed into every resolution exactly like before this feature existed.
+        ...(this.hasSeparateAudio ? [] : ['-map', '0:a']),
         ...videoArgs,
         '-b:v', preset.videoBitrate,
         '-maxrate', preset.maxRate,
         '-bufsize', preset.bufSize,
 
-        '-c:a', 'aac',
-        '-b:a', preset.audioBitrate,
-        '-ac', '2',
+        ...(this.hasSeparateAudio ? [] : ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2']),
 
         '-f', 'hls',
         '-hls_time', String(SEGMENT_DURATION),
@@ -187,6 +225,31 @@ export class TranscodeVariantGroup extends EventEmitter {
         playlistPath,
       );
     });
+
+    if (this.hasSeparateAudio) {
+      for (const track of this.audioTracks) {
+        const dir = this.audioLegOutputDir(track.id);
+        const playlistPath = path.join(dir, 'playlist.m3u8');
+        const segmentPattern = path.join(dir, 'audio_%05d.ts');
+
+        outputArgs.push(
+          '-map', `0:${track.streamIndex}`,
+          '-c:a', 'aac',
+          '-b:a', AUDIO_BITRATE,
+          '-ac', '2',
+
+          '-f', 'hls',
+          '-hls_time', String(SEGMENT_DURATION),
+          '-hls_list_size', String(HLS_LIST_SIZE),
+          '-hls_segment_type', 'mpegts',
+          '-hls_flags', 'independent_segments+temp_file',
+          '-hls_segment_filename', segmentPattern,
+          '-hls_allow_cache', '1',
+
+          playlistPath,
+        );
+      }
+    }
 
     return [
       ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString()] : []),
@@ -202,6 +265,11 @@ export class TranscodeVariantGroup extends EventEmitter {
   private spawnProcess(hw: HardwareEncoder | null): void {
     for (const res of this.resolutions) {
       TranscodeCache.ensureDirectory(this.legOutputDir(res));
+    }
+    if (this.hasSeparateAudio) {
+      for (const track of this.audioTracks) {
+        TranscodeCache.ensureDirectory(this.audioLegOutputDir(track.id));
+      }
     }
 
     const args = this.buildArgs(hw);
@@ -240,6 +308,18 @@ export class TranscodeVariantGroup extends EventEmitter {
           if (tsCount > 0 && (code === 0 || this.stopRequested)) {
             leg.isReady = true;
             this.emit('ready', res);
+          }
+        }
+      }
+      if (this.hasSeparateAudio) {
+        for (const track of this.audioTracks) {
+          const leg = this.audioLegs.get(track.id)!;
+          if (!leg.isReady) {
+            const tsCount = TranscodeCache.getSegmentCount(this.audioLegOutputDir(track.id));
+            if (tsCount > 0 && (code === 0 || this.stopRequested)) {
+              leg.isReady = true;
+              this.emit('audio-ready', track.id);
+            }
           }
         }
       }
@@ -358,8 +438,29 @@ export class TranscodeVariantGroup extends EventEmitter {
       }
     };
 
+    const recomputeAudioLeg = (trackId: string) => {
+      const leg = this.audioLegs.get(trackId)!;
+      const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(this.audioLegOutputDir(trackId), this._startPosition);
+      leg.newestSegmentTime = newestSegmentTime;
+      leg.maxCoveredTime = maxCoveredTime;
+    };
+
+    const checkAudioLeg = (trackId: string) => {
+      recomputeAudioLeg(trackId);
+      const leg = this.audioLegs.get(trackId)!;
+      if (leg.isReady) return;
+      const tsCount = TranscodeCache.getSegmentCount(this.audioLegOutputDir(trackId));
+      if (tsCount >= LOOK_AHEAD_SEGMENTS || (!this._isRunning && tsCount > 0)) {
+        leg.isReady = true;
+        this.emit('audio-ready', trackId);
+      }
+    };
+
     const checkAll = () => {
       for (const res of this.resolutions) checkLeg(res);
+      if (this.hasSeparateAudio) {
+        for (const track of this.audioTracks) checkAudioLeg(track.id);
+      }
     };
 
     checkAll();
@@ -369,6 +470,15 @@ export class TranscodeVariantGroup extends EventEmitter {
         this.watchers.push(fs.watch(this.legOutputDir(res), () => checkLeg(res)));
       } catch (err) {
         // Ignore watch setup error
+      }
+    }
+    if (this.hasSeparateAudio) {
+      for (const track of this.audioTracks) {
+        try {
+          this.watchers.push(fs.watch(this.audioLegOutputDir(track.id), () => checkAudioLeg(track.id)));
+        } catch (err) {
+          // Ignore watch setup error
+        }
       }
     }
 
@@ -437,5 +547,41 @@ export class GroupedVariantLeg extends EventEmitter {
     // Whichever leg's stop() is called first tears down the whole shared process — safe to
     // call from multiple legs since TranscodeVariantGroup.stop() memoizes the in-flight promise.
     return this.group.stop();
+  }
+}
+
+/**
+ * Per-audio-track view of a TranscodeVariantGroup, analogous to GroupedVariantLeg but keyed
+ * by track id instead of resolution. Only meaningful when group.hasSeparateAudio is true.
+ */
+export class GroupedAudioLeg extends EventEmitter {
+  public readonly trackId: string;
+
+  constructor(private readonly group: TranscodeVariantGroup, trackId: string) {
+    super();
+    this.setMaxListeners(50);
+    this.trackId = trackId;
+
+    group.on('audio-ready', (id: string) => {
+      if (id === this.trackId) this.emit('ready');
+    });
+    group.on('error', (err: Error) => this.emit('error', err));
+    group.on('exit', (code: number | null, signal: NodeJS.Signals | null) => this.emit('exit', code, signal));
+  }
+
+  get outputDir(): string {
+    return this.group.audioLegOutputDir(this.trackId);
+  }
+
+  get isReady(): boolean {
+    return this.group.isAudioLegReady(this.trackId);
+  }
+
+  get startPosition(): number {
+    return this.group.startPosition;
+  }
+
+  get maxCoveredTime(): number {
+    return this.group.audioLegMaxCoveredTime(this.trackId);
   }
 }
