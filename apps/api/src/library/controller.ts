@@ -105,12 +105,20 @@ export const LibraryController = {
     }
 
     const languageField = file.fields.language;
-    const providedLanguage = !Array.isArray(languageField) && languageField?.type === 'field' && typeof languageField.value === 'string'
-      ? languageField.value.trim()
-      : '';
-    // NOTE: 'external' is a sentinel meaning "admin-uploaded, no language specified" —
-    // the frontend renders it as EXTERNAL rather than running it through language-name lookup.
-    const language = providedLanguage || 'external';
+    let providedLanguage = '';
+    if (languageField) {
+      if (Array.isArray(languageField)) {
+        const first = languageField[0];
+        if (first && first.type === 'field' && typeof first.value === 'string') {
+          providedLanguage = first.value.trim();
+        }
+      } else if (languageField.type === 'field' && typeof languageField.value === 'string') {
+        providedLanguage = languageField.value.trim();
+      }
+    }
+    // NOTE: 'external' means admin-uploaded without language; 'external:<lang>' means admin-uploaded with language.
+    // The frontend renders 'external' as 'External' and 'external:<lang>' as '<Lang> (Ext)'.
+    const language = providedLanguage ? `external:${providedLanguage}` : 'external';
     const destPath = path.join(SUBTITLE_DATA_DIR, `${mediaFile.id}_${crypto.randomUUID()}${ext}`);
     await fs.promises.writeFile(destPath, await file.toBuffer());
 
@@ -125,6 +133,11 @@ export const LibraryController = {
     const subtitle = await prisma.subtitle.findUnique({ where: { id: req.params.subtitleId } });
     if (!subtitle) {
       return reply.status(404).send({ error: 'Subtitle not found' });
+    }
+
+    const isExternal = subtitle.language && (subtitle.language === 'external' || subtitle.language.startsWith('external:'));
+    if (!isExternal) {
+      return reply.status(400).send({ error: 'Embedded subtitles extracted from video files cannot be deleted' });
     }
 
     const resolved = path.resolve(subtitle.path);

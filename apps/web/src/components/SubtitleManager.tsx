@@ -23,6 +23,18 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({ mediaFile, onC
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const sortedSubtitles = React.useMemo(() => {
+    return [...subtitles].sort((a, b) => {
+      const aExt = !!(a.language && (a.language.toLowerCase() === 'external' || a.language.toLowerCase().startsWith('external:')));
+      const bExt = !!(b.language && (b.language.toLowerCase() === 'external' || b.language.toLowerCase().startsWith('external:')));
+      if (aExt && !bExt) return -1;
+      if (!aExt && bExt) return 1;
+      const labelA = displaySubtitleLabel(a.language);
+      const labelB = displaySubtitleLabel(b.language);
+      return labelA.localeCompare(labelB);
+    });
+  }, [subtitles]);
+
   const updateSubtitles = (next: Subtitle[]) => {
     setSubtitles(next);
     onSubtitlesChange(next);
@@ -34,8 +46,8 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({ mediaFile, onC
     setError('');
     try {
       const formData = new FormData();
-      formData.append('file', selectedFile);
       if (language.trim()) formData.append('language', language.trim());
+      formData.append('file', selectedFile);
 
       const created = (await fetchApi(`/library/media/${mediaFile.id}/subtitles`, {
         method: 'POST',
@@ -126,16 +138,24 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({ mediaFile, onC
             </div>
           ) : (
             <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
-              {subtitles.map((s) => (
-                <div key={s.id} className="flex items-center justify-between p-3 sm:p-4.5 hover:bg-ash/5 transition-all duration-200 group w-full">
-                  <span className="text-14 text-paper/85">{displaySubtitleLabel(s.language)}</span>
-                  <IconButton
-                    icon={<Trash2 size={16} strokeWidth={1.5} />}
-                    onClick={() => handleDelete(s.id)}
-                    className="opacity-0 group-hover:opacity-100 hover:!text-red-400"
-                  />
-                </div>
-              ))}
+              {sortedSubtitles.map((s) => {
+                const isExternal = !!(s.language && (s.language.toLowerCase() === 'external' || s.language.toLowerCase().startsWith('external:')));
+                return (
+                  <div key={s.id} className="flex items-center justify-between p-3 sm:p-4.5 hover:bg-ash/5 transition-all duration-200 group w-full">
+                    <span className="text-14 text-paper/85">{displaySubtitleLabel(s.language)}</span>
+                    {isExternal ? (
+                      <IconButton
+                        icon={<Trash2 size={16} strokeWidth={1.5} />}
+                        onClick={() => handleDelete(s.id)}
+                        className="opacity-0 group-hover:opacity-100 hover:!text-red-400"
+                        title="Delete uploaded subtitle"
+                      />
+                    ) : (
+                      <span className="text-11 text-fog/50 uppercase tracking-wider font-mono">Embedded</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

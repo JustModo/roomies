@@ -170,7 +170,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [onSeek]);
 
-  const { levels, currentLevel, handleQualityChange, activeResolution } = useHlsPlayer({
+  const { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange } = useHlsPlayer({
     videoRef,
     mediaInfo,
     seekKey,
@@ -428,7 +428,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSubtitleOffsetSec={setSubtitleOffsetSec}
           subtitleFontScale={subtitleFontScale}
           setSubtitleFontScale={setSubtitleFontScale}
+          audioTracks={audioTracks}
+          currentAudioTrack={currentAudioTrack}
+          handleAudioTrackChange={handleAudioTrackChange}
           uiVisible={uiVisible}
+          showControls={showControls}
         />
       </div>
     </div>

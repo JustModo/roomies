@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, MutableRefObject } from 'react';
-import Hls, { Level, Events, ErrorData, ManifestParsedData } from 'hls.js';
+import Hls, { Level, Events, ErrorData, ManifestParsedData, MediaPlaylist } from 'hls.js';
 import { MediaInfo, RoomState } from '@roomies/contracts';
 
 interface UseHlsPlayerParams {
@@ -33,6 +33,12 @@ export function useHlsPlayer({
   const [activeResolution, setActiveResolution] = useState<string | undefined>();
   const preferredLevelRef = useRef<number>(-1);
 
+  // ── Audio tracks ────────────────────────────────────────────────────────────
+  const [audioTracks, setAudioTracks] = useState<MediaPlaylist[]>([]);
+  const [currentAudioTrack, setCurrentAudioTrack] = useState<number>(-1);
+  // Ref used inside event callbacks to avoid stale closure over mediaInfo
+  const mediaFileIdRef = useRef<string | undefined>();
+
   const lastMediaIdRef = useRef<string | undefined>();
 
   useEffect(() => {
@@ -55,6 +61,7 @@ export function useHlsPlayer({
 
     const isNewMedia = mediaInfo.mediaFileId !== lastMediaIdRef.current;
     lastMediaIdRef.current = mediaInfo.mediaFileId;
+    mediaFileIdRef.current = mediaInfo.mediaFileId;
 
     // NOTE: Do NOT call reportStatus('buffering') here — useVideoEvents handles
     // the buffering/ready lifecycle via DOM events (waiting, canplay, seeked, progress).
@@ -63,6 +70,8 @@ export function useHlsPlayer({
       setLevels([]);
       setCurrentLevel(-1);
       preferredLevelRef.current = -1;
+      setAudioTracks([]);
+      setCurrentAudioTrack(-1);
     }
 
     if (Hls.isSupported()) {
@@ -103,9 +112,53 @@ export function useHlsPlayer({
           hls.currentLevel = preferredLevelRef.current;
         }
 
+        // Populate audio tracks and restore persisted preference.
+        // NOTE: hls.audioTrack is an INDEX (0-based) into hls.audioTracks[], NOT a MediaPlaylist.id.
+        // We track currentAudioTrack as that index throughout.
+        if (hls.audioTracks && hls.audioTracks.length > 1) {
+          setAudioTracks([...hls.audioTracks]);
+          const saved = mediaFileIdRef.current
+            ? localStorage.getItem(`roomies_audio_${mediaFileIdRef.current}`)
+            : null;
+          if (saved !== null) {
+            const preferredIdx = Number(saved);
+            if (preferredIdx >= 0 && preferredIdx < hls.audioTracks.length && preferredIdx !== hls.audioTrack) {
+              // Only switch if the saved preference differs from hls.js's default — avoids
+              // a spurious audio reload that triggers 'waiting' → buffering in async mode.
+              hls.audioTrack = preferredIdx;
+              setCurrentAudioTrack(preferredIdx);
+            } else {
+              setCurrentAudioTrack(hls.audioTrack);
+            }
+          } else {
+            setCurrentAudioTrack(hls.audioTrack); // hls.audioTrack is already an index
+          }
+        }
+
         if (roomPlaybackState?.state === 'playing') {
           videoRef.current?.play().catch(err => console.error('[playback] Play failed:', err));
           setIsPlaying(true);
+        }
+      });
+
+      hls.on(Events.AUDIO_TRACKS_UPDATED, () => {
+        if (hls.audioTracks && hls.audioTracks.length > 1) {
+          setAudioTracks([...hls.audioTracks]);
+          setCurrentAudioTrack(hls.audioTrack); // index
+        } else {
+          setAudioTracks([]);
+          setCurrentAudioTrack(-1);
+        }
+      });
+
+      hls.on(Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
+        // data extends MediaPlaylist, so data.id is the MediaPlaylist.id — NOT the index.
+        // Find the index so currentAudioTrack stays index-based throughout.
+        const switchedIdx = hls.audioTracks.findIndex(t => t.id === data.id);
+        const idx = switchedIdx !== -1 ? switchedIdx : hls.audioTrack;
+        setCurrentAudioTrack(idx);
+        if (mediaFileIdRef.current) {
+          localStorage.setItem(`roomies_audio_${mediaFileIdRef.current}`, String(idx));
         }
       });
 
@@ -153,10 +206,52 @@ export function useHlsPlayer({
 
       videoRef.current.src = hlsUrl.toString();
       const targetTime = Math.max(0, localTime - transcodeOffset);
-      videoRef.current.addEventListener('loadedmetadata', () => {
+      const videoEl = videoRef.current;
+      videoEl.addEventListener('loadedmetadata', () => {
         if (videoRef.current) {
           videoRef.current.currentTime = targetTime;
         }
+
+        // Safari native audio track list
+        const nativeTracks = (videoEl as HTMLVideoElement & { audioTracks?: AudioTrackList }).audioTracks;
+        if (nativeTracks && nativeTracks.length > 1) {
+          // Build a minimal MediaPlaylist-like array for the UI
+          const syntheticTracks: MediaPlaylist[] = [];
+          for (let i = 0; i < nativeTracks.length; i++) {
+            const t = nativeTracks[i];
+            syntheticTracks.push({
+              id: i,
+              name: t.label || t.language || `Track ${i + 1}`,
+              lang: t.language || undefined,
+              url: '',
+              attrs: {} as never,
+              bitrate: 0,
+              autoselect: i === 0,
+              default: i === 0,
+              forced: false,
+              groupId: 'audio',
+              type: 'AUDIO',
+              details: undefined,
+              audioCodec: undefined,
+              videoCodec: undefined,
+              unknownCodecs: undefined,
+              width: undefined,
+              height: undefined,
+            });
+          }
+          setAudioTracks(syntheticTracks);
+
+          // Restore persisted preference
+          const savedId = mediaFileIdRef.current
+            ? localStorage.getItem(`roomies_audio_${mediaFileIdRef.current}`)
+            : null;
+          const preferredIdx = savedId !== null ? Number(savedId) : 0;
+          for (let i = 0; i < nativeTracks.length; i++) {
+            nativeTracks[i].enabled = i === preferredIdx;
+          }
+          setCurrentAudioTrack(preferredIdx);
+        }
+
         reportStatus('ready');
       }, { once: true });
     }
@@ -180,5 +275,30 @@ export function useHlsPlayer({
     }
   };
 
-  return { levels, currentLevel, handleQualityChange, activeResolution };
+  // idx = 0-based index into audioTracks[]. hls.audioTrack getter/setter works by index.
+  const handleAudioTrackChange = (idx: number) => {
+    if (hlsRef.current) {
+      // Pure client-side hls.js switch — no loadSource/reload, no server round-trip.
+      // Only new audio segments are fetched; the video buffer is untouched.
+      hlsRef.current.audioTrack = idx;
+      setCurrentAudioTrack(idx);
+      if (mediaFileIdRef.current) {
+        localStorage.setItem(`roomies_audio_${mediaFileIdRef.current}`, String(idx));
+      }
+    } else {
+      // Safari native HLS fallback
+      const videoEl = videoRef.current as (HTMLVideoElement & { audioTracks?: AudioTrackList }) | null;
+      if (videoEl?.audioTracks) {
+        for (let i = 0; i < videoEl.audioTracks.length; i++) {
+          videoEl.audioTracks[i].enabled = i === idx;
+        }
+        setCurrentAudioTrack(idx);
+        if (mediaFileIdRef.current) {
+          localStorage.setItem(`roomies_audio_${mediaFileIdRef.current}`, String(idx));
+        }
+      }
+    }
+  };
+
+  return { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange };
 }

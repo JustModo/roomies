@@ -10,7 +10,7 @@ import { Check } from 'lucide-react';
  */
 export const ControlPopover: React.FC<{ className?: string; children: React.ReactNode }> = ({ className = '', children }) => (
   <div
-    className={`absolute z-50 bg-ink/95 backdrop-blur-md border border-ash/30 min-w-[150px] sm:min-w-[180px] max-w-[210px] sm:max-w-[240px] py-1 sm:py-1.5 ${className}`}
+    className={`absolute z-50 bg-ink/95 backdrop-blur-md border border-ash/30 w-[180px] sm:w-[220px] py-1 sm:py-1.5 ${className}`}
   >
     {children}
   </div>
@@ -32,8 +32,10 @@ export const PopoverItem: React.FC<{ active?: boolean; onClick: () => void; chil
       active ? 'border-blue-500 text-blue-400 font-medium' : 'border-transparent text-paper hover:bg-ash/20'
     }`}
   >
-    <span className="truncate">{children}</span>
-    {active && <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" strokeWidth={2} />}
+    <span className="truncate flex-1 min-w-0">{children}</span>
+    <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0 flex items-center justify-center">
+      {active && <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" strokeWidth={2} />}
+    </span>
   </button>
 );
 

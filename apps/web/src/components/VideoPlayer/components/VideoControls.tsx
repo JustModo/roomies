@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, Settings, ChevronRight, ChevronLeft, Minus, Plus } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
+import type { MediaPlaylist } from 'hls.js';
 import { useActiveMenu } from '../../../hooks/useActiveMenu';
 import { useChat } from '../../../contexts/ChatContext';
 import { ControlPopover, PopoverItem, PopoverEmpty, PopoverSection } from './ControlPopover';
+import { displaySubtitleLabel as defaultDisplaySubtitleLabel } from '../hooks/useSubtitles';
 import { BAR_EDGE_X, ICON_BTN_PADDING, ICON_PRIMARY, ICON_SECONDARY, ACTIVE_TICK, CONTROLS_GAP, TIME_PAIR_WIDTH } from '../styleTokens';
 
 interface VideoControlsProps {
@@ -37,6 +39,10 @@ interface VideoControlsProps {
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;
   uiVisible?: boolean;
+  showControls?: () => void;
+  audioTracks?: MediaPlaylist[];
+  currentAudioTrack?: number;
+  handleAudioTrackChange?: (id: number) => void;
 }
 
 // Compact icon button — smaller padding on mobile
@@ -77,12 +83,12 @@ const SettingsRow: React.FC<{
 }> = ({ label, value, onClick }) => (
   <button
     onClick={onClick}
-    className="w-full flex items-center justify-between gap-2 px-3 sm:px-3.5 py-1.5 sm:py-2 text-[11px] sm:text-[13px] lg:text-sm text-paper hover:bg-ash/20 transition-colors"
+    className="w-full flex items-center gap-3 sm:gap-4 px-3 sm:px-3.5 py-1.5 sm:py-2 text-[11px] sm:text-[13px] lg:text-sm text-paper hover:bg-ash/20 transition-colors"
   >
-    <span>{label}</span>
-    <span className="flex items-center gap-1 text-paper/50">
-      <span className="text-[10px] sm:text-[12px] lg:text-[13px]">{value}</span>
-      <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" strokeWidth={2} />
+    <span className="w-16 sm:w-20 text-left shrink-0">{label}</span>
+    <span className="flex-1 flex items-center justify-between gap-1 text-paper/50 min-w-0 overflow-hidden">
+      <span className="text-[10px] sm:text-[12px] lg:text-[13px] truncate text-left">{value}</span>
+      <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" strokeWidth={2} />
     </span>
   </button>
 );
@@ -94,14 +100,33 @@ const SubPanelHeader: React.FC<{
 }> = ({ label, onBack }) => (
   <button
     onClick={onBack}
-    className="w-full flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 sm:py-2 text-[11px] sm:text-[13px] lg:text-sm text-paper/70 hover:text-paper hover:bg-ash/10 transition-colors border-b border-ash/15"
+    className="w-full flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 sm:py-2 text-[11px] sm:text-[13px] lg:text-sm text-paper/70 hover:text-paper hover:bg-ash/10 transition-colors border-b border-ash/15 min-w-0"
   >
-    <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" strokeWidth={2} />
-    <span className="font-medium">{label}</span>
+    <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" strokeWidth={2} />
+    <span className="font-medium truncate">{label}</span>
   </button>
 );
 
-type SettingsSubMenu = null | 'quality' | 'subtitles' | 'subtitle-settings';
+type SettingsSubMenu = null | 'quality' | 'subtitles' | 'subtitle-settings' | 'audio';
+
+/**
+ * Format a label for an audio track: prefer title, then language display name,
+ * fallback to "Track N". Appends channel layout ("Stereo", "5.1", etc.) when known.
+ */
+const displayAudioTrackLabel = (track: MediaPlaylist, index: number): string => {
+  let label = track.name || '';
+  // hls.js exposes the HLS EXT-X-MEDIA NAME in `track.name` and LANGUAGE in `track.lang`.
+  // If name was a raw language tag (e.g. "eng"), try to expand it via Intl.
+  if (!label && track.lang) {
+    try {
+      label = new Intl.DisplayNames(['en'], { type: 'language' }).of(track.lang) ?? track.lang;
+    } catch {
+      label = track.lang;
+    }
+  }
+  if (!label) label = `Track ${index + 1}`;
+  return label;
+};
 
 export const VideoControls: React.FC<VideoControlsProps> = ({
   isLocked,
@@ -133,10 +158,32 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   onToggleAsync,
   allowAsyncMode = true,
   uiVisible = true,
+  showControls,
+  audioTracks = [],
+  currentAudioTrack = -1,
+  handleAudioTrackChange,
 }) => {
   const { activeMenu, toggleMenu, containerRef } = useActiveMenu<'settings'>();
   const { unreadCount } = useChat();
   const [settingsSubMenu, setSettingsSubMenu] = useState<SettingsSubMenu>(null);
+
+  // Keep controls awake while settings menu is open so it doesn't auto-hide while searching/reading options
+  React.useEffect(() => {
+    if (activeMenu === 'settings') {
+      showControls?.();
+      const interval = setInterval(() => {
+        showControls?.();
+      }, 1500);
+      return () => clearInterval(interval);
+    }
+  }, [activeMenu, showControls]);
+
+  // Whenever the popover closes, reset sub-menu back to the first (top-level) menu
+  React.useEffect(() => {
+    if (activeMenu === null) {
+      setSettingsSubMenu(null);
+    }
+  }, [activeMenu]);
 
   // Close settings menu when controls auto-hide
   React.useEffect(() => {
@@ -148,13 +195,9 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
 
   const isPlaying = roomPlaybackState?.state === 'playing';
 
-  // Reset sub-menu when the popover closes
   const handleToggleSettings = () => {
     toggleMenu('settings');
-    if (activeMenu === 'settings') {
-      // Closing — reset sub-menu
-      setSettingsSubMenu(null);
-    }
+    setSettingsSubMenu(null);
   };
 
   // Current value labels for the top-level menu
@@ -164,6 +207,25 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
     : (displaySubtitleLabel
       ? displaySubtitleLabel(mediaInfo?.subtitles?.find(s => s.id === activeSubtitleId)?.language ?? null)
       : 'On');
+  const audioLabel = (() => {
+    if (!audioTracks || audioTracks.length === 0) return 'None';
+    const idx = (currentAudioTrack >= 0 && currentAudioTrack < audioTracks.length) ? currentAudioTrack : 0;
+    return displayAudioTrackLabel(audioTracks[idx], idx);
+  })();
+
+  const sortedSubtitles = React.useMemo(() => {
+    if (!mediaInfo?.subtitles) return [];
+    const getSubLabel = displaySubtitleLabel || defaultDisplaySubtitleLabel;
+    return [...mediaInfo.subtitles].sort((a, b) => {
+      const aExt = !!(a.language && (a.language.toLowerCase() === 'external' || a.language.toLowerCase().startsWith('external:')));
+      const bExt = !!(b.language && (b.language.toLowerCase() === 'external' || b.language.toLowerCase().startsWith('external:')));
+      if (aExt && !bExt) return -1;
+      if (!aExt && bExt) return 1;
+      const labelA = getSubLabel(a.language);
+      const labelB = getSubLabel(b.language);
+      return labelA.localeCompare(labelB);
+    });
+  }, [mediaInfo?.subtitles, displaySubtitleLabel]);
 
   const handleCycleSpeed = () => {
     if (isLocked) return;
@@ -323,6 +385,11 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                         onClick={() => setSettingsSubMenu('subtitles')}
                       />
                     )}
+                    <SettingsRow
+                      label="Audio"
+                      value={audioLabel}
+                      onClick={() => setSettingsSubMenu('audio')}
+                    />
                   </div>
                 )}
 
@@ -360,7 +427,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                           <PopoverItem active={activeSubtitleId === null} onClick={() => setActiveSubtitleId(null)}>
                             Off
                           </PopoverItem>
-                          {mediaInfo!.subtitles.map((sub) => (
+                          {sortedSubtitles.map((sub) => (
                             <PopoverItem
                               key={sub.id}
                               active={activeSubtitleId === sub.id}
@@ -386,6 +453,28 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                           </div>
                         )}
                       </>
+                    )}
+                  </>
+                )}
+
+                {settingsSubMenu === 'audio' && (
+                  /* ── Audio track list sub-panel ── */
+                  <>
+                    <SubPanelHeader label="Audio" onBack={() => setSettingsSubMenu(null)} />
+                    {audioTracks.length === 0 ? (
+                      <PopoverEmpty>No audio tracks available</PopoverEmpty>
+                    ) : (
+                      <div className="max-h-[140px] sm:max-h-[180px] overflow-y-auto">
+                        {audioTracks.map((track, idx) => (
+                          <PopoverItem
+                            key={idx}
+                            active={(currentAudioTrack === -1 ? 0 : currentAudioTrack) === idx}
+                            onClick={() => handleAudioTrackChange?.(idx)}
+                          >
+                            {displayAudioTrackLabel(track, idx)}
+                          </PopoverItem>
+                        ))}
+                      </div>
                     )}
                   </>
                 )}

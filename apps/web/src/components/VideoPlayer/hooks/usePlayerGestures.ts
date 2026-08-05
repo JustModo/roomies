@@ -202,6 +202,21 @@ export function usePlayerGestures({
 
     const handleWheel = (e: WheelEvent) => {
       if (isLocked) return;
+
+      const target = e.target as HTMLElement;
+      if (
+        target.closest('button') ||
+        target.closest('input') ||
+        target.closest('form') ||
+        target.closest('.no-gestures') ||
+        target.closest('[data-video-controls]') ||
+        target.closest('.overflow-y-auto') ||
+        target.closest('.overflow-auto') ||
+        target.closest('.overflow-y-scroll')
+      ) {
+        return;
+      }
+
       // Prevent default scrolling of the page
       e.preventDefault();
 

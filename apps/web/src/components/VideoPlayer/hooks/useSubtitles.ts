@@ -3,14 +3,24 @@ import { MediaInfo } from '@roomies/contracts';
 import type { SubtitleCue } from '../types/subtitle.ts';
 import { parseSubtitleContent } from '../utils/subtitleParser.ts';
 
-export const displaySubtitleLabel = (language: string | null): string => {
-  if (!language) return 'Unknown';
-  if (language.toLowerCase() === 'external') return 'External';
+const capitalize = (str: string): string => {
   try {
-    return new Intl.DisplayNames(['en'], { type: 'language' }).of(language) ?? language;
+    const formatted = new Intl.DisplayNames(['en'], { type: 'language' }).of(str) ?? str;
+    return formatted.charAt(0).toUpperCase() + formatted.slice(1);
   } catch {
-    return language;
+    return str.charAt(0).toUpperCase() + str.slice(1);
   }
+};
+
+export const displaySubtitleLabel = (language: string | null): string => {
+  if (!language || language.toLowerCase() === 'external') return 'External';
+
+  if (language.toLowerCase().startsWith('external:')) {
+    const name = language.slice(9).trim();
+    return name ? `${capitalize(name)} External` : 'External';
+  }
+
+  return capitalize(language.trim());
 };
 
 interface UseSubtitlesProps {
