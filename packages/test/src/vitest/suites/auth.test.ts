@@ -51,6 +51,22 @@ describe('Authentication & Authorization (RBAC)', () => {
     rootToken = data.token;
   });
 
+  it('logs in case-insensitively and ignores leading/trailing whitespace in the username', async () => {
+    const res = await fetch(`${server.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '  ADMIN  ', password: 'password123' }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.token).toBeDefined();
+    expect(data.user.username).toBe('admin');
+    // This login rotates the session (single-device-per-account), invalidating the
+    // previous rootToken — later tests must use this fresh one instead.
+    rootToken = data.token;
+  });
+
   it('allows root user to create a guest account', async () => {
     const res = await fetch(`${server.baseUrl}/api/users/guest`, {
       method: 'POST',

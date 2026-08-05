@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
-import { IncomingSocketMessageSchema } from '@roomies/contracts';
+import { IncomingSocketMessageSchema, OutgoingSocketMessage } from '@roomies/contracts';
 import { authenticateWebSocket } from '../auth/websocket';
 import { dispatchSocketEvent, SocketContext, RoomSocket } from './router';
 import { createRateLimiter } from './middleware';
@@ -11,10 +11,11 @@ const MAX_MESSAGES_PER_WINDOW = 20;
 
 /** Force-closes any existing WebSocket connections for a user, e.g. after a new login elsewhere. */
 export const kickUserConnections = (app: FastifyInstance, userId: string): void => {
+  const message: OutgoingSocketMessage = { event: 'auth.kicked', payload: { reason: 'logged_in_elsewhere' } };
   for (const connection of app.room) {
     if ((connection as RoomSocket).userId !== userId) continue;
     try {
-      connection.send(JSON.stringify({ event: 'auth.kicked', payload: { reason: 'logged_in_elsewhere' } }));
+      connection.send(JSON.stringify(message));
     } catch (e) {
       console.error('[sync] Failed to notify kicked connection:', e);
     }
@@ -39,7 +40,8 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
 
       if (!userPayload) {
         console.warn('[sync] WS Unauthorized');
-        connection.send(JSON.stringify({ error: 'Unauthorized' }));
+        const unauthorizedMsg: OutgoingSocketMessage = { event: 'auth.unauthorized', payload: { reason: 'invalid_or_expired_token' } };
+        connection.send(JSON.stringify(unauthorizedMsg));
         connection.close();
         return;
       }

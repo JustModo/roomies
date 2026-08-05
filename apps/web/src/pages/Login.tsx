@@ -8,9 +8,12 @@ export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [searchParams] = useSearchParams();
-  const [error, setError] = useState(
-    searchParams.get('reason') === 'kicked' ? 'You were logged out because you signed in elsewhere.' : ''
-  );
+  const [error, setError] = useState(() => {
+    const reason = searchParams.get('reason');
+    if (reason === 'kicked') return 'You were logged out because you signed in elsewhere.';
+    if (reason === 'disconnected') return 'Your session ended. Please log in again.';
+    return '';
+  });
   const { setToken } = useAuth();
   const navigate = useNavigate();
 

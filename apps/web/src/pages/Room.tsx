@@ -89,7 +89,8 @@ export default function Room() {
     toggleAsyncMode,
     updatePartyState,
     setControlLock,
-    updateSettings
+    updateSettings,
+    authError
   } = useRoomSync();
 
   useEffect(() => {
@@ -99,13 +100,11 @@ export default function Room() {
   }, [roomState?.members]);
 
   useEffect(() => {
-    return addMessageHandler((msg: any) => {
-      if (msg.event === 'auth.kicked') {
-        logout();
-        navigate('/login?reason=kicked', { replace: true });
-      }
-    });
-  }, [addMessageHandler, logout, navigate]);
+    if (!authError) return;
+    logout();
+    const reason = authError === 'kicked' ? 'kicked' : 'disconnected';
+    navigate(`/login?reason=${reason}`, { replace: true });
+  }, [authError, logout, navigate]);
 
   const handleExit = () => {
     sendMessage({ event: 'room.leave', payload: {} });

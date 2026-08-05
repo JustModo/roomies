@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { fetchApi } from '../api/client';
+import { useNavigate } from 'react-router-dom';
+import { fetchApi, setUnauthorizedHandler } from '../api/client';
 import { UserProfile } from '@roomies/contracts';
 
 interface AuthContextType {
@@ -14,6 +15,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setTokenState] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +53,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshUser();
   }, [token]);
+
+  // Any fetchApi 401 (token expired, revoked, or the account was removed) logs out
+  // gracefully instead of leaving stale auth state behind, same as the WS kick path.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      logout();
+      navigate('/login?reason=disconnected', { replace: true });
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [navigate]);
 
   return (
     <AuthContext.Provider value={{ user, token, isLoading, setToken, logout, refreshUser }}>

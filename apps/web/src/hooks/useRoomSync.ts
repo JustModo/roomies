@@ -5,7 +5,7 @@ import { useAsyncPlayback } from './useAsyncPlayback';
 import { SeekCommand } from '../components/VideoPlayer/types';
 
 export function useRoomSync() {
-  const { isConnected, sendMessage, addMessageHandler } = useWebSocket();
+  const { isConnected, authError, sendMessage, addMessageHandler } = useWebSocket();
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
   const hasInitializedRef = useRef(false);
@@ -431,6 +431,7 @@ export function useRoomSync() {
 
   return {
     isConnected,
+    authError,
     roomState: effectiveRoomState,
     mediaInfo,
     seekKey: mediaInfo?.seekKey ?? 0,

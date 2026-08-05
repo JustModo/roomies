@@ -15,7 +15,10 @@ export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {
     const decoded = jwt.verify(token, Config.JWT_SECRET, { algorithms: ['HS256'] }) as JWTPayload;
 
     // Reject tokens from a session that's been superseded by a newer login elsewhere.
-    const currentSession = await prisma.refreshToken.findFirst({ where: { userId: decoded.userId } });
+    const currentSession = await prisma.refreshToken.findFirst({
+      where: { userId: decoded.userId },
+      orderBy: { createdAt: 'desc' },
+    });
     if (!currentSession || currentSession.id !== decoded.sessionId) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }

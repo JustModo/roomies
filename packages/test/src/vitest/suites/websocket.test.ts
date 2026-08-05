@@ -48,6 +48,15 @@ describe('WebSocket Real-Time Gateway & Event Synchronizer', () => {
     await client2.close();
   });
 
+  it('sends auth.unauthorized and closes the connection for an invalid token', async () => {
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, 'not-a-valid-jwt');
+
+    const unauthorizedMsg = await wsClient.waitForEvent('auth.unauthorized');
+    expect(unauthorizedMsg.payload.reason).toBe('invalid_or_expired_token');
+
+    await wsClient.close();
+  });
+
   it('broadcasts emoji reaction events across room members', async () => {
     const client1 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     const client2 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);

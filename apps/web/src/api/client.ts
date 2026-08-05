@@ -15,6 +15,12 @@ interface ApiOptions extends Omit<RequestInit, 'body'> {
   body?: any;
 }
 
+/** Registered by AuthContext so any 401 anywhere triggers the same graceful logout, not just /users/me. */
+let onUnauthorized: (() => void) | null = null;
+export const setUnauthorizedHandler = (fn: (() => void) | null) => {
+  onUnauthorized = fn;
+};
+
 export async function fetchApi(endpoint: string, options: ApiOptions = {}) {
   const token = localStorage.getItem('token');
   
@@ -40,6 +46,9 @@ export async function fetchApi(endpoint: string, options: ApiOptions = {}) {
   const data = isJson ? await response.json() : await response.text();
 
   if (!response.ok) {
+    if (response.status === 401) {
+      onUnauthorized?.();
+    }
     throw new ApiError(response.status, data.message || data.error || 'API Request Failed', data);
   }
 
