@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { ChangeMediaRequest } from '@roomies/contracts';
 import { PlaybackService } from './service';
-import { AsyncOffsetResolutionLockedError, Resolution } from '@roomies/transcoding';
+import { Resolution } from '@roomies/transcoding';
 
 export const PlaybackController = {
   async changeMedia(req: FastifyRequest<{ Body: ChangeMediaRequest }>, reply: FastifyReply) {
@@ -36,15 +36,12 @@ export const PlaybackController = {
 
   async getMasterPlaylist(req: FastifyRequest, reply: FastifyReply) {
     const { mediaId, sessionId } = req.params as { mediaId: string; sessionId: string };
-    const { offset, res } = req.query as { offset?: string; res?: string };
+    const { offset } = req.query as { offset?: string };
     const offsetNum = offset !== undefined ? parseInt(offset, 10) : undefined;
-    const preferred =
-      res === '360p' || res === '720p' || res === '1080p' ? (res as Resolution) : undefined;
     const playlist = await PlaybackService.generateMasterPlaylist(
       mediaId,
       offsetNum,
       sessionId || 'sync',
-      preferred,
     );
     return reply
       .header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
@@ -63,13 +60,6 @@ export const PlaybackController = {
         .type('application/vnd.apple.mpegurl')
         .send(playlistContent);
     } catch (error: any) {
-      if (error instanceof AsyncOffsetResolutionLockedError || error?.name === 'AsyncOffsetResolutionLocked') {
-        return reply.status(409).send({
-          error: error.message,
-          lockedResolution: error.lockedResolution,
-          requestedResolution: error.requestedResolution,
-        });
-      }
       if (error.message === 'Session not found') {
         return reply.status(404).send({ error: error.message });
       }

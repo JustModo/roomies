@@ -2,9 +2,7 @@ import {
   TranscodeSessionManager,
   getTranscodeSettings,
   getAlignedPosition,
-  policyForSessionId,
-  Resolution,
-  SyncPolicy,
+  isResolution,
 } from '@roomies/transcoding';
 import { roomStore } from '../room/store';
 import { SessionScope, sessionScopeToId } from './types';
@@ -38,8 +36,9 @@ export class SessionPlaybackCoordinator {
       roomStore.updateMember(userId, { asyncSession: { transcodeOffset: swappedOffset } });
     }
 
-    // Soft warm only when resolution/offset changes AND offset is not locked to another res.
-    if (resolution && (resolution === '360p' || resolution === '720p' || resolution === '1080p')) {
+    // Soft warm only when resolution/offset changes — every offset always carries the
+    // full ladder now, so there's no "locked to another resolution" case to gate on.
+    if (isResolution(resolution)) {
       const offset =
         swappedOffset
         ?? session.getPlayheadOffset(userId)
@@ -47,10 +46,10 @@ export class SessionPlaybackCoordinator {
       if (offset != null && offset >= 0) {
         const prev = this.lastAsyncWarm.get(userId);
         const changed = !prev || prev.resolution !== resolution || prev.offset !== offset;
-        if (changed && session.canWarmResolution(offset, resolution as Resolution)) {
+        if (changed) {
           this.lastAsyncWarm.set(userId, { resolution, offset });
           const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-          session.ensureVariantReady(resolution as Resolution, offset, ffmpegPreset, hwAccelMode).catch((err) => {
+          session.ensureVariantReady(resolution, offset, ffmpegPreset, hwAccelMode).catch((err) => {
             console.error(`[coordinator] soft warm ${resolution}@${offset} failed:`, err);
           });
         }
@@ -105,14 +104,10 @@ export class SessionPlaybackCoordinator {
     if (!session || session.mediaFileId !== mediaFileId) {
       const offset = getAlignedPosition(position);
       session = await ensurePlaybackSession(sessionId, mediaFileId);
-      // Warm per policy (sync: all res; async: active/default res).
       const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-      const toWarm = this.resolutionsToPrewarm(scope, session);
-      if (toWarm.length > 0) {
-        session.seek(position, -1, ffmpegPreset, hwAccelMode, toWarm).catch((err) => {
-          console.error(`[coordinator] session.seek (bootstrap) failed for ${sessionId}/${mediaFileId}:`, err);
-        });
-      }
+      session.seek(position, -1, ffmpegPreset, hwAccelMode, session.policy.variants).catch((err) => {
+        console.error(`[coordinator] session.seek (bootstrap) failed for ${sessionId}/${mediaFileId}:`, err);
+      });
       return { effectiveOffset: offset, needsReinit: true };
     }
 
@@ -135,27 +130,11 @@ export class SessionPlaybackCoordinator {
     const newOffset = getAlignedPosition(position);
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
 
-    const resolutionsToPrewarm = this.resolutionsToPrewarm(scope, session);
-    session.seek(position, currentOffset, ffmpegPreset, hwAccelMode, resolutionsToPrewarm).catch((err) => {
+    session.seek(position, currentOffset, ffmpegPreset, hwAccelMode, session.policy.variants).catch((err) => {
       console.error(`[coordinator] session.seek failed for ${sessionId}/${mediaFileId}:`, err);
     });
 
     return { effectiveOffset: newOffset, needsReinit: true };
-  }
-
-  /** Policy-driven prewarm list; async fills with playhead resolution or 720p. */
-  private resolutionsToPrewarm(scope: SessionScope, session: NonNullable<ReturnType<typeof TranscodeSessionManager.getSession>>): Resolution[] {
-    const policy = policyForSessionId(sessionScopeToId(scope));
-    if (policy.prewarmOnSeek.length > 0) {
-      return policy.prewarmOnSeek;
-    }
-    // Async: warm active resolution only.
-    if (scope.type === 'user') {
-      const res = session.getPlayheadResolution(scope.userId);
-      if (res === '360p' || res === '720p' || res === '1080p') return [res];
-      return ['720p'];
-    }
-    return SyncPolicy.prewarmOnSeek;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────

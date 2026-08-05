@@ -13,7 +13,6 @@ import { FloatingEmoji } from './components/FloatingEmoji';
 import { EmojiReactions } from './components/EmojiReactions';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
 import { useChat } from '../../contexts/ChatContext';
-import { absolutePlaybackTime } from './hlsOffset';
 
 import { SyncStatus } from '@roomies/contracts';
 
@@ -164,15 +163,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // ── HLS Player ────────────────────────────────────────────────────────────
 
-  const triggerQualitySeek = useCallback(() => {
-    if (videoRef.current) {
-      const currentPlayhead = absolutePlaybackTime(videoRef.current.currentTime, activeOffsetRef.current);
-      // Hard reinit on async quality change so a new encode starts near the playhead
-      // and media.changed reinits HLS (soft seek left clients stuck in BUFFERING).
-      onSeek(currentPlayhead, true);
-    }
-  }, [onSeek]);
-
   const { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange } = useHlsPlayer({
     videoRef,
     mediaInfo,
@@ -183,7 +173,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsPlaying,
     isAsyncMode,
     activeOffsetRef,
-    triggerQualitySeek,
     onReportResolution,
   });
 

@@ -1,8 +1,8 @@
 import { execFile } from 'child_process';
 import fs from 'fs';
 import { promisify } from 'util';
-import { FFMPEG_PATH } from './config';
-import { HardwareEncoder } from './types';
+import { FFMPEG_PATH } from '../config/config';
+import { HardwareEncoder } from '../types';
 
 const execFileAsync = promisify(execFile);
 

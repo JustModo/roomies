@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { CACHE_DIR, SEGMENT_DURATION } from './config';
+import { CACHE_DIR, SEGMENT_DURATION } from '../config/config';
 
 export class TranscodeCache {
   static cleanGlobalCache(): void {

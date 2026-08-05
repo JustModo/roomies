@@ -1,5 +1,5 @@
 import { FFMPEG_PRESET, HWACCEL_MODE } from '@roomies/config';
-import { detectHardwareEncoder } from './hwaccel';
+import { detectHardwareEncoder } from '../ffmpeg/hwaccel';
 
 export type FfmpegPreset = 'ultrafast' | 'veryfast' | 'fast' | 'medium' | 'slow';
 export type HwAccelMode = 'auto' | 'cpu';

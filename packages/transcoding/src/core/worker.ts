@@ -1,18 +1,18 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import path from 'path';
-import { FfmpegPreset, HwAccelMode } from './settings';
-import { Resolution, HardwareEncoder, AudioTrackDescriptor } from './types';
+import { FfmpegPreset, HwAccelMode } from '../config/settings';
+import { Resolution, HardwareEncoder, AudioTrackDescriptor } from '../types';
 import {
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
   FFMPEG_PATH,
   VIDEO_CODEC,
-} from './config';
-import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from './hwaccel';
-import { TranscodeCache } from './cache';
-import { appendAudioTrackHlsOutput, buildHlsMuxArgs } from './hlsArgs';
-import { startSegmentReadyWatcher } from './readyWatcher';
+} from '../config/config';
+import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from '../ffmpeg/hwaccel';
+import { TranscodeCache } from '../fs/cache';
+import { appendAudioTrackHlsOutput, buildHlsMuxArgs } from '../ffmpeg/hlsArgs';
+import { startSegmentReadyWatcher } from '../fs/readyWatcher';
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
 const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
@@ -30,19 +30,12 @@ interface LegState {
 }
 
 /**
- * Manages one shared FFmpeg process that decodes the source once and encodes N resolution
- * outputs via a `-filter_complex split` graph, instead of N fully independent processes each
- * redundantly decoding the same frames (see TranscodeVariant, used for async sessions where
- * legs need independent per-resolution SIGSTOP throttling).
- *
- * NOTE: A fatal error in any one leg's encode aborts the whole shared process (it's one
- * ffmpeg invocation), so a 1080p-only failure also kills 360p/720p. Acceptable here because
- * this class is only used for sync-scope groups, which always request all resolutions
- * together anyway (see TranscodeSession.useGroupedVariants) — a partially-broken sync group
- * is already a degraded experience, and the existing hw-fallback-to-CPU retry (handleFailure)
- * covers the common failure mode (hardware encoder issues before anything is ready).
+ * Manages one shared FFmpeg process that decodes the source once and encodes every configured
+ * resolution via a `-filter_complex split` graph, instead of N independent processes each
+ * redundantly decoding the same frames. Used uniformly by both sync and async sessions —
+ * the resolution list is policy-driven (see policy.ts), not a fork in this class.
  */
-export class TranscodeVariantGroup extends EventEmitter {
+export class TranscodeWorker extends EventEmitter {
   public readonly resolutions: Resolution[];
   public readonly sessionId: string;
   public readonly audioTracks: AudioTrackDescriptor[];
@@ -109,12 +102,6 @@ export class TranscodeVariantGroup extends EventEmitter {
     return this.legs.get(resolution)?.maxCoveredTime ?? 0;
   }
 
-  /** A view over one resolution leg, shaped like TranscodeVariant so TranscodeSession's
-   *  existing per-offset-group bookkeeping (Map<Resolution, ...>) doesn't need to branch. */
-  getLeg(resolution: Resolution): GroupedVariantLeg {
-    return new GroupedVariantLeg(this, resolution);
-  }
-
   audioLegOutputDir(trackId: string): string {
     const dir = this.audioLegDirs.get(trackId);
     if (!dir) throw new Error(`No output directory registered for audio track ${trackId}`);
@@ -127,11 +114,6 @@ export class TranscodeVariantGroup extends EventEmitter {
 
   audioLegMaxCoveredTime(trackId: string): number {
     return this.audioLegs.get(trackId)?.maxCoveredTime ?? 0;
-  }
-
-  /** A view over one audio track leg, shaped like GroupedVariantLeg. */
-  getAudioLeg(trackId: string): GroupedAudioLeg {
-    return new GroupedAudioLeg(this, trackId);
   }
 
   start(
@@ -163,7 +145,8 @@ export class TranscodeVariantGroup extends EventEmitter {
 
     // NOTE: decode + split happen once; per-leg scale (and, for vaapi/qsv, the hwupload)
     // must live inside this filter_complex graph — a labeled complex-filter output can't
-    // also go through a separate simple `-vf` after `-map`, unlike the single-output case.
+    // also go through a separate simple `-vf` after `-map`. Works fine for a single
+    // resolution too (split=1 is a cheap no-op), so there's no separate single-output path.
     const filterParts = [`[0:v]split=${this.resolutions.length}${splitLabels.map(l => `[${l}]`).join('')}`];
     this.resolutions.forEach((res, i) => {
       const preset = RESOLUTION_PRESETS[res];
@@ -261,7 +244,7 @@ export class TranscodeVariantGroup extends EventEmitter {
       const line = data.toString().trim();
       if (line) {
         if (line.toLowerCase().includes('error') || line.toLowerCase().includes('fatal')) {
-          console.error(`[transcode] variant group [${this.resolutions.join(',')}] error: ${line}`);
+          console.error(`[transcode] worker [${this.resolutions.join(',')}] error: ${line}`);
         }
       }
     });
@@ -275,9 +258,9 @@ export class TranscodeVariantGroup extends EventEmitter {
     proc.on('exit', (code, signal) => {
       this._isRunning = false;
 
-      // NOTE: Mirrors TranscodeVariant's exit-time ready check — if the process exits after
-      // producing at least one segment for a leg that hadn't been marked ready yet (e.g. a
-      // very short source), mark it ready so callers awaiting `once('ready')` aren't stuck.
+      // NOTE: if the process exits after producing at least one segment for a leg that
+      // hadn't been marked ready yet (e.g. a very short source), mark it ready so callers
+      // awaiting `once('ready')` aren't stuck.
       for (const res of this.resolutions) {
         const leg = this.legs.get(res)!;
         if (!leg.isReady) {
@@ -321,7 +304,7 @@ export class TranscodeVariantGroup extends EventEmitter {
     if (hw !== null && !anyLegReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
       markHardwareEncoderFailed();
-      console.error(`[transcode] variant group [${this.resolutions.join(',')}] hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
+      console.error(`[transcode] worker [${this.resolutions.join(',')}] hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
       this.spawnProcess(null);
       return;
     }
@@ -367,10 +350,10 @@ export class TranscodeVariantGroup extends EventEmitter {
     return this.stopPromise;
   }
 
-  /** NOTE: Suspend/resume the whole shared process based on the MOST-BEHIND leg's progress,
-   *  so we never suspend while any leg still needs to catch up. Sync-scope groups (the only
-   *  caller of this class) already always treat every resolution as "actively watched"
-   *  (see TranscodeSession.updateVariantCache), so there's no per-leg throttling to preserve. */
+  /** NOTE: Suspend/resume the whole shared process based on the MOST-BEHIND leg's progress.
+   *  There's no per-resolution independent throttling anymore — an offset either has active
+   *  playheads (this gets called with their furthest position) or it doesn't (the caller,
+   *  TranscodeSession, simply stops calling this and relies on cleanupOffsetIfEmpty/GC instead). */
   manageCache(currentPlayhead: number): void {
     if (!this.resolutions.some(res => this.legs.get(res)!.isReady)) return;
 
@@ -380,17 +363,17 @@ export class TranscodeVariantGroup extends EventEmitter {
         const aheadBy = minNewestSegmentTime - currentPlayhead;
 
         if (aheadBy > 300 && !this._isSuspended) {
-          console.log(`[transcode] [session ${this.sessionId}] variant group [${this.resolutions.join(',')}] suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          console.log(`[transcode] [session ${this.sessionId}] worker [${this.resolutions.join(',')}] suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGSTOP');
           this._isSuspended = true;
         } else if (aheadBy < 60 && this._isSuspended) {
-          console.log(`[transcode] [session ${this.sessionId}] variant group [${this.resolutions.join(',')}] resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
+          console.log(`[transcode] [session ${this.sessionId}] worker [${this.resolutions.join(',')}] resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGCONT');
           this._isSuspended = false;
         }
       }
     } catch (err) {
-      console.error(`[transcode] [session ${this.sessionId}] Error managing cache for group [${this.resolutions.join(',')}]:`, err);
+      console.error(`[transcode] [session ${this.sessionId}] Error managing cache for worker [${this.resolutions.join(',')}]:`, err);
     }
   }
 
@@ -442,94 +425,5 @@ export class TranscodeVariantGroup extends EventEmitter {
       this.stopReadyWatcher();
       this.stopReadyWatcher = null;
     }
-  }
-}
-
-/**
- * Per-resolution view of a TranscodeVariantGroup, shaped like TranscodeVariant so
- * TranscodeSession's existing Map<Resolution, TranscodeVariant>-based bookkeeping
- * (isPositionCovered, updateVariantCache, stopGroup, etc.) works against either without
- * branching on which one it holds.
- */
-export class GroupedVariantLeg extends EventEmitter {
-  public readonly resolution: Resolution;
-
-  constructor(private readonly group: TranscodeVariantGroup, resolution: Resolution) {
-    super();
-    this.setMaxListeners(50);
-    this.resolution = resolution;
-
-    group.on('ready', (res: Resolution) => {
-      if (res === this.resolution) this.emit('ready');
-    });
-    group.on('error', (err: Error) => this.emit('error', err));
-    group.on('exit', (code: number | null, signal: NodeJS.Signals | null) => this.emit('exit', code, signal));
-  }
-
-  get outputDir(): string {
-    return this.group.legOutputDir(this.resolution);
-  }
-
-  get isReady(): boolean {
-    return this.group.isLegReady(this.resolution);
-  }
-
-  get startPosition(): number {
-    return this.group.startPosition;
-  }
-
-  get maxCoveredTime(): number {
-    return this.group.legMaxCoveredTime(this.resolution);
-  }
-
-  manageCache(currentPlayhead: number, _isActivelyWatched: boolean = true): void {
-    // Group-level suspend/resume is computed once from all legs' progress (see
-    // TranscodeVariantGroup.manageCache) — safe to call redundantly per leg since it's
-    // idempotent (checks the suspended flag before re-issuing a signal). isActivelyWatched
-    // is ignored: sync sessions (the only caller of grouped legs) always treat every
-    // resolution as actively watched, see TranscodeSession.updateVariantCache.
-    this.group.manageCache(currentPlayhead);
-  }
-
-  stop(): Promise<void> {
-    // Whichever leg's stop() is called first tears down the whole shared process — safe to
-    // call from multiple legs since TranscodeVariantGroup.stop() memoizes the in-flight promise.
-    return this.group.stop();
-  }
-}
-
-/**
- * Per-audio-track view of a TranscodeVariantGroup, analogous to GroupedVariantLeg but keyed
- * by track id instead of resolution. Only meaningful when group.hasSeparateAudio is true.
- */
-export class GroupedAudioLeg extends EventEmitter {
-  public readonly trackId: string;
-
-  constructor(private readonly group: TranscodeVariantGroup, trackId: string) {
-    super();
-    this.setMaxListeners(50);
-    this.trackId = trackId;
-
-    group.on('audio-ready', (id: string) => {
-      if (id === this.trackId) this.emit('ready');
-    });
-    group.on('error', (err: Error) => this.emit('error', err));
-    group.on('exit', (code: number | null, signal: NodeJS.Signals | null) => this.emit('exit', code, signal));
-  }
-
-  get outputDir(): string {
-    return this.group.audioLegOutputDir(this.trackId);
-  }
-
-  get isReady(): boolean {
-    return this.group.isAudioLegReady(this.trackId);
-  }
-
-  get startPosition(): number {
-    return this.group.startPosition;
-  }
-
-  get maxCoveredTime(): number {
-    return this.group.audioLegMaxCoveredTime(this.trackId);
   }
 }

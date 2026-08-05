@@ -1,8 +1,8 @@
 import path from 'path';
-import { TranscodeErrorCallback, AudioTrackDescriptor } from './types';
+import { TranscodeErrorCallback, AudioTrackDescriptor } from '../types';
 import { TranscodeSession } from './session';
-import { CACHE_DIR as DEFAULT_CACHE_DIR } from './config';
-import { TranscodeCache } from './cache';
+import { CACHE_DIR as DEFAULT_CACHE_DIR } from '../config/config';
+import { TranscodeCache } from '../fs/cache';
 
 export interface TranscodeManagerOptions {
   cacheDir?: string;

@@ -11,7 +11,7 @@ import {
   getTranscodeSettings,
   AUDIO_BITRATE,
   AudioTrackDescriptor,
-  SyncPolicy,
+  policyForSessionId,
 } from '@roomies/transcoding';
 import { coordinator } from './coordinator';
 import { SessionScope } from './types';
@@ -47,22 +47,13 @@ export class PlaybackService {
     const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path, audioTrackDescriptors);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
 
-    // NOTE: Pre-warm all variants in parallel to ensure immediate availability when requested.
+    // NOTE: One worker creation covers every configured resolution together — no need to
+    // fan out a call per resolution anymore.
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-    const resolutions = SyncPolicy.prewarmOnSeek;
-    Promise.allSettled(
-      resolutions.map(res =>
-        session.ensureVariantReady(res, 0, ffmpegPreset, hwAccelMode)
-      )
-    ).then((results) => {
-      results.forEach((result, i) => {
-        if (result.status === 'rejected') {
-          const resolution = resolutions[i];
-          const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
-          console.error(`[playback] Failed to pre-warm ${resolution} for ${mediaFileId}:`, error.message);
-          session.reportError(resolution, error);
-        }
-      });
+    session.ensureVariantReady(session.policy.variants[0], 0, ffmpegPreset, hwAccelMode).catch((err) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error(`[playback] Failed to pre-warm session for ${mediaFileId}:`, error.message);
+      session.reportError(session.policy.variants[0], error);
     });
 
     roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles, audioTracks);
@@ -132,7 +123,6 @@ export class PlaybackService {
     mediaId: string,
     offset?: number,
     sessionId: string = 'sync',
-    preferredResolution?: Resolution,
   ): Promise<string> {
     const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId }, include: { audioTracks: true } });
     const audioTracks = mediaFile?.audioTracks ?? [];
@@ -157,19 +147,10 @@ export class PlaybackService {
       });
     }
 
-    // Async: one video rendition per offset. Sync: full ladder.
-    let resolutions: Resolution[] = ['1080p', '720p', '360p'];
-    if (sessionId === 'async') {
-      const session = TranscodeSessionManager.getSession('async');
-      const locked =
-        offset !== undefined ? session?.getLockedResolution(offset) ?? null : null;
-      const res =
-        locked
-        ?? (preferredResolution === '360p' || preferredResolution === '720p' || preferredResolution === '1080p'
-          ? preferredResolution
-          : '720p');
-      resolutions = [res];
-    }
+    // Both sync and async workers now carry the full resolution ladder, highest first.
+    // Policy-driven (not session-instance-dependent) so the ladder is known even before
+    // a worker has actually spun up for this offset.
+    const resolutions: Resolution[] = [...policyForSessionId(sessionId).variants].reverse();
 
     const sharedAudioKbps = parseInt(AUDIO_BITRATE, 10);
 

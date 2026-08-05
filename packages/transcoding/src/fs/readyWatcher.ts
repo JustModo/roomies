@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { LOOK_AHEAD_SEGMENTS } from './config';
+import { LOOK_AHEAD_SEGMENTS } from '../config/config';
 import { TranscodeCache } from './cache';
 
 export interface SegmentReadyTarget {
@@ -23,7 +23,7 @@ export interface SegmentReadyWatcherOptions {
 }
 
 /**
- * Shared fs.watch + poll loop used by TranscodeVariant and TranscodeVariantGroup.
+ * Shared fs.watch + poll loop used by TranscodeWorker.
  * Marks a target ready when ≥ LOOK_AHEAD_SEGMENTS exist, or the process stopped with ≥1 segment.
  */
 export function startSegmentReadyWatcher(options: SegmentReadyWatcherOptions): { stop: () => void } {

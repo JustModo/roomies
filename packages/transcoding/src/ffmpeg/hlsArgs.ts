@@ -2,7 +2,7 @@ import {
   SEGMENT_DURATION,
   HLS_LIST_SIZE,
   AUDIO_BITRATE,
-} from './config';
+} from '../config/config';
 
 /** Common HLS muxer flags used by both single-variant and grouped encodes. */
 export function buildHlsMuxArgs(segmentPattern: string): string[] {
@@ -24,7 +24,7 @@ export function buildSeparateAudioEncodeArgs(): string[] {
 
 /**
  * Append one demuxed audio-track HLS output (map + encode + mux + playlist path).
- * Shared by TranscodeVariant and TranscodeVariantGroup.
+ * Shared by TranscodeWorker.
  */
 export function appendAudioTrackHlsOutput(
   args: string[],

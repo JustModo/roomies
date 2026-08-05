@@ -8,7 +8,7 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 
-import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
+import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
 import fs from 'fs';
 import { spawn as mockedSpawn } from 'child_process';
 
@@ -142,29 +142,40 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(args).toContain('/tmp/seg_%05d.ts');
   });
 
-  it('defines sync vs async mode policies with distinct encode strategies', () => {
-    expect(SyncPolicy.encode).toBe('grouped');
-    expect(SyncPolicy.prewarmOnSeek).toEqual(['360p', '720p', '1080p']);
-    expect(AsyncPolicy.encode).toBe('perResolution');
-    expect(AsyncPolicy.throttleUnused).toBe(true);
+  it('defines sync vs async mode policies that both carry the full resolution ladder', () => {
+    expect(SyncPolicy.variants).toEqual(SUPPORTED_RESOLUTIONS);
+    expect(AsyncPolicy.variants).toEqual(SUPPORTED_RESOLUTIONS);
+    expect(SyncPolicy.keepLatestEmptyOffset).toBe(true);
+    expect(AsyncPolicy.keepLatestEmptyOffset).toBe(false);
     expect(policyForSessionId('sync')).toBe(SyncPolicy);
     expect(policyForSessionId('async')).toBe(AsyncPolicy);
   });
 
-  it('locks async offsets to a single resolution (second res at same offset is refused)', async () => {
-    const { AsyncOffsetResolutionLockedError } = await import('@roomies/transcoding');
-    const testDir = `${process.env.CACHE_DIR}/async-lock-test`;
+  it('spawns exactly one ffmpeg process for a 3-resolution async-scope offset group, same as sync', async () => {
+    const spawnMock = mockedSpawn as unknown as ReturnType<typeof vi.fn>;
+    spawnMock.mockClear();
+
+    const testDir = `${process.env.CACHE_DIR}/async-group-spawn-test`;
     const session = new TranscodeSession('async', 'media-1', '/dev/null', testDir);
 
+    // A second (and third) resolution request at the same offset is no longer refused —
+    // every offset always carries the full ladder, so these just await the same worker.
+    // Requests never resolve under the 'echo' FFMPEG_PATH stub (no real segments get
+    // written), so don't await them — same as the sync test above.
     session.ensureVariantReady('720p', 0).catch(() => {});
+    session.ensureVariantReady('360p', 0).catch(() => {});
+    session.ensureVariantReady('1080p', 0).catch(() => {});
+
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    await expect(session.ensureVariantReady('1080p', 0)).rejects.toBeInstanceOf(AsyncOffsetResolutionLockedError);
-    expect(session.getLockedResolution(0)).toBe('720p');
-    expect(session.canWarmResolution(0, '720p')).toBe(true);
-    expect(session.canWarmResolution(0, '1080p')).toBe(false);
+    const ffmpegLikeCalls = spawnMock.mock.calls.filter((call: any[]) =>
+      Array.isArray(call[1]) && call[1].includes('-filter_complex')
+    );
+    expect(ffmpegLikeCalls).toHaveLength(1);
+
+    const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
+    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(6); // 2 maps (video+audio) x 3 legs
 
     await session.stop();
-    TranscodeCache.cleanDirectory(testDir);
   });
 });

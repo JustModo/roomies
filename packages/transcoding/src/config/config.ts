@@ -1,6 +1,6 @@
 import path from 'path';
 import os from 'os';
-import { Resolution, ResolutionConfig } from './types';
+import { Resolution, ResolutionConfig } from '../types';
 import {
   FFMPEG_PATH as CONFIG_FFMPEG_PATH,
   CACHE_DIR as CONFIG_CACHE_DIR,
@@ -35,6 +35,14 @@ export const RESOLUTION_PRESETS: Record<Resolution, ResolutionConfig> = {
     bufSize: '7500k',
   },
 };
+
+/** Canonical, scalable list of every resolution the pipeline supports — derived from
+ *  RESOLUTION_PRESETS so adding a new tier (e.g. '480p') only requires editing that one map. */
+export const SUPPORTED_RESOLUTIONS: Resolution[] = Object.keys(RESOLUTION_PRESETS) as Resolution[];
+
+export function isResolution(value: string | undefined): value is Resolution {
+  return value !== undefined && (SUPPORTED_RESOLUTIONS as string[]).includes(value);
+}
 
 /** Duration of each HLS segment in seconds. */
 export const SEGMENT_DURATION = 2;
