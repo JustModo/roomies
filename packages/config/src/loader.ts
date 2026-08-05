@@ -18,6 +18,13 @@ export function loadConfig(): Config {
     fs.writeFileSync(configPath, defaultConf);
   }
 
+  // NOTE: Centralized, persistent store for extracted/uploaded subtitles (unlike
+  // CACHE_DIR, which gets wiped on every startup by the transcode cache cleaner).
+  const subtitleDataDir = path.resolve(configDir, 'subtitles');
+  if (!fs.existsSync(subtitleDataDir)) {
+    fs.mkdirSync(subtitleDataDir, { recursive: true });
+  }
+
   const parsedConf = dotenv.parse(fs.readFileSync(configPath, 'utf8'));
 
   const devDefaults = {
@@ -46,6 +53,7 @@ export function loadConfig(): Config {
     PORT: process.env.PORT,
     MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,
     CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
+    SUBTITLE_DATA_DIR: process.env.SUBTITLE_DATA_DIR || subtitleDataDir,
     DATABASE_URL: process.env.DATABASE_URL || `file:${path.resolve(configDir, 'roomies.db')}`,
     FFMPEG_PATH: process.env.FFMPEG_PATH || defaults.FFMPEG_PATH,
     FFPROBE_PATH: process.env.FFPROBE_PATH || defaults.FFPROBE_PATH,

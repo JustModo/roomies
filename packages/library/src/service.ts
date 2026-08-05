@@ -4,6 +4,7 @@ import { MEDIA_ROOT as CONFIG_MEDIA_ROOT } from '@roomies/config';
 import { Library, MediaFile as MediaFileContract, Subtitle, Movie } from '@roomies/contracts';
 import { scanLibraryFolder } from './scanner';
 import { getMediaDuration } from './ffprobe';
+import { extractEmbeddedSubtitles } from './subtitleExtractor';
 import { runWithConcurrency } from './concurrency';
 import { ScannedEpisode, ScannedMedia } from './types';
 
@@ -91,22 +92,14 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
       });
     }
 
-    const existingSubs = await prisma.subtitle.findMany({ where: { mediaFileId: mediaFile.id } });
-    const diskSubPaths = new Set(episode.subtitles.map((s) => s.path));
-
-    const staleSubIds = existingSubs.filter((s) => !diskSubPaths.has(s.path)).map((s) => s.id);
-    if (staleSubIds.length > 0) {
-      await prisma.subtitle.deleteMany({ where: { id: { in: staleSubIds } } });
-    }
-
-    for (const sub of episode.subtitles) {
-      const match = existingSubs.find((s) => s.path === sub.path);
-      if (!match) {
-        await prisma.subtitle.create({ data: { mediaFileId: mediaFile.id, path: sub.path, language: sub.language } });
-      } else if (match.language !== sub.language) {
-        await prisma.subtitle.update({ where: { id: match.id }, data: { language: sub.language } });
-      }
-    }
+    // Fire-and-forget: embedded subtitle extraction shouldn't block the scan.
+    // NOTE: this is the only automatic subtitle source left — sidecar files next to
+    // media are no longer read; external subtitles are added via the admin upload UI.
+    const mediaFileId = mediaFile.id;
+    const mediaFilePath = mediaFile.path;
+    extractEmbeddedSubtitles(prisma, mediaFileId, mediaFilePath).catch((err) => {
+      console.error(`[library] Embedded subtitle extraction failed for ${mediaFilePath}:`, err);
+    });
   });
 };
 

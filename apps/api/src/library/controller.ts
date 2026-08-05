@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { LibraryService, convertSubtitleToVtt } from '@roomies/library';
-import { MEDIA_ROOT } from '@roomies/config';
+import { MEDIA_ROOT, SUBTITLE_DATA_DIR } from '@roomies/config';
 import { ScanLibraryRequest } from '@roomies/contracts';
 import { prisma } from '../database/sqlite';
 
@@ -65,7 +66,8 @@ export const LibraryController = {
     }
 
     const resolved = path.resolve(subtitle.path);
-    if (resolved !== MEDIA_ROOT && !resolved.startsWith(MEDIA_ROOT + path.sep)) {
+    const withinRoot = (root: string) => resolved === root || resolved.startsWith(root + path.sep);
+    if (!withinRoot(MEDIA_ROOT) && !withinRoot(SUBTITLE_DATA_DIR)) {
       return reply.status(404).send({ error: 'Subtitle not found' });
     }
 
@@ -84,5 +86,58 @@ export const LibraryController = {
     } catch (e) {
       return reply.status(404).send({ error: 'Subtitle not found' });
     }
+  },
+
+  async uploadSubtitle(req: FastifyRequest<{ Params: { mediaFileId: string } }>, reply: FastifyReply) {
+    const mediaFile = await prisma.mediaFile.findUnique({ where: { id: req.params.mediaFileId } });
+    if (!mediaFile) {
+      return reply.status(404).send({ error: 'Media file not found' });
+    }
+
+    const file = await req.file();
+    if (!file) {
+      return reply.status(400).send({ error: 'No file uploaded' });
+    }
+
+    const ext = path.extname(file.filename).toLowerCase();
+    if (!SUBTITLE_EXTENSIONS.includes(ext)) {
+      return reply.status(400).send({ error: `Unsupported subtitle extension: ${ext}` });
+    }
+
+    const languageField = file.fields.language;
+    const providedLanguage = !Array.isArray(languageField) && languageField?.type === 'field' && typeof languageField.value === 'string'
+      ? languageField.value.trim()
+      : '';
+    // NOTE: 'external' is a sentinel meaning "admin-uploaded, no language specified" —
+    // the frontend renders it as EXTERNAL rather than running it through language-name lookup.
+    const language = providedLanguage || 'external';
+    const destPath = path.join(SUBTITLE_DATA_DIR, `${mediaFile.id}_${crypto.randomUUID()}${ext}`);
+    await fs.promises.writeFile(destPath, await file.toBuffer());
+
+    const subtitle = await prisma.subtitle.create({
+      data: { mediaFileId: mediaFile.id, path: destPath, language },
+    });
+
+    return reply.status(201).send(subtitle);
+  },
+
+  async deleteSubtitle(req: FastifyRequest<{ Params: { subtitleId: string } }>, reply: FastifyReply) {
+    const subtitle = await prisma.subtitle.findUnique({ where: { id: req.params.subtitleId } });
+    if (!subtitle) {
+      return reply.status(404).send({ error: 'Subtitle not found' });
+    }
+
+    const resolved = path.resolve(subtitle.path);
+    if (resolved !== SUBTITLE_DATA_DIR && !resolved.startsWith(SUBTITLE_DATA_DIR + path.sep)) {
+      // NOTE: Sidecar subtitles matched from the media library live under MEDIA_ROOT and
+      // are owned by the user's files on disk, not by us — only managed (extracted/uploaded)
+      // subtitles under SUBTITLE_DATA_DIR can be deleted here.
+      return reply.status(400).send({ error: 'This subtitle is not managed by the app and cannot be deleted here' });
+    }
+
+    await prisma.subtitle.delete({ where: { id: subtitle.id } });
+    await fs.promises.unlink(resolved).catch(() => { });
+
+    return reply.status(204).send();
   },
 };

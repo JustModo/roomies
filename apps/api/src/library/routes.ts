@@ -9,6 +9,15 @@ export const libraryRoutes = async (app: FastifyInstance) => {
   app.get('/', LibraryController.getLibraries);
   app.get('/subtitles/:subtitleId', LibraryController.getSubtitle);
 
+  // NOTE: Manual subtitle uploads are restricted to root accounts, same as library scanning.
+  app.post('/media/:mediaFileId/subtitles', { preHandler: requireRole('root') }, async (req, reply) => {
+    return LibraryController.uploadSubtitle(req as any, reply);
+  });
+
+  app.delete('/subtitles/:subtitleId', { preHandler: requireRole('root') }, async (req, reply) => {
+    return LibraryController.deleteSubtitle(req as any, reply);
+  });
+
   // NOTE: Library scanning is restricted to root accounts.
   app.post('/scan', { preHandler: requireRole('root') }, async (req, reply) => {
     const parsedBody = ScanLibraryRequestSchema.safeParse(req.body);

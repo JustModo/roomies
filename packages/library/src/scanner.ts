@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { Dirent } from 'fs';
-import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS } from './config';
+import { VIDEO_EXTENSIONS } from './config';
 import type { ScannedMedia } from './types';
 import { detectMediaType } from './detectors/mediaDetector';
 import { processMovie } from './handlers/movieHandler';
@@ -42,7 +42,6 @@ export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMedia[
     const titleFiles = await listFilesRecursive(titleFolder);
 
     const videoFiles = filterByExtension(titleFiles, VIDEO_EXTENSIONS);
-    const subtitleFiles = filterByExtension(titleFiles, SUBTITLE_EXTENSIONS);
 
     if (videoFiles.length === 0) {
       console.warn(`[library] Skipping ${titleFolder}: no video files found`);
@@ -51,8 +50,8 @@ export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMedia[
 
     const type = detectMediaType(entry.name, videoFiles);
     const scanned = type === 'movie'
-      ? processMovie(titleFolder, entry.name, videoFiles, subtitleFiles)
-      : processShow(titleFolder, entry.name, videoFiles, subtitleFiles);
+      ? processMovie(titleFolder, entry.name, videoFiles)
+      : processShow(titleFolder, entry.name, videoFiles);
 
     if (scanned) {
       mediaList.push(scanned);

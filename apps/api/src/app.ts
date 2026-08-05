@@ -1,5 +1,6 @@
 import fastify, { FastifyInstance } from 'fastify';
 import fastifyCors from '@fastify/cors';
+import fastifyMultipart from '@fastify/multipart';
 import fastifyWebsocket from '@fastify/websocket';
 import { createAppContext, AppContext, AppContextOptions } from './context';
 import { setupWebsocketGateway } from './websocket/gateway';
@@ -50,6 +51,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   }
 
   await app.register(fastifyCors, getCorsOptions());
+
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: 5 * 1024 * 1024 }, // subtitle files are tiny; 5MB is generous
+  });
 
   await app.register(fastifyWebsocket, {
     options: {

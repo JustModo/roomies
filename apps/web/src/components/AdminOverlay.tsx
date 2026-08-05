@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 
-import { X, Film, ChevronLeft, Play } from 'lucide-react';
+import { X, Film, ChevronLeft, Play, Captions } from 'lucide-react';
 import { Input } from './ui/Input';
 import { IconButton } from './ui/IconButton';
 import { Button } from './ui/Button';
-import { Movie, MediaFile, UserProfile, Library } from '@roomies/contracts';
+import { SubtitleManager } from './SubtitleManager';
+import { Movie, MediaFile, UserProfile, Library, Subtitle } from '@roomies/contracts';
 
 
 import { AdminOverlayProps, AdminTab as Tab } from '../types';
@@ -248,6 +249,21 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
   const [isScanning, setIsScanning] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [subtitleTarget, setSubtitleTarget] = useState<MediaFile | null>(null);
+
+  const handleSubtitlesChange = (mediaFileId: string, subtitles: Subtitle[]) => {
+    setMovies((prev) =>
+      prev.map((m) => ({
+        ...m,
+        mediaFiles: m.mediaFiles.map((mf) => (mf.id === mediaFileId ? { ...mf, subtitles } : mf)),
+      }))
+    );
+    setSelectedMovie((prev) =>
+      prev
+        ? { ...prev, mediaFiles: prev.mediaFiles.map((mf) => (mf.id === mediaFileId ? { ...mf, subtitles } : mf)) }
+        : prev
+    );
+  };
 
   const formatDuration = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -366,13 +382,28 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
                     </div>
                   </div>
 
-                  <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300 flex-shrink-0 ml-4">
-                    PLAY NOW
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0 ml-4">
+                    <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                      PLAY NOW
+                    </span>
+                    <IconButton
+                      icon={<Captions size={16} strokeWidth={1.5} />}
+                      onClick={(e) => { e.stopPropagation(); setSubtitleTarget(mf); }}
+                      title="Manage subtitles"
+                    />
+                  </div>
                 </div>
               );
             })}
           </div>
+        )}
+
+        {subtitleTarget && (
+          <SubtitleManager
+            mediaFile={subtitleTarget}
+            onClose={() => setSubtitleTarget(null)}
+            onSubtitlesChange={(subs) => handleSubtitlesChange(subtitleTarget.id, subs)}
+          />
         )}
       </div>
     );
@@ -438,12 +469,29 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
                 </div>
               </div>
 
-              <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300 flex-shrink-0 ml-4">
-                {m.type === 'show' ? 'VIEW EPISODES' : 'PLAY NOW'}
-              </span>
+              <div className="flex items-center gap-2 shrink-0 ml-4">
+                <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                  {m.type === 'show' ? 'VIEW EPISODES' : 'PLAY NOW'}
+                </span>
+                {m.type === 'movie' && m.mediaFiles[0] && (
+                  <IconButton
+                    icon={<Captions size={16} strokeWidth={1.5} />}
+                    onClick={(e) => { e.stopPropagation(); setSubtitleTarget(m.mediaFiles[0]); }}
+                    title="Manage subtitles"
+                  />
+                )}
+              </div>
             </div>
           ))}
         </div>
+      )}
+
+      {subtitleTarget && (
+        <SubtitleManager
+          mediaFile={subtitleTarget}
+          onClose={() => setSubtitleTarget(null)}
+          onSubtitlesChange={(subs) => handleSubtitlesChange(subtitleTarget.id, subs)}
+        />
       )}
     </div>
   );

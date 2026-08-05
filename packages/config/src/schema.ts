@@ -22,6 +22,7 @@ export const ConfigSchema = z.object({
   PORT: z.coerce.number().default(3000),
   MEDIA_ROOT: z.string(),
   CACHE_DIR: z.string(),
+  SUBTITLE_DATA_DIR: z.string(),
   DATABASE_URL: z.string(),
   FFMPEG_PATH: z.string(),
   FFPROBE_PATH: z.string(),

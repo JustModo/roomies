@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { MediaInfo } from '@roomies/contracts';
 import type { SubtitleCue } from '../types/subtitle.ts';
 import { parseSubtitleContent } from '../utils/subtitleParser.ts';
 
 export const displaySubtitleLabel = (language: string | null): string => {
   if (!language) return 'Unknown';
+  if (language.toLowerCase() === 'external') return 'External';
   try {
     return new Intl.DisplayNames(['en'], { type: 'language' }).of(language) ?? language;
   } catch {
@@ -77,6 +78,7 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
   const subtitlesSignature = (mediaInfo?.subtitles || []).map(s => s.id).join(',');
 
   useEffect(() => {
+    setParsedTracks({});
     if (mediaInfo?.mediaFileId) {
       const savedId = localStorage.getItem(`roomies_subtitle_${mediaInfo.mediaFileId}`);
       if (savedId && mediaInfo.subtitles?.some(s => s.id === savedId)) {
@@ -86,7 +88,6 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
       }
     } else {
       setActiveSubtitleId(null);
-      setParsedTracks({});
     }
   }, [mediaInfo?.mediaFileId, subtitlesSignature]);
 
@@ -101,35 +102,27 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
     }
   }, [mediaInfo?.mediaFileId]);
 
-  // Fetch all subtitle tracks ONCE with offset=0
+  // Fetch only the selected track, and only once (cached in parsedTracks thereafter).
+  const parsedTracksRef = useRef(parsedTracks);
+  parsedTracksRef.current = parsedTracks;
+
   useEffect(() => {
-    const subtitles = mediaInfo?.subtitles || [];
-    if (subtitles.length === 0) {
-      setParsedTracks({});
-      return;
-    }
+    if (!activeSubtitleId || parsedTracksRef.current[activeSubtitleId]) return;
 
     let cancelled = false;
 
-    Promise.all(subtitles.map(async (sub) => {
-      const res = await fetch(`/api/library/subtitles/${sub.id}?offset=0`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (!res.ok) return null;
+    fetch(`/api/library/subtitles/${activeSubtitleId}?offset=0`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    }).then(async (res) => {
+      if (!res.ok || cancelled) return;
       const text = await res.text();
       const cues = parseSubtitleContent(text);
-      return [sub.id, cues] as const;
-    })).then((entries) => {
       if (cancelled) return;
-      const tracks: Record<string, SubtitleCue[]> = {};
-      for (const entry of entries) {
-        if (entry) tracks[entry[0]] = entry[1];
-      }
-      setParsedTracks(tracks);
+      setParsedTracks((prev) => ({ ...prev, [activeSubtitleId]: cues }));
     }).catch(() => { });
 
     return () => { cancelled = true; };
-  }, [subtitlesSignature]);
+  }, [activeSubtitleId]);
 
   const activeCues = useMemo(() => {
     if (!activeSubtitleId) return [];

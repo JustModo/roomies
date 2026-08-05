@@ -1,21 +1,18 @@
 import path from 'path';
 import type { ScannedEpisode, ScannedMedia } from '../types';
 import { parseEpisodeFilename } from '../parser';
-import { matchSubtitles } from '../utils/subtitleMatcher';
 
 /** Processes a directory identified as a TV Show. */
 export const processShow = (
   folderPath: string,
   folderName: string,
-  videoFiles: string[],
-  subtitleFiles: string[]
+  videoFiles: string[]
 ): ScannedMedia | null => {
   if (videoFiles.length === 0) return null;
 
   const initialEpisodes = videoFiles.map((videoPath) => {
-    const subtitles = matchSubtitles(videoPath, subtitleFiles);
     const parsed = parseEpisodeFilename(videoPath);
-    return { path: videoPath, parsed, subtitles };
+    return { path: videoPath, parsed };
   });
 
   // Group by season
@@ -68,7 +65,6 @@ export const processShow = (
         path: ep.path,
         number: sortNumber,
         title: formattedTitle,
-        subtitles: ep.subtitles,
       });
     }
   }

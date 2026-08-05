@@ -38,7 +38,7 @@ describe('Library Scanner & Media Detection', () => {
     });
 
     const movieFilePath = mockMedia.createFile('TestMovie/movie.mp4');
-    const movieResult = processMovie(mockMedia.dirPath, 'TestMovie', [movieFilePath], []);
+    const movieResult = processMovie(mockMedia.dirPath, 'TestMovie', [movieFilePath]);
 
     expect(movieResult).not.toBeNull();
     expect(movieResult!.name).toBe('TestMovie');
@@ -61,22 +61,11 @@ describe('Library Scanner & Media Detection', () => {
     const ep1Path = mockMedia.createFile('TestShow/S01E01.mp4');
     const ep2Path = mockMedia.createFile('TestShow/S01E02.mp4');
 
-    const showResult = processShow(mockMedia.dirPath, 'TestShow', [ep1Path, ep2Path], []);
+    const showResult = processShow(mockMedia.dirPath, 'TestShow', [ep1Path, ep2Path]);
 
     expect(showResult).not.toBeNull();
     expect(showResult!.name).toBe('TestShow');
     expect(showResult!.type).toBe('show');
     expect(showResult!.episodes.length).toBe(2);
-  });
-
-  it('discovers sidecar subtitle files alongside video files', async () => {
-    const moviePath = mockMedia.createFile('SubMovie/film.mp4');
-    const subPath = mockMedia.createFile('SubMovie/film.en.srt');
-
-    const movieResult = processMovie(mockMedia.dirPath, 'SubMovie', [moviePath], [subPath]);
-
-    expect(movieResult).not.toBeNull();
-    expect(movieResult!.episodes[0].subtitles.length).toBeGreaterThan(0);
-    expect(movieResult!.episodes[0].subtitles[0].path).toBe(subPath);
   });
 });

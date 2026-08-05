@@ -1,13 +1,11 @@
 import path from 'path';
 import type { ScannedMedia } from '../types';
-import { matchSubtitles } from '../utils/subtitleMatcher';
 
 /** Processes a directory identified as a Movie. */
 export const processMovie = (
   folderPath: string,
   folderName: string,
-  videoFiles: string[],
-  subtitleFiles: string[]
+  videoFiles: string[]
 ): ScannedMedia | null => {
   if (videoFiles.length === 0) return null;
 
@@ -17,7 +15,6 @@ export const processMovie = (
   );
 
   const mainVideoPath = nonSamples.length > 0 ? nonSamples[0] : videoFiles[0];
-  const subtitles = matchSubtitles(mainVideoPath, subtitleFiles);
 
   return {
     path: folderPath,
@@ -28,7 +25,6 @@ export const processMovie = (
         path: mainVideoPath,
         number: null,
         title: folderName,
-        subtitles,
       },
     ],
   };
