@@ -219,4 +219,35 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
     await session.stop();
   });
+
+  it('GCs a stale higher-numbered offset after a backward seek, instead of protecting it as "latest" (sync keepLatestEmptyOffset)', async () => {
+    const testDir = `${process.env.CACHE_DIR}/backward-seek-gc-test`;
+    const session = new TranscodeSession('sync', 'media-1', '/dev/null', testDir);
+
+    // Offset 120 is created first (e.g. user was far into the video)...
+    session.ensureVariantReady('720p', 120).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // ...then the user seeks backward to 0, creating a NEW, numerically-lower
+    // offset that is nonetheless the truly active one.
+    session.ensureVariantReady('720p', 0).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const variantGroups = (session as any).variantGroups as Map<number, unknown>;
+    expect(variantGroups.has(120)).toBe(true);
+    expect(variantGroups.has(0)).toBe(true);
+
+    // Age both past the grace period, preserving which was created more recently:
+    // 120 is the stale one now, 0 is "latest" despite being numerically smaller.
+    (session as any).groupCreatedAt.set(120, Date.now() - 20000);
+    (session as any).groupCreatedAt.set(0, Date.now() - 19000);
+
+    // No playheads reference 120 anymore (the room's playhead moved to 0).
+    (session as any).cleanupOffsetIfEmpty(120);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(variantGroups.has(120)).toBe(false); // stale offset GC'd
+    expect(variantGroups.has(0)).toBe(true);    // active offset kept
+
+    await session.stop();
+  });
 });

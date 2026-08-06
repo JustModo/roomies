@@ -206,8 +206,8 @@ export class TranscodeSession {
       }
 
       if (this.policy.keepLatestEmptyOffset) {
-        const sortedOffsets = Array.from(this.variantGroups.keys()).sort((a, b) => a - b);
-        const isLatest = sortedOffsets[sortedOffsets.length - 1] === offset;
+        const isLatest = Array.from(this.variantGroups.keys())
+          .every((o) => (this.groupCreatedAt.get(o) || 0) <= createdAt);
         if (isLatest) {
           console.log(`[transcode] Keeping latest offset group ${offset} active for ${this.sessionId} session`);
           return;
