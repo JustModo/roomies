@@ -53,6 +53,12 @@ export const HLS_LIST_SIZE = 0;
 /** Number of segments that must exist on disk before the variant is ready. */
 export const LOOK_AHEAD_SEGMENTS = 4;
 
+/** manageCache() SIGSTOP/SIGCONT hysteresis: how far (in seconds) the worker's
+ *  encoded output may run ahead of the playhead before it's paused, and how
+ *  far it must shrink back before resuming. */
+export const CACHE_SUSPEND_AHEAD_SECONDS = 300;
+export const CACHE_RESUME_AHEAD_SECONDS = 60;
+
 /** Flat audio bitrate for demuxed alternate-audio-track renditions (multi-audio media only) —
  *  audio is now encoded once and shared across all resolutions, so it no longer needs to vary
  *  per resolution like RESOLUTION_PRESETS[res].audioBitrate does for the single-track case. */

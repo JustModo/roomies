@@ -178,4 +178,45 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
     await session.stop();
   });
+
+  it('re-spawns a fresh worker when seeking back to an offset that was GC\'d, instead of silently reusing a later offset\'s content', async () => {
+    const spawnMock = mockedSpawn as unknown as ReturnType<typeof vi.fn>;
+    spawnMock.mockClear();
+
+    const testDir = `${process.env.CACHE_DIR}/gc-reseek-test`;
+    const session = new TranscodeSession('sync', 'media-1', '/dev/null', testDir);
+
+    // Two offset groups: 0 (will be abandoned) and 60 (stays active, so 0 is not
+    // "latest" and is eligible for GC).
+    session.ensureVariantReady('720p', 0).catch(() => {});
+    session.ensureVariantReady('720p', 60).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const variantGroups = (session as any).variantGroups as Map<number, unknown>;
+    expect(variantGroups.has(0)).toBe(true);
+    expect(variantGroups.has(60)).toBe(true);
+
+    // No playheads reference offset 0 and its grace period has elapsed — GC it.
+    (session as any).groupCreatedAt.set(0, Date.now() - 20000);
+    (session as any).cleanupOffsetIfEmpty(0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(variantGroups.has(0)).toBe(false);
+    expect(variantGroups.has(60)).toBe(true);
+
+    // Seeking back to 0 must spawn a genuinely NEW worker for offset 0 — not
+    // silently redirect to (and instantly resolve against) offset 60's worker,
+    // which is what the removed mergedOffsets redirect used to do.
+    spawnMock.mockClear();
+    session.ensureVariantReady('720p', 0).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const freshSpawnCalls = spawnMock.mock.calls.filter((call: any[]) =>
+      Array.isArray(call[1]) && call[1].includes('-filter_complex')
+    );
+    expect(freshSpawnCalls).toHaveLength(1);
+    expect(variantGroups.has(0)).toBe(true);
+
+    await session.stop();
+  });
 });

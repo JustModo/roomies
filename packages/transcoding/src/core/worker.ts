@@ -8,8 +8,10 @@ import {
   SEGMENT_DURATION,
   FFMPEG_PATH,
   VIDEO_CODEC,
+  CACHE_SUSPEND_AHEAD_SECONDS,
+  CACHE_RESUME_AHEAD_SECONDS,
 } from '../config/config';
-import { getDetectedHardwareEncoder, markHardwareEncoderFailed } from '../ffmpeg/hwaccel';
+import { getDetectedHardwareEncoder } from '../ffmpeg/hwaccel';
 import { TranscodeCache } from '../fs/cache';
 import { appendAudioTrackHlsOutput, buildHlsMuxArgs } from '../ffmpeg/hlsArgs';
 import { startSegmentReadyWatcher } from '../fs/readyWatcher';
@@ -303,7 +305,6 @@ export class TranscodeWorker extends EventEmitter {
     const anyLegReady = this.resolutions.some(res => this.legs.get(res)!.isReady);
     if (hw !== null && !anyLegReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
-      markHardwareEncoderFailed();
       console.error(`[transcode] worker [${this.resolutions.join(',')}] hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
       this.spawnProcess(null);
       return;
@@ -362,11 +363,11 @@ export class TranscodeWorker extends EventEmitter {
         const minNewestSegmentTime = Math.min(...this.resolutions.map(res => this.legs.get(res)!.newestSegmentTime));
         const aheadBy = minNewestSegmentTime - currentPlayhead;
 
-        if (aheadBy > 300 && !this._isSuspended) {
+        if (aheadBy > CACHE_SUSPEND_AHEAD_SECONDS && !this._isSuspended) {
           console.log(`[transcode] [session ${this.sessionId}] worker [${this.resolutions.join(',')}] suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGSTOP');
           this._isSuspended = true;
-        } else if (aheadBy < 60 && this._isSuspended) {
+        } else if (aheadBy < CACHE_RESUME_AHEAD_SECONDS && this._isSuspended) {
           console.log(`[transcode] [session ${this.sessionId}] worker [${this.resolutions.join(',')}] resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
           this.process.kill('SIGCONT');
           this._isSuspended = false;

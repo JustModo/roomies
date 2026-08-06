@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { absolutePlaybackTime } from '../hlsOffset';
 
 interface UsePlayerGesturesParams {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -143,7 +144,7 @@ export function usePlayerGestures({
           // Double click left: Seek back 10s
           const video = videoRef.current;
           if (video) {
-            const currentAbsolute = video.currentTime + stateRef.current.transcodeOffset;
+            const currentAbsolute = absolutePlaybackTime(video.currentTime, stateRef.current.transcodeOffset);
             const newPos = Math.max(0, currentAbsolute - 10);
             stateRef.current.onSeek(newPos);
           }
@@ -151,7 +152,7 @@ export function usePlayerGestures({
           // Double click right: Seek forward 10s
           const video = videoRef.current;
           if (video) {
-            const currentAbsolute = video.currentTime + stateRef.current.transcodeOffset;
+            const currentAbsolute = absolutePlaybackTime(video.currentTime, stateRef.current.transcodeOffset);
             const newPos = Math.min(stateRef.current.mediaDuration, currentAbsolute + 10);
             stateRef.current.onSeek(newPos);
           }

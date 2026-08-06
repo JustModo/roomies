@@ -39,7 +39,7 @@ export class TranscodeSession {
   // Map of offset -> the shared worker covering every configured resolution at that offset.
   private variantGroups = new Map<number, TranscodeWorker>();
   private groupCreatedAt = new Map<number, number>();
-  public mergedOffsets = new Map<number, number>();
+  private gcTimers = new Map<number, NodeJS.Timeout>();
   private playheads = new Map<string, PlayheadState>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
   private fpsPromise: Promise<number> | null = null;
@@ -62,14 +62,6 @@ export class TranscodeSession {
   /** Reports a failure for a given resolution through the same channel as worker process errors. */
   reportError(resolution: Resolution, error: Error): void {
     if (this.onErrorCallback) this.onErrorCallback(resolution, error);
-  }
-
-  resolveMergedOffset(offset: number): number {
-    let effectiveOffset = offset;
-    while (this.mergedOffsets.has(effectiveOffset)) {
-      effectiveOffset = this.mergedOffsets.get(effectiveOffset)!;
-    }
-    return effectiveOffset;
   }
 
   private getSourceFps(): Promise<number> {
@@ -98,8 +90,6 @@ export class TranscodeSession {
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
-    offset = this.resolveMergedOffset(offset);
-
     let worker = this.variantGroups.get(offset);
     if (!worker) {
       if (this.variantGroups.size >= MAX_CONCURRENT_VARIANTS) {
@@ -207,25 +197,24 @@ export class TranscodeSession {
       const age = Date.now() - createdAt;
 
       if (age < 15000) {
-        setTimeout(() => this.cleanupOffsetIfEmpty(offset), 15000 - age + 100);
+        clearTimeout(this.gcTimers.get(offset));
+        this.gcTimers.set(offset, setTimeout(() => {
+          this.gcTimers.delete(offset);
+          this.cleanupOffsetIfEmpty(offset);
+        }, 15000 - age + 100));
         return;
       }
 
-      const sortedOffsets = Array.from(this.variantGroups.keys()).sort((a, b) => a - b);
-      const nextOffset = sortedOffsets.find(o => o > offset);
-
-      if (nextOffset !== undefined) {
-        console.log(`[transcode] Offset ${offset} has no remaining playheads, merging into ${nextOffset}`);
-        this.mergedOffsets.set(offset, nextOffset);
-        this.stopGroup(offset);
-      } else {
-        if (this.policy.keepLatestEmptyOffset) {
+      if (this.policy.keepLatestEmptyOffset) {
+        const sortedOffsets = Array.from(this.variantGroups.keys()).sort((a, b) => a - b);
+        const isLatest = sortedOffsets[sortedOffsets.length - 1] === offset;
+        if (isLatest) {
           console.log(`[transcode] Keeping latest offset group ${offset} active for ${this.sessionId} session`);
           return;
         }
-        console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
-        this.stopGroup(offset);
       }
+      console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
+      this.stopGroup(offset);
     } else {
       this.updateVariantCache(offset);
     }
@@ -255,6 +244,8 @@ export class TranscodeSession {
     // instead of latching onto this dying one.
     this.variantGroups.delete(offset);
     this.groupCreatedAt.delete(offset);
+    clearTimeout(this.gcTimers.get(offset));
+    this.gcTimers.delete(offset);
 
     console.log(`[transcode] Stopping worker for offset ${offset}`);
     await worker.stop();
@@ -343,7 +334,6 @@ export class TranscodeSession {
   }
 
   getVariantOutputDir(resolution: Resolution, offset: number): string {
-    offset = this.resolveMergedOffset(offset);
     const worker = this.variantGroups.get(offset);
     if (!worker) {
       throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
@@ -360,8 +350,6 @@ export class TranscodeSession {
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
-    offset = this.resolveMergedOffset(offset);
-
     await this.ensureVariantReady(this.policy.variants[0], offset, preset, hwAccelMode);
     const worker = this.variantGroups.get(offset);
     if (!worker) throw new Error(`Worker not found for offset ${offset}`);
@@ -378,7 +366,6 @@ export class TranscodeSession {
   }
 
   getAudioOutputDir(trackId: string, offset: number = 0): string {
-    offset = this.resolveMergedOffset(offset);
     const worker = this.variantGroups.get(offset);
     if (!worker) throw new Error(`Worker not found for offset ${offset}`);
     return worker.audioLegOutputDir(trackId);

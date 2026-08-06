@@ -39,7 +39,7 @@ interface VideoControlsProps {
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;
   uiVisible?: boolean;
-  showControls?: () => void;
+  onSettingsMenuChange?: (open: boolean) => void;
   audioTracks?: MediaPlaylist[];
   currentAudioTrack?: number;
   handleAudioTrackChange?: (id: number) => void;
@@ -158,7 +158,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   onToggleAsync,
   allowAsyncMode = true,
   uiVisible = true,
-  showControls,
+  onSettingsMenuChange,
   audioTracks = [],
   currentAudioTrack = -1,
   handleAudioTrackChange,
@@ -167,16 +167,11 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   const { unreadCount } = useChat();
   const [settingsSubMenu, setSettingsSubMenu] = useState<SettingsSubMenu>(null);
 
-  // Keep controls awake while settings menu is open so it doesn't auto-hide while searching/reading options
+  // Keep controls visible while settings menu is open (direct guard fed into the
+  // parent's uiVisible, rather than repeatedly re-arming the idle timer).
   React.useEffect(() => {
-    if (activeMenu === 'settings') {
-      showControls?.();
-      const interval = setInterval(() => {
-        showControls?.();
-      }, 1500);
-      return () => clearInterval(interval);
-    }
-  }, [activeMenu, showControls]);
+    onSettingsMenuChange?.(activeMenu === 'settings');
+  }, [activeMenu, onSettingsMenuChange]);
 
   // Whenever the popover closes, reset sub-menu back to the first (top-level) menu
   React.useEffect(() => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 import { VideoPlayerProps, BufferedRange } from './types';
+import { absolutePlaybackTime } from './hlsOffset';
 import { useHlsPlayer } from './hooks/useHlsPlayer';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -48,6 +49,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
   const [isSelfLocked, setIsSelfLocked] = useState(false);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
 
   // Floating emoji state
   const [floatingEmojis, setFloatingEmojis] = useState<Array<{ id: string; emoji: string; username: string }>>([]);
@@ -63,6 +65,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [volume]);
 
   const activeOffsetRef = useRef<number>(0);
+  const pendingReinitRef = useRef<boolean>(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const progressBarRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -173,6 +176,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsPlaying,
     isAsyncMode,
     activeOffsetRef,
+    pendingReinitRef,
     onReportResolution,
   });
 
@@ -217,6 +221,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setBufferedRanges,
     onReportTime,
     activeOffsetRef,
+    pendingReinitRef,
     onEnded: handleEnded,
   });
 
@@ -235,10 +240,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (isLocked) return;
     if (!videoRef.current) return;
     const transOffset = mediaInfo?.transcodeOffset || 0;
-    const currentAbsolute = videoRef.current.currentTime + transOffset;
-    const newPos = Math.max(0, currentAbsolute + offset);
+    const currentAbsolute = absolutePlaybackTime(videoRef.current.currentTime, transOffset);
+    const newPos = Math.max(0, Math.min(currentAbsolute + offset, mediaInfo?.duration || duration));
     onSeek(newPos);
-  }, [mediaInfo?.transcodeOffset, onSeek, isLocked]);
+  }, [mediaInfo?.transcodeOffset, mediaInfo?.duration, duration, onSeek, isLocked]);
 
   useKeyboardShortcuts({ handlePlayPause, handleSeekOffset });
 
@@ -326,7 +331,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const totalDuration = mediaInfo?.duration || duration;
   const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
-  const uiVisible = !idle || !isPlaying || isDragging;
+  const uiVisible = !idle || !isPlaying || isDragging || settingsMenuOpen;
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('player-controls-toggle', { detail: { visible: uiVisible } }));
@@ -423,7 +428,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           currentAudioTrack={currentAudioTrack}
           handleAudioTrackChange={handleAudioTrackChange}
           uiVisible={uiVisible}
-          showControls={showControls}
+          onSettingsMenuChange={setSettingsMenuOpen}
         />
       </div>
     </div>

@@ -7,7 +7,6 @@ import { HardwareEncoder } from '../types';
 const execFileAsync = promisify(execFile);
 
 let cached: HardwareEncoder | null = null;
-let hwFallbackTriggered = false;
 
 /**
  * Detects supported hardware H.264 encoder.
@@ -38,13 +37,7 @@ export const detectHardwareEncoder = async (): Promise<HardwareEncoder> => {
   return cached;
 };
 
-export const markHardwareEncoderFailed = () => {
-  console.log('[transcode] Hardware encoder permanently disabled for this run due to a failure.');
-  hwFallbackTriggered = true;
-};
-
 /** Returns the cached detection result or 'cpu'. */
 export const getDetectedHardwareEncoder = (): HardwareEncoder => {
-  if (hwFallbackTriggered) return 'cpu';
   return cached ?? 'cpu';
 };

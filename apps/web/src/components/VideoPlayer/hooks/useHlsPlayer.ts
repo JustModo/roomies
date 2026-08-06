@@ -18,6 +18,7 @@ interface UseHlsPlayerParams {
   setIsPlaying: (playing: boolean) => void;
   isAsyncMode: boolean;
   activeOffsetRef: MutableRefObject<number>;
+  pendingReinitRef: MutableRefObject<boolean>;
   onReportResolution?: (resolution: string) => void;
 }
 
@@ -31,6 +32,7 @@ export function useHlsPlayer({
   setIsPlaying,
   isAsyncMode,
   activeOffsetRef,
+  pendingReinitRef,
   onReportResolution,
 }: UseHlsPlayerParams) {
   const hlsRef = useRef<Hls | null>(null);
@@ -47,6 +49,11 @@ export function useHlsPlayer({
 
   useEffect(() => {
     if (!videoRef.current) return;
+
+    // A reinit is proceeding — release the freeze useVideoEvents applied while
+    // waiting for this (offset/media change), so time/buffer reporting resumes
+    // against the new, correct source.
+    pendingReinitRef.current = false;
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -90,8 +97,8 @@ export function useHlsPlayer({
         fragLoadingMaxRetry: 10,
         fragLoadingRetryDelay: 1000,
         maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        backBufferLength: 15,
+        maxMaxBufferLength: 120,
+        backBufferLength: 30,
       });
 
       hls.loadSource(buildHlsMasterUrl(mediaInfo.hlsUrl, transcodeOffset));
