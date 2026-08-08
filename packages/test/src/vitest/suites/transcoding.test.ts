@@ -112,7 +112,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
     // All 3 resolutions should have been mapped into that single invocation's filter graph.
     const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
-    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(6); // 2 maps (video+audio) x 3 legs
+    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(3); // video-only map x 3 legs (no audio tracks in this fixture)
 
     await session.stop();
   });
@@ -174,7 +174,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(ffmpegLikeCalls).toHaveLength(1);
 
     const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
-    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(6); // 2 maps (video+audio) x 3 legs
+    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(3); // video-only map x 3 legs (no audio tracks in this fixture)
 
     await session.stop();
   });

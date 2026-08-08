@@ -20,7 +20,7 @@ export interface EmbeddedSubtitleStream {
   language: string | null;
 }
 
-const TEXT_SUBTITLE_CODECS = new Set(['subrip', 'ass', 'ssa', 'mov_text']);
+const TEXT_SUBTITLE_CODECS = new Set(['subrip', 'ass', 'ssa', 'mov_text', 'webvtt']);
 
 /** Lists embedded text-based (non-image) subtitle streams in a video file. */
 export const getEmbeddedTextSubtitleStreams = async (filePath: string): Promise<EmbeddedSubtitleStream[]> => {
@@ -42,24 +42,31 @@ export interface EmbeddedAudioStream {
   language: string | null;
   title: string | null;
   channels: number | null;
+  isDefault: boolean;
 }
 
-/** Lists embedded audio streams in a video file. */
+/** Lists embedded audio streams in a video file, in container order. */
 export const getEmbeddedAudioStreams = async (filePath: string): Promise<EmbeddedAudioStream[]> => {
   const { stdout } = await execFileAsync(FFPROBE_PATH, [
     '-v', 'error',
     '-select_streams', 'a',
-    '-show_entries', 'stream=index,channels:stream_tags=language,title',
+    '-show_entries', 'stream=index,channels:stream_tags=language,title:stream_disposition=default',
     '-of', 'json',
     filePath,
   ]);
   const parsed = JSON.parse(stdout) as {
-    streams?: { index: number; channels?: number; tags?: { language?: string; title?: string } }[];
+    streams?: {
+      index: number;
+      channels?: number;
+      tags?: { language?: string; title?: string };
+      disposition?: { default?: number };
+    }[];
   };
   return (parsed.streams ?? []).map((s) => ({
     index: s.index,
     language: s.tags?.language ?? null,
     title: s.tags?.title ?? null,
     channels: s.channels ?? null,
+    isDefault: s.disposition?.default === 1,
   }));
 };

@@ -11,7 +11,7 @@ import {
   CACHE_SUSPEND_AHEAD_SECONDS,
   CACHE_RESUME_AHEAD_SECONDS,
 } from '../config/config';
-import { getDetectedHardwareEncoder } from '../ffmpeg/hwaccel';
+import { getDetectedHardwareEncoder, downgradeToCpu } from '../ffmpeg/hwaccel';
 import { TranscodeCache } from '../fs/cache';
 import { appendAudioTrackHlsOutput, buildHlsMuxArgs } from '../ffmpeg/hlsArgs';
 import { startSegmentReadyWatcher } from '../fs/readyWatcher';
@@ -44,6 +44,9 @@ export class TranscodeWorker extends EventEmitter {
   /** Only when there's a genuine choice do we pay for separate audio-only HLS outputs;
    *  a single audio track keeps today's behavior (muxed into each resolution, zero extra cost). */
   public readonly hasSeparateAudio: boolean;
+  /** Zero audio tracks means there's nothing to map — omit `-map 0:a`/`-c:a` entirely
+   *  instead of pointing ffmpeg at a stream that doesn't exist (fatal arg error). */
+  public readonly hasMuxedAudio: boolean;
 
   private readonly legDirs: Map<Resolution, string>;
   private readonly legs: Map<Resolution, LegState>;
@@ -78,6 +81,7 @@ export class TranscodeWorker extends EventEmitter {
     this.legs = new Map(resolutions.map(res => [res, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
     this.audioTracks = audioTracks;
     this.hasSeparateAudio = audioTracks.length > 1;
+    this.hasMuxedAudio = audioTracks.length === 1;
     this.audioLegDirs = audioLegDirs;
     this.audioLegs = new Map(audioTracks.map(t => [t.id, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
   }
@@ -186,15 +190,15 @@ export class TranscodeWorker extends EventEmitter {
       outputArgs.push(
         '-map', `[${outLabels[i]}]`,
         // NOTE: with >1 audio track, audio is demuxed into its own sibling HLS outputs below
-        // (so hls.js can switch tracks without touching the video buffer); with 0-1 tracks,
-        // audio stays muxed into every resolution exactly like before this feature existed.
-        ...(this.hasSeparateAudio ? [] : ['-map', '0:a']),
+        // (so hls.js can switch tracks without touching the video buffer); with exactly 1,
+        // audio stays muxed into every resolution; with 0, there's nothing to map at all.
+        ...(this.hasMuxedAudio ? ['-map', '0:a'] : []),
         ...videoArgs,
         '-b:v', preset.videoBitrate,
         '-maxrate', preset.maxRate,
         '-bufsize', preset.bufSize,
 
-        ...(this.hasSeparateAudio ? [] : ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2']),
+        ...(this.hasMuxedAudio ? ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2'] : []),
 
         ...buildHlsMuxArgs(segmentPattern),
         playlistPath,
@@ -236,7 +240,7 @@ export class TranscodeWorker extends EventEmitter {
 
     const args = this.buildArgs(hw);
     const proc = spawn(FFMPEG_PATH, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
 
     this.process = proc;
@@ -262,7 +266,10 @@ export class TranscodeWorker extends EventEmitter {
 
       // NOTE: if the process exits after producing at least one segment for a leg that
       // hadn't been marked ready yet (e.g. a very short source), mark it ready so callers
-      // awaiting `once('ready')` aren't stuck.
+      // awaiting `once('ready')` aren't stuck. A leg that's still empty when a non-stop-requested
+      // exit happens (e.g. a seek past EOF, or a bad -map for that leg) never will be — that's
+      // a failure, not a no-op, even when ffmpeg's own exit code is 0.
+      let anyLegStarved = false;
       for (const res of this.resolutions) {
         const leg = this.legs.get(res)!;
         if (!leg.isReady) {
@@ -270,6 +277,8 @@ export class TranscodeWorker extends EventEmitter {
           if (tsCount > 0 && (code === 0 || this.stopRequested)) {
             leg.isReady = true;
             this.emit('ready', res);
+          } else if (!this.stopRequested) {
+            anyLegStarved = true;
           }
         }
       }
@@ -281,6 +290,8 @@ export class TranscodeWorker extends EventEmitter {
             if (tsCount > 0 && (code === 0 || this.stopRequested)) {
               leg.isReady = true;
               this.emit('audio-ready', track.id);
+            } else if (!this.stopRequested) {
+              anyLegStarved = true;
             }
           }
         }
@@ -290,8 +301,8 @@ export class TranscodeWorker extends EventEmitter {
       // NOTE: FFmpeg traps SIGTERM to shut down gracefully (flushing the final segment/playlist)
       // and then exits with its own code (observed: 255) rather than being reported as killed by
       // signal — so `signal === 'SIGTERM'` alone doesn't reliably detect an intentional stop.
-      if (!this.stopRequested && code !== 0 && signal !== 'SIGTERM') {
-        this.handleFailure(hw, new Error(`FFmpeg exited with code ${code}, signal ${signal}`));
+      if (!this.stopRequested && (anyLegStarved || (code !== 0 && signal !== 'SIGTERM'))) {
+        this.handleFailure(hw, new Error(`FFmpeg exited with code ${code}, signal ${signal}, produced no output for one or more legs`));
         return;
       }
       this.emit('exit', code, signal);
@@ -306,6 +317,9 @@ export class TranscodeWorker extends EventEmitter {
     if (hw !== null && !anyLegReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
       console.error(`[transcode] worker [${this.resolutions.join(',')}] hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
+      // The encoder was falsely detected as usable (or degraded at runtime) — downgrade the
+      // shared detection cache so future workers don't keep re-attempting it from scratch.
+      downgradeToCpu();
       this.spawnProcess(null);
       return;
     }

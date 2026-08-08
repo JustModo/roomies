@@ -2,10 +2,10 @@ import path from 'path';
 import { FfmpegPreset, HwAccelMode } from '../config/settings';
 import { Resolution, AudioTrackDescriptor } from '../types';
 import { TranscodeWorker } from './worker';
-import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION } from '../config/config';
-import { getSourceFrameRate } from '../ffmpeg/ffprobe';
+import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION, SUPPORTED_RESOLUTIONS, PLAYHEAD_STALE_MS } from '../config/config';
+import { getSourceVideoInfo, SourceVideoInfo } from '../ffmpeg/ffprobe';
 import { TranscodeCache } from '../fs/cache';
-import { policyForSessionId, PlaybackPolicy } from '../config/policy';
+import { policyForSessionId, PlaybackPolicy, variantsForSourceHeight } from '../config/policy';
 
 /**
  * Aligns a given seek position to the nearest segment boundary,
@@ -23,6 +23,7 @@ export interface PlayheadState {
   position: number;
   resolution?: string;
   currentOffset: number;
+  lastSeenAt: number;
 }
 
 /** Manages all transcoding workers for a single media file, grouped by transcode offset.
@@ -38,11 +39,13 @@ export class TranscodeSession {
 
   // Map of offset -> the shared worker covering every configured resolution at that offset.
   private variantGroups = new Map<number, TranscodeWorker>();
+  private creatingGroups = new Map<number, Promise<TranscodeWorker>>();
   private groupCreatedAt = new Map<number, number>();
   private gcTimers = new Map<number, NodeJS.Timeout>();
   private playheads = new Map<string, PlayheadState>();
   private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
-  private fpsPromise: Promise<number> | null = null;
+  private videoInfoPromise: Promise<SourceVideoInfo> | null = null;
+  private staleSweepTimer: NodeJS.Timeout;
 
   constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string, audioTracks: AudioTrackDescriptor[] = []) {
     this.sessionId = sessionId;
@@ -53,6 +56,20 @@ export class TranscodeSession {
     this.audioTracks = audioTracks;
 
     TranscodeCache.ensureDirectory(this.outputBaseDir);
+
+    // Safety net for playheads whose owner never called removePlayhead (e.g. an
+    // ungraceful socket drop) — updatePlayhead() normally does this instead.
+    this.staleSweepTimer = setInterval(() => this.sweepStalePlayheads(), PLAYHEAD_STALE_MS);
+  }
+
+  private sweepStalePlayheads(): void {
+    const now = Date.now();
+    for (const [id, state] of this.playheads) {
+      if (now - state.lastSeenAt > PLAYHEAD_STALE_MS) {
+        console.log(`[transcode] Playhead ${id} went stale, removing`);
+        this.removePlayhead(id);
+      }
+    }
   }
 
   onError(callback: (resolution: Resolution, error: Error) => void): void {
@@ -64,23 +81,41 @@ export class TranscodeSession {
     if (this.onErrorCallback) this.onErrorCallback(resolution, error);
   }
 
-  private getSourceFps(): Promise<number> {
-    if (!this.fpsPromise) {
-      this.fpsPromise = getSourceFrameRate(this.inputPath);
+  private getVideoInfo(): Promise<SourceVideoInfo> {
+    if (!this.videoInfoPromise) {
+      this.videoInfoPromise = getSourceVideoInfo(this.inputPath);
     }
-    return this.fpsPromise;
+    return this.videoInfoPromise;
+  }
+
+  /** A ladder rung the source is too small to genuinely benefit from is pruned from the
+   *  worker entirely (see variantsForSourceHeight) — resolve any request for it to the
+   *  nearest rung the worker actually encodes, so callers never hit a missing leg. */
+  private resolveAvailableResolution(worker: TranscodeWorker, resolution: Resolution): Resolution {
+    if (worker.resolutions.includes(resolution)) return resolution;
+    const idx = SUPPORTED_RESOLUTIONS.indexOf(resolution);
+    for (let i = idx - 1; i >= 0; i--) {
+      if (worker.resolutions.includes(SUPPORTED_RESOLUTIONS[i])) return SUPPORTED_RESOLUTIONS[i];
+    }
+    return worker.resolutions[0];
   }
 
   private awaitLegReady(worker: TranscodeWorker, resolution: Resolution): Promise<void> {
     if (worker.isLegReady(resolution)) return Promise.resolve();
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const onReady = (res: Resolution) => {
-        if (res === resolution) {
-          worker.removeListener('ready', onReady);
-          resolve();
-        }
+        if (res !== resolution) return;
+        worker.removeListener('ready', onReady);
+        worker.removeListener('error', onError);
+        resolve();
+      };
+      const onError = (err: Error) => {
+        worker.removeListener('ready', onReady);
+        worker.removeListener('error', onError);
+        reject(err);
       };
       worker.on('ready', onReady);
+      worker.on('error', onError);
     });
   }
 
@@ -90,46 +125,83 @@ export class TranscodeSession {
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto'
   ): Promise<void> {
-    let worker = this.variantGroups.get(offset);
-    if (!worker) {
-      if (this.variantGroups.size >= MAX_CONCURRENT_VARIANTS) {
-        console.error(`[transcode] Refusing to spawn worker at offset ${offset}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
-        throw new Error('Maximum concurrent transcode workers reached');
-      }
+    const worker = await this.getOrCreateWorker(offset, preset, hwAccelMode);
+    return this.awaitLegReady(worker, this.resolveAvailableResolution(worker, resolution));
+  }
 
-      const randomSuffix = Math.random().toString(36).substring(2, 8);
-      const legDirs = new Map<Resolution, string>(
-        this.policy.variants.map(res => [res, path.join(this.outputBaseDir, offset.toString(), res, `ss-${offset}-${randomSuffix}`)])
-      );
-      const audioLegDirs = new Map<string, string>(
-        this.audioTracks.map(t => [t.id, path.join(this.outputBaseDir, offset.toString(), 'audio', t.id)])
-      );
+  /** Memoized per-offset worker creation — concurrent calls for the same offset (e.g.
+   *  prewarming several resolutions at once) share one in-flight creation instead of each
+   *  racing past the `!variantGroups.has(offset)` check and spawning their own worker. */
+  private getOrCreateWorker(
+    offset: number,
+    preset: FfmpegPreset,
+    hwAccelMode: HwAccelMode
+  ): Promise<TranscodeWorker> {
+    const existing = this.variantGroups.get(offset);
+    if (existing) return Promise.resolve(existing);
 
-      worker = new TranscodeWorker(this.policy.variants, legDirs, this.sessionId, this.audioTracks, audioLegDirs);
-      this.variantGroups.set(offset, worker);
-      this.groupCreatedAt.set(offset, Date.now());
-
-      worker.on('ready', (res: Resolution) => console.log(`[transcode] [session ${this.sessionId}] Variant ${res}@${offset} ready`));
-      worker.on('error', (err: Error) => {
-        console.error(`[transcode] [session ${this.sessionId}] Worker @${offset} error:`, err.message);
-        for (const res of this.policy.variants) this.reportError(res, err);
+    let creation = this.creatingGroups.get(offset);
+    if (!creation) {
+      creation = this.createWorker(offset, preset, hwAccelMode).finally(() => {
+        this.creatingGroups.delete(offset);
       });
-      worker.on('exit', (code: number | null) => {
-        if (code === 0) console.log(`[transcode] [session ${this.sessionId}] Worker @${offset} completed`);
-      });
+      this.creatingGroups.set(offset, creation);
+    }
+    return creation;
+  }
 
-      const sourceFps = await this.getSourceFps();
-      worker.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
+  private async createWorker(
+    offset: number,
+    preset: FfmpegPreset,
+    hwAccelMode: HwAccelMode
+  ): Promise<TranscodeWorker> {
+    if (this.variantGroups.size >= MAX_CONCURRENT_VARIANTS) {
+      console.error(`[transcode] Refusing to spawn worker at offset ${offset}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
+      throw new Error('Maximum concurrent transcode workers reached');
     }
 
-    return this.awaitLegReady(worker, resolution);
+    const { fps: sourceFps, height: sourceHeight } = await this.getVideoInfo();
+    const variants = variantsForSourceHeight(this.policy.variants, sourceHeight);
+
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const legDirs = new Map<Resolution, string>(
+      variants.map(res => [res, path.join(this.outputBaseDir, offset.toString(), res, `ss-${offset}-${randomSuffix}`)])
+    );
+    const audioLegDirs = new Map<string, string>(
+      this.audioTracks.map(t => [t.id, path.join(this.outputBaseDir, offset.toString(), 'audio', t.id)])
+    );
+
+    const worker = new TranscodeWorker(variants, legDirs, this.sessionId, this.audioTracks, audioLegDirs);
+    this.variantGroups.set(offset, worker);
+    this.groupCreatedAt.set(offset, Date.now());
+
+    worker.on('ready', (res: Resolution) => console.log(`[transcode] [session ${this.sessionId}] Variant ${res}@${offset} ready`));
+    worker.on('error', (err: Error) => {
+      console.error(`[transcode] [session ${this.sessionId}] Worker @${offset} error:`, err.message);
+      // The worker is dead — drop it so the next request spawns a fresh one instead of
+      // waiting on a corpse that will never emit 'ready' again.
+      if (this.variantGroups.get(offset) === worker) {
+        this.variantGroups.delete(offset);
+        this.groupCreatedAt.delete(offset);
+      }
+      for (const res of this.policy.variants) this.reportError(res, err);
+    });
+    worker.on('exit', (code: number | null) => {
+      if (code === 0) console.log(`[transcode] [session ${this.sessionId}] Worker @${offset} completed`);
+    });
+
+    worker.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
+    return worker;
   }
 
   isVariantReady(resolution: Resolution, offset: number): boolean {
-    return this.variantGroups.get(offset)?.isLegReady(resolution) ?? false;
+    const worker = this.variantGroups.get(offset);
+    if (!worker) return false;
+    return worker.isLegReady(this.resolveAvailableResolution(worker, resolution));
   }
 
   updatePlayhead(id: string, position: number, resolution?: string): number | null {
+    const now = Date.now();
     const state = this.playheads.get(id);
     let currentOffset = state?.currentOffset ?? -1;
 
@@ -146,8 +218,9 @@ export class TranscodeSession {
       if (state) {
         state.position = position;
         state.resolution = resolution;
+        state.lastSeenAt = now;
       } else {
-        this.playheads.set(id, { position, resolution, currentOffset: -1 });
+        this.playheads.set(id, { position, resolution, currentOffset: -1, lastSeenAt: now });
       }
       return null;
     }
@@ -163,8 +236,9 @@ export class TranscodeSession {
       }
       state.position = position;
       state.resolution = resolution;
+      state.lastSeenAt = now;
     } else {
-      this.playheads.set(id, { position, resolution, currentOffset: maxOffset });
+      this.playheads.set(id, { position, resolution, currentOffset: maxOffset, lastSeenAt: now });
       swappedToOffset = maxOffset;
     }
 
@@ -259,6 +333,8 @@ export class TranscodeSession {
   }
 
   async stop(): Promise<void> {
+    clearInterval(this.staleSweepTimer);
+
     const promises: Promise<void>[] = [];
     for (const offset of this.variantGroups.keys()) {
       promises.push(this.stopGroup(offset));
@@ -292,9 +368,10 @@ export class TranscodeSession {
 
   isPositionCoveredByVariant(resolution: Resolution, newPosition: number, offset: number): boolean {
     const worker = this.variantGroups.get(offset);
-    if (!worker || !worker.resolutions.includes(resolution)) return false;
+    if (!worker) return false;
 
-    const maxCoveredTime = worker.legMaxCoveredTime(resolution);
+    const resolved = this.resolveAvailableResolution(worker, resolution);
+    const maxCoveredTime = worker.legMaxCoveredTime(resolved);
     return newPosition >= worker.startPosition && newPosition <= maxCoveredTime;
   }
 
@@ -338,7 +415,7 @@ export class TranscodeSession {
     if (!worker) {
       throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
     }
-    return worker.legOutputDir(resolution);
+    return worker.legOutputDir(this.resolveAvailableResolution(worker, resolution));
   }
 
   /** Ensures an audio track's HLS output is ready. Audio is always encoded on the same shared
@@ -354,14 +431,20 @@ export class TranscodeSession {
     const worker = this.variantGroups.get(offset);
     if (!worker) throw new Error(`Worker not found for offset ${offset}`);
     if (worker.isAudioLegReady(trackId)) return;
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const onReady = (id: string) => {
-        if (id === trackId) {
-          worker.removeListener('audio-ready', onReady);
-          resolve();
-        }
+        if (id !== trackId) return;
+        worker.removeListener('audio-ready', onReady);
+        worker.removeListener('error', onError);
+        resolve();
+      };
+      const onError = (err: Error) => {
+        worker.removeListener('audio-ready', onReady);
+        worker.removeListener('error', onError);
+        reject(err);
       };
       worker.on('audio-ready', onReady);
+      worker.on('error', onError);
     });
   }
 

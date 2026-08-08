@@ -41,3 +41,9 @@ export const detectHardwareEncoder = async (): Promise<HardwareEncoder> => {
 export const getDetectedHardwareEncoder = (): HardwareEncoder => {
   return cached ?? 'cpu';
 };
+
+/** Downgrades the cache to 'cpu' after a runtime encoder failure, so a hardware encoder
+ *  that was falsely detected as usable doesn't keep getting retried by every new worker. */
+export const downgradeToCpu = (): void => {
+  cached = 'cpu';
+};

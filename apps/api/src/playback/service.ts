@@ -33,7 +33,7 @@ export class PlaybackService {
   static async changeMedia(mediaFileId: string, server: FastifyInstance) {
     const mediaFile = await prisma.mediaFile.findUnique({
       where: { id: mediaFileId },
-      include: { subtitles: true, audioTracks: true },
+      include: { subtitles: true, audioTracks: { orderBy: { streamIndex: 'asc' } } },
     });
 
     if (!mediaFile) {
@@ -124,8 +124,14 @@ export class PlaybackService {
     offset?: number,
     sessionId: string = 'sync',
   ): Promise<string> {
-    const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId }, include: { audioTracks: true } });
-    const audioTracks = mediaFile?.audioTracks ?? [];
+    const mediaFile = await prisma.mediaFile.findUnique({
+      where: { id: mediaId },
+      include: { audioTracks: { orderBy: { streamIndex: 'asc' } } },
+    });
+    if (!mediaFile) {
+      throw new Error('Media file not found');
+    }
+    const audioTracks = mediaFile.audioTracks;
     const hasSeparateAudio = audioTracks.length > 1;
 
     const lines = ['#EXTM3U'];
@@ -140,7 +146,7 @@ export class PlaybackService {
           `NAME="${label}"`,
           ...(track.language ? [`LANGUAGE="${track.language}"`] : []),
           'AUTOSELECT=YES',
-          `DEFAULT=${i === 0 ? 'YES' : 'NO'}`,
+          `DEFAULT=${track.isDefault ? 'YES' : 'NO'}`,
           `URI="${url}"`,
         ];
         lines.push(`#EXT-X-MEDIA:${attrs.join(',')}`);

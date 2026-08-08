@@ -22,10 +22,12 @@ function decodeSubtitleBuffer(buffer: Buffer): string {
   }
   // UTF-16 BE BOM
   if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
-    const swapped = Buffer.allocUnsafe(buffer.length - 2);
-    for (let i = 2; i < buffer.length - 1; i += 2) {
-      swapped[i - 2] = buffer[i + 1];
-      swapped[i - 1] = buffer[i];
+    const body = buffer.subarray(2);
+    const pairCount = Math.floor(body.length / 2);
+    const swapped = Buffer.alloc(pairCount * 2);
+    for (let i = 0; i < pairCount; i++) {
+      swapped[i * 2] = body[i * 2 + 1];
+      swapped[i * 2 + 1] = body[i * 2];
     }
     return swapped.toString('utf16le');
   }

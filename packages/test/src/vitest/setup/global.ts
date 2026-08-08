@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let tempConfigDir: string | null = null;
 let tempCacheDir: string | null = null;
@@ -25,7 +28,10 @@ export async function setup() {
   process.env.ROOMIES_CONFIG_PATH = confPath;
   process.env.MEDIA_ROOT = tempMediaDir;
   process.env.CACHE_DIR = tempCacheDir;
-  process.env.FFMPEG_PATH = 'echo';
+  // A long-lived stub, not 'echo' — it must stay alive like a real in-progress encode
+  // rather than exiting immediately with no output, or worker.ts's failure detection
+  // (correctly) treats that as a crashed transcode instead of a structural no-op.
+  process.env.FFMPEG_PATH = path.join(__dirname, 'fake-ffmpeg.js');
   process.env.FFPROBE_PATH = 'echo';
   process.env.NODE_ENV = 'test';
 }

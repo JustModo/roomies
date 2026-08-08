@@ -24,7 +24,7 @@ export async function ensurePlaybackSession(sessionId: string, mediaFileId: stri
 
   const mediaFile = await prisma.mediaFile.findUnique({
     where: { id: mediaFileId },
-    include: { audioTracks: true },
+    include: { audioTracks: { orderBy: { streamIndex: 'asc' } } },
   });
   if (!mediaFile) throw new Error('Media file not found');
 

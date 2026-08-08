@@ -3,7 +3,7 @@
  * Feature work should prefer adjusting policy here over forking worker/playlist paths.
  */
 import type { Resolution } from '../types';
-import { SUPPORTED_RESOLUTIONS } from './config';
+import { SUPPORTED_RESOLUTIONS, RESOLUTION_PRESETS } from './config';
 
 export type SeekNotifyPolicy = 'broadcast' | 'unicastIfReinit';
 
@@ -35,4 +35,11 @@ export const AsyncPolicy: PlaybackPolicy = {
 
 export function policyForSessionId(sessionId: string): PlaybackPolicy {
   return sessionId === 'sync' ? SyncPolicy : AsyncPolicy;
+}
+
+/** Drops ladder rungs that would only upscale a source shorter than their target height —
+ *  always keeps the smallest configured rung so there's at least one variant to serve. */
+export function variantsForSourceHeight(variants: Resolution[], sourceHeight: number): Resolution[] {
+  const fitting = variants.filter(res => RESOLUTION_PRESETS[res].height <= sourceHeight);
+  return fitting.length > 0 ? fitting : [variants[0]];
 }

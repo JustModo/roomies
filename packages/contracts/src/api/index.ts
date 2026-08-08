@@ -55,6 +55,7 @@ export const AudioTrackSchema = z.object({
   language: z.string().nullable(),
   title: z.string().nullable(),
   channels: z.number().nullable(),
+  isDefault: z.boolean(),
 });
 export type AudioTrack = z.infer<typeof AudioTrackSchema>;
 

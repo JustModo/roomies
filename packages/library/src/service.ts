@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import type { PrismaClient } from '@prisma/client';
 import { MEDIA_ROOT as CONFIG_MEDIA_ROOT } from '@roomies/config';
@@ -18,19 +19,20 @@ const serializeSubtitle = (s: { id: string; mediaFileId: string; path: string; l
   language: s.language,
 });
 
-const serializeAudioTrack = (a: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null }): AudioTrack => ({
+const serializeAudioTrack = (a: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null; isDefault: boolean }): AudioTrack => ({
   id: a.id,
   mediaFileId: a.mediaFileId,
   streamIndex: a.streamIndex,
   language: a.language,
   title: a.title,
   channels: a.channels,
+  isDefault: a.isDefault,
 });
 
 const serializeMediaFile = (mf: {
   id: string; movieId: string; title: string; path: string; duration: number; number: number | null;
   createdAt: Date; subtitles: { id: string; mediaFileId: string; path: string; language: string | null }[];
-  audioTracks: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null }[];
+  audioTracks: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null; isDefault: boolean }[];
 }): MediaFileContract => ({
   id: mf.id,
   movieId: mf.movieId,
@@ -81,6 +83,20 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
 
   await runWithConcurrency(episodes, async (episode) => {
     let mediaFile = existing.find((mf) => mf.path === episode.path);
+
+    // A file's mtime only moves when its content is actually rewritten (e.g. a re-grab
+    // replacing the same path) — checking it is one stat() syscall, orders of magnitude
+    // cheaper than the ffprobe/ffmpeg calls below. Everything expensive is gated on it, so
+    // an unchanged library re-scans at stat-only cost instead of re-probing every file.
+    let sourceMtimeMs: number;
+    try {
+      sourceMtimeMs = (await fs.promises.stat(episode.path)).mtimeMs;
+    } catch (err) {
+      console.error(`[library] Failed to stat ${episode.path}:`, err);
+      return;
+    }
+    const isNewOrChanged = !mediaFile || mediaFile.sourceMtimeMs !== sourceMtimeMs;
+
     if (!mediaFile) {
       try {
         const duration = await getMediaDuration(episode.path);
@@ -90,6 +106,7 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
             title: episode.title,
             path: episode.path,
             duration,
+            sourceMtimeMs,
             number: episode.number,
           },
         });
@@ -97,12 +114,22 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
         console.error(`[library] Failed to process media file ${episode.path}:`, err);
         return;
       }
-    } else if (mediaFile.number !== episode.number || mediaFile.title !== episode.title) {
+    } else if (isNewOrChanged || mediaFile.number !== episode.number || mediaFile.title !== episode.title) {
+      let duration = mediaFile.duration;
+      if (isNewOrChanged) {
+        try {
+          duration = await getMediaDuration(episode.path);
+        } catch (err) {
+          console.error(`[library] Failed to re-probe duration for ${episode.path}:`, err);
+        }
+      }
       mediaFile = await prisma.mediaFile.update({
         where: { id: mediaFile.id },
-        data: { number: episode.number, title: episode.title },
+        data: { number: episode.number, title: episode.title, duration, sourceMtimeMs },
       });
     }
+
+    if (!isNewOrChanged) return;
 
     // Fire-and-forget: embedded subtitle extraction shouldn't block the scan.
     // NOTE: this is the only automatic subtitle source left — sidecar files next to

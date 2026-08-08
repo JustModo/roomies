@@ -48,6 +48,9 @@ model MediaFile {
   path      String
   duration  Int      @default(0) // Duration in seconds
   number    Int?
+  // Source file's mtime at last probe — lets a rescan skip re-running ffprobe/audio/subtitle
+  // extraction for files that haven't changed, instead of unconditionally re-probing everything.
+  sourceMtimeMs Float @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -59,9 +62,14 @@ model Subtitle {
   id          String    @id @default(uuid())
   mediaFileId String
   mediaFile   MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
-  path        String
+  path        String    @unique
   language    String?
+  // Null for user-uploaded subtitles; set for ones extracted from an embedded stream,
+  // so a rescan can tell which streams are still present and prune the rest.
+  streamIndex Int?
   createdAt   DateTime  @default(now())
+
+  @@unique([mediaFileId, streamIndex])
 }
 
 model AudioTrack {
@@ -72,7 +80,10 @@ model AudioTrack {
   language    String?
   title       String?
   channels    Int?
+  isDefault   Boolean   @default(false)
   createdAt   DateTime  @default(now())
+
+  @@unique([mediaFileId, streamIndex])
 }
 
 

@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { PrismaClient } from '@prisma/client';
@@ -8,9 +9,11 @@ import { getEmbeddedTextSubtitleStreams } from './ffprobe';
 const execFileAsync = promisify(execFile);
 
 /**
- * Extracts embedded text subtitle streams from a video into SUBTITLE_DATA_DIR
- * and records them in the Subtitle table. Fire-and-forget: callers should not
- * await this inline in the scan loop, just log failures.
+ * Extracts embedded text subtitle streams from a video into SUBTITLE_DATA_DIR and syncs
+ * them into the Subtitle table — one failing stream doesn't stop the rest, and streams
+ * that disappeared since the last scan (file replaced with a different track layout) have
+ * their DB row and .vtt file removed. Fire-and-forget: callers should not await this inline
+ * in the scan loop, just log failures.
  */
 export const extractEmbeddedSubtitles = async (
   prisma: PrismaClient,
@@ -18,25 +21,37 @@ export const extractEmbeddedSubtitles = async (
   videoPath: string
 ): Promise<void> => {
   const streams = await getEmbeddedTextSubtitleStreams(videoPath);
-  if (streams.length === 0) return;
 
-  const existing = await prisma.subtitle.findMany({ where: { mediaFileId } });
-  const existingPaths = new Set(existing.map((s) => s.path));
+  const existing = await prisma.subtitle.findMany({ where: { mediaFileId, streamIndex: { not: null } } });
+  const existingByIndex = new Map(existing.map((s) => [s.streamIndex, s]));
 
   for (const stream of streams) {
+    if (existingByIndex.has(stream.index)) continue;
+
     const outputPath = path.join(SUBTITLE_DATA_DIR, `${mediaFileId}_${stream.index}.vtt`);
-    if (existingPaths.has(outputPath)) continue;
+    try {
+      await execFileAsync(FFMPEG_PATH, [
+        '-y',
+        '-i', videoPath,
+        '-map', `0:${stream.index}`,
+        '-f', 'webvtt',
+        outputPath,
+      ]);
+      await prisma.subtitle.upsert({
+        where: { mediaFileId_streamIndex: { mediaFileId, streamIndex: stream.index } },
+        create: { mediaFileId, path: outputPath, language: stream.language, streamIndex: stream.index },
+        update: { path: outputPath, language: stream.language },
+      });
+    } catch (err) {
+      console.error(`[library] Subtitle extraction failed for ${mediaFileId} stream ${stream.index}:`, err);
+      await fs.promises.rm(outputPath, { force: true }).catch(() => {});
+    }
+  }
 
-    await execFileAsync(FFMPEG_PATH, [
-      '-y',
-      '-i', videoPath,
-      '-map', `0:${stream.index}`,
-      '-f', 'webvtt',
-      outputPath,
-    ]);
-
-    await prisma.subtitle.create({
-      data: { mediaFileId, path: outputPath, language: stream.language },
-    });
+  const currentIndices = new Set(streams.map((s) => s.index));
+  const stale = existing.filter((s) => s.streamIndex !== null && !currentIndices.has(s.streamIndex));
+  if (stale.length > 0) {
+    await Promise.all(stale.map((s) => fs.promises.rm(s.path, { force: true }).catch(() => {})));
+    await prisma.subtitle.deleteMany({ where: { id: { in: stale.map((s) => s.id) } } });
   }
 };

@@ -53,6 +53,15 @@ export const HLS_LIST_SIZE = 0;
 /** Number of segments that must exist on disk before the variant is ready. */
 export const LOOK_AHEAD_SEGMENTS = 4;
 
+/** Kills a stuck ffprobe call after this long, so a corrupted/unreadable source can't hang
+ *  variant readiness before ffmpeg is even spawned. */
+export const PROBE_TIMEOUT_MS = 10000;
+
+/** Safety net for playheads whose owner never called removePlayhead (e.g. an ungraceful
+ *  socket drop) — a playhead not updated within this window is swept and its offset group
+ *  released for GC like a normal disconnect. Comfortably above the 5s sync heartbeat cadence. */
+export const PLAYHEAD_STALE_MS = 30000;
+
 /** manageCache() SIGSTOP/SIGCONT hysteresis: how far (in seconds) the worker's
  *  encoded output may run ahead of the playhead before it's paused, and how
  *  far it must shrink back before resuming. */
