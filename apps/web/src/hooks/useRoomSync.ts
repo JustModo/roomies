@@ -59,19 +59,32 @@ export function useRoomSync() {
 
   // ── Async mode transitions ─────────────────────────────────────────────────
 
+  // Set while exiting async, waiting for the server's confirming media.changed
+  // (with the corrected sync transcodeOffset) before issuing the snap-back seek.
+  const pendingAsyncExitSeekRef = useRef(false);
+
   const prevIsAsyncMode = useRef(asyncPlayback.isAsyncMode);
   useEffect(() => {
     const wasAsync = prevIsAsyncMode.current;
     prevIsAsyncMode.current = asyncPlayback.isAsyncMode;
 
     if (wasAsync && !asyncPlayback.isAsyncMode && roomState) {
-      // Exiting async: snap video to current room position.
+      // Exiting async: record the target room position, but don't issue the
+      // seek command yet — activeOffsetRef still holds the (stale) async
+      // offset until media.changed lands, so a seek issued now would compute
+      // its relative target against the wrong window and clamp to the end of
+      // the still-attached async source. Defer to the media.changed handler
+      // below, which fires once the corrected offset is known.
       const pos = getPositionFromAnchor(roomState.playback);
       setLocalTime(pos);
       localTimeRef.current = pos;
-      issueSeekCommand(pos);
+      pendingAsyncExitSeekRef.current = true;
+    } else if (!wasAsync && asyncPlayback.isAsyncMode) {
+      // Re-entered async before the previous exit's media.changed arrived —
+      // that confirmation is now stale, don't seek off of it.
+      pendingAsyncExitSeekRef.current = false;
     }
-  }, [asyncPlayback.isAsyncMode, roomState, getPositionFromAnchor, issueSeekCommand]);
+  }, [asyncPlayback.isAsyncMode, roomState, getPositionFromAnchor]);
 
   // ── Clear soft correction on room rate change or entering async ─────────────
 
@@ -209,6 +222,14 @@ export function useRoomSync() {
               audioTracks: msg.payload.audioTracks || [],
             };
           });
+
+          // The offset is now confirmed (activeOffsetRef will be updated by
+          // useHlsPlayer's reinit, or was already correct if it didn't change)
+          // — safe to issue the deferred async-exit seek.
+          if (pendingAsyncExitSeekRef.current && !isAsync) {
+            pendingAsyncExitSeekRef.current = false;
+            issueSeekCommand(localTimeRef.current);
+          }
         } else {
           setMediaInfo(null);
           setRoomState(prev => {
