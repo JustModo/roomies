@@ -49,8 +49,8 @@ export function loadConfig(): Config {
     FFMPEG_PRESET: parsedConf.FFMPEG_PRESET,
     HWACCEL_MODE: parsedConf.HWACCEL_MODE,
     MAX_CONCURRENT_VARIANTS: parsedConf.MAX_CONCURRENT_VARIANTS,
+    PORT: parsedConf.PORT,
 
-    PORT: process.env.PORT,
     MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,
     CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
     SUBTITLE_DATA_DIR: process.env.SUBTITLE_DATA_DIR || subtitleDataDir,

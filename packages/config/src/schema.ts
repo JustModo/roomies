@@ -17,9 +17,9 @@ export const ConfigSchema = z.object({
   ]).default('veryfast'),
   HWACCEL_MODE: z.enum(['auto', 'cpu']).default('auto'),
   MAX_CONCURRENT_VARIANTS: z.coerce.number().int().positive().optional(),
+  PORT: z.coerce.number().default(3000),
 
   // Environment-backed / hardcoded settings
-  PORT: z.coerce.number().default(3000),
   MEDIA_ROOT: z.string(),
   CACHE_DIR: z.string(),
   SUBTITLE_DATA_DIR: z.string(),
