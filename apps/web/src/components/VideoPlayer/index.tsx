@@ -342,7 +342,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none`}
+      className={`relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none touch-manipulation`}
       onMouseMove={showControls}
     >
       <video

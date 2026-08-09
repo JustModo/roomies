@@ -19,6 +19,10 @@ interface UsePlayerGesturesParams {
   transcodeOffset: number;
 }
 
+const MOVE_CANCEL_PX = 10; // movement past this cancels a pending tap/hold
+const HOLD_THRESHOLD_MS = 500;
+const DOUBLE_TAP_WINDOW_MS = 250;
+
 export function usePlayerGestures({
   videoRef,
   containerRef,
@@ -40,6 +44,10 @@ export function usePlayerGestures({
   const prevRateRef = useRef<number>(1);
   const isHoldingRef = useRef<boolean>(false);
   const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Single tracked pointer — ignores extra fingers (pinch, accidental brush)
+  const activePointerIdRef = useRef<number | null>(null);
+  // Nulled once movement exceeds MOVE_CANCEL_PX, marking pointerup as "not a tap"
+  const downPosRef = useRef<{ x: number; y: number } | null>(null);
 
   // Sync volatile state/callbacks to refs to prevent effect teardown
   const stateRef = useRef({
@@ -72,45 +80,100 @@ export function usePlayerGestures({
     };
   });
 
+  // Locking mid-gesture tears down the listeners below but refs survive — reset them so nothing gets stuck
+  useEffect(() => {
+    if (!isLocked) return;
+    if (holdTimeoutRef.current) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    if (isHoldingRef.current) {
+      isHoldingRef.current = false;
+      stateRef.current.onSetRate(prevRateRef.current);
+    }
+    activePointerIdRef.current = null;
+    downPosRef.current = null;
+  }, [isLocked]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const handlePointerDown = (e: PointerEvent) => {
-      if (isLocked) return;
-
-      const target = e.target as HTMLElement;
-      // Skip if clicking inside buttons, inputs, seek bars, or overlay controls
-      if (
+    const isExcludedTarget = (target: HTMLElement) =>
+      !!(
         target.closest('button') ||
         target.closest('input') ||
         target.closest('form') ||
         target.closest('.no-gestures')
-      ) {
-        return;
-      }
+      );
 
-      // Check for Long Press (Hold to 2x speed)
+    // Clears in-flight hold/tap state for the tracked pointer without acting on it
+    const resetPointerTracking = () => {
+      activePointerIdRef.current = null;
+      downPosRef.current = null;
+      if (holdTimeoutRef.current) {
+        clearTimeout(holdTimeoutRef.current);
+        holdTimeoutRef.current = null;
+      }
+    };
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (isLocked) return;
+      if (isExcludedTarget(e.target as HTMLElement)) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return; // Only left click for mouse
 
-      // Clear any previous hold timeout
-      if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
+      if (activePointerIdRef.current !== null) return; // extra finger — ignore
 
+      activePointerIdRef.current = e.pointerId;
+      downPosRef.current = { x: e.clientX, y: e.clientY };
+
+      if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = setTimeout(() => {
         // Trigger 2x speed hold
         isHoldingRef.current = true;
         prevRateRef.current = stateRef.current.playbackRate || 1;
         stateRef.current.onSetRate(2);
-      }, 500); // 500ms long press threshold
+      }, HOLD_THRESHOLD_MS);
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (e.pointerId !== activePointerIdRef.current || !downPosRef.current) return;
+      if (isHoldingRef.current) return; // already engaged — movement no longer cancels it
+
+      const dx = e.clientX - downPosRef.current.x;
+      const dy = e.clientY - downPosRef.current.y;
+      if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) {
+        if (holdTimeoutRef.current) {
+          clearTimeout(holdTimeoutRef.current);
+          holdTimeoutRef.current = null;
+        }
+        downPosRef.current = null; // too far to be a tap — pointerup will bail
+      }
+    };
+
+    const handlePointerCancel = (e: PointerEvent) => {
+      if (e.pointerId !== activePointerIdRef.current) return;
+      if (isHoldingRef.current) {
+        isHoldingRef.current = false;
+        stateRef.current.onSetRate(prevRateRef.current);
+      }
+      if (clickTimeoutRef.current) { // a cancel is never a real tap — drop any pending click too
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+      }
+      resetPointerTracking();
     };
 
     const handlePointerUp = (e: PointerEvent) => {
       if (isLocked) return;
-      // Clear hold timeout if pointer is released before 500ms
-      if (holdTimeoutRef.current) {
-        clearTimeout(holdTimeoutRef.current);
-        holdTimeoutRef.current = null;
-      }
+      if (e.pointerId !== activePointerIdRef.current) return;
+
+      const wasTap = downPosRef.current !== null;
+      resetPointerTracking();
 
       if (isHoldingRef.current) {
         // Release 2x speed hold
@@ -121,71 +184,53 @@ export function usePlayerGestures({
         return;
       }
 
-      const target = e.target as HTMLElement;
-      if (
-        target.closest('button') ||
-        target.closest('input') ||
-        target.closest('form') ||
-        target.closest('.no-gestures')
-      ) {
+      if (!wasTap) return; // drifted past the move threshold — a drag, not a tap
+
+      if (isExcludedTarget(e.target as HTMLElement)) return;
+
+      const rect = container.getBoundingClientRect();
+      const xPercent = (e.clientX - rect.left) / rect.width;
+      const isCenter = xPercent >= 0.3 && xPercent <= 0.7;
+
+      if (isCenter) { // resolves immediately — no double-tap delay for play/pause
+        if (clickTimeoutRef.current) {
+          clearTimeout(clickTimeoutRef.current);
+          clickTimeoutRef.current = null;
+        }
+        const wasHidden = stateRef.current.idle || (Date.now() - lastShowTimeRef.current < 500);
+        if (wasHidden) {
+          stateRef.current.showControls();
+        } else {
+          stateRef.current.handlePlayPause();
+        }
         return;
       }
 
-      // Handle clicks (Single / Double click detection)
-      const rect = container.getBoundingClientRect();
-      const xPercent = (e.clientX - rect.left) / rect.width;
-
+      // outer zones: single tap hides UI, double tap seeks ±10s
       if (clickTimeoutRef.current) {
-        // Double click detected!
         clearTimeout(clickTimeoutRef.current);
         clickTimeoutRef.current = null;
 
-        if (xPercent < 0.3) {
-          // Double click left: Seek back 10s
-          const video = videoRef.current;
-          if (video) {
-            const currentAbsolute = absolutePlaybackTime(video.currentTime, stateRef.current.transcodeOffset);
-            const newPos = Math.max(0, currentAbsolute - 10);
-            stateRef.current.onSeek(newPos);
-          }
-        } else if (xPercent > 0.7) {
-          // Double click right: Seek forward 10s
-          const video = videoRef.current;
-          if (video) {
-            const currentAbsolute = absolutePlaybackTime(video.currentTime, stateRef.current.transcodeOffset);
-            const newPos = Math.min(stateRef.current.mediaDuration, currentAbsolute + 10);
-            stateRef.current.onSeek(newPos);
-          }
-        } else {
-          // Double click center: Toggle Fullscreen
-          if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
+        const video = videoRef.current;
+        if (video) {
+          const currentAbsolute = absolutePlaybackTime(video.currentTime, stateRef.current.transcodeOffset);
+          if (xPercent < 0.3) {
+            stateRef.current.onSeek(Math.max(0, currentAbsolute - 10));
           } else {
-            document.documentElement.requestFullscreen().catch(() => {});
+            stateRef.current.onSeek(Math.min(stateRef.current.mediaDuration, currentAbsolute + 10));
           }
         }
       } else {
-        // Start single click timer
         clickTimeoutRef.current = setTimeout(() => {
           clickTimeoutRef.current = null;
 
-          // If the UI was just woken up by this tap's touchstart within the last 500ms,
-          // it means the UI was hidden before the tap. 
-          // If idle is true, it means it's currently hidden.
           const wasHidden = stateRef.current.idle || (Date.now() - lastShowTimeRef.current < 500);
-
           if (wasHidden) {
             stateRef.current.showControls();
           } else {
-            if (xPercent >= 0.3 && xPercent <= 0.7) {
-              // Single click center: Toggle Play/Pause
-              stateRef.current.handlePlayPause();
-            } else {
-              // Single click outer bounds: Hide UI
-              stateRef.current.hideControls();
-            }
+            stateRef.current.hideControls();
           }
-        }, 250); // 250ms double-click window
+        }, DOUBLE_TAP_WINDOW_MS);
       }
     };
 
@@ -219,12 +264,16 @@ export function usePlayerGestures({
     };
 
     container.addEventListener('pointerdown', handlePointerDown);
+    container.addEventListener('pointermove', handlePointerMove);
     container.addEventListener('pointerup', handlePointerUp);
+    container.addEventListener('pointercancel', handlePointerCancel);
     container.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
       container.removeEventListener('pointerdown', handlePointerDown);
+      container.removeEventListener('pointermove', handlePointerMove);
       container.removeEventListener('pointerup', handlePointerUp);
+      container.removeEventListener('pointercancel', handlePointerCancel);
       container.removeEventListener('wheel', handleWheel);
       if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
       if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
