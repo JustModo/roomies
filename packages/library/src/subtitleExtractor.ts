@@ -28,8 +28,10 @@ export const extractEmbeddedSubtitles = async (
   for (const stream of streams) {
     if (existingByIndex.has(stream.index)) continue;
 
-    const outputPath = path.join(SUBTITLE_DATA_DIR, `${mediaFileId}_${stream.index}.vtt`);
+    const mediaSubtitleDir = path.join(SUBTITLE_DATA_DIR, mediaFileId);
+    const outputPath = path.join(mediaSubtitleDir, `${stream.index}.vtt`);
     try {
+      await fs.promises.mkdir(mediaSubtitleDir, { recursive: true });
       await execFileAsync(FFMPEG_PATH, [
         '-y',
         '-i', videoPath,

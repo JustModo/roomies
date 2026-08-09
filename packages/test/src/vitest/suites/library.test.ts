@@ -68,4 +68,16 @@ describe('Library Scanner & Media Detection', () => {
     expect(showResult!.type).toBe('show');
     expect(showResult!.episodes.length).toBe(2);
   });
+
+  it('computes per-season episode numbers, not a combined season*10000+episode value', () => {
+    const ep1Path = mockMedia.createFile('Sparks of Tomorrow/Sparks of Tomorrow S01E01.mp4');
+    const ep2Path = mockMedia.createFile('Sparks of Tomorrow/Sparks of Tomorrow S01E02.mp4');
+
+    const showResult = processShow(mockMedia.dirPath, 'Sparks of Tomorrow', [ep1Path, ep2Path]);
+
+    expect(showResult).not.toBeNull();
+    const ep1 = showResult!.episodes.find((e) => e.path === ep1Path);
+    expect(ep1!.number).toBe(1);
+    expect(ep1!.title).toBe('Sparks of Tomorrow S01E01');
+  });
 });

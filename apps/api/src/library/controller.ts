@@ -121,7 +121,9 @@ export const LibraryController = {
     // NOTE: 'external' means admin-uploaded without language; 'external:<lang>' means admin-uploaded with language.
     // The frontend renders 'external' as 'External' and 'external:<lang>' as '<Lang> (Ext)'.
     const language = providedLanguage ? `external:${providedLanguage}` : 'external';
-    const destPath = path.join(SUBTITLE_DATA_DIR, `${mediaFile.id}_${crypto.randomUUID()}${ext}`);
+    const mediaSubtitleDir = path.join(SUBTITLE_DATA_DIR, mediaFile.id);
+    const destPath = path.join(mediaSubtitleDir, `${crypto.randomUUID()}${ext}`);
+    await fs.promises.mkdir(mediaSubtitleDir, { recursive: true });
     await fs.promises.writeFile(destPath, await file.toBuffer());
 
     const subtitle = await prisma.subtitle.create({

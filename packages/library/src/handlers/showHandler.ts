@@ -23,7 +23,7 @@ export const processShow = (
     bySeason.get(s)!.push(ep);
   }
 
-  const finalEpisodes: ScannedEpisode[] = [];
+  const finalEpisodes: (ScannedEpisode & { sortNumber: number | null })[] = [];
 
   for (const group of bySeason.values()) {
     const counts = new Map<number, number>();
@@ -57,23 +57,31 @@ export const processShow = (
         }
       }
 
+      const number = isValid ? ep.parsed.episode : null;
       const sortNumber = isValid ? ep.parsed.sortNumber : null;
       const baseFilename = path.basename(ep.path, path.extname(ep.path));
-      const formattedTitle = sortNumber !== null ? `${folderName} Episode ${sortNumber}` : baseFilename;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const formattedTitle =
+        number !== null
+          ? ep.parsed.season !== null
+            ? `${folderName} S${pad(ep.parsed.season)}E${pad(number)}`
+            : `${folderName} Episode ${number}`
+          : baseFilename;
 
       finalEpisodes.push({
         path: ep.path,
-        number: sortNumber,
+        number,
+        sortNumber,
         title: formattedTitle,
       });
     }
   }
 
-  // Sort episodes: numbered episodes first (by number), then alphabetically
+  // Sort episodes: numbered episodes first (by cross-season sort key), then alphabetically
   finalEpisodes.sort((a, b) => {
-    if (a.number !== null && b.number !== null) return a.number - b.number;
-    if (a.number !== null) return -1;
-    if (b.number !== null) return 1;
+    if (a.sortNumber !== null && b.sortNumber !== null) return a.sortNumber - b.sortNumber;
+    if (a.sortNumber !== null) return -1;
+    if (b.sortNumber !== null) return 1;
     return a.path.localeCompare(b.path);
   });
 
@@ -81,6 +89,6 @@ export const processShow = (
     path: folderPath,
     name: folderName,
     type: 'show',
-    episodes: finalEpisodes,
+    episodes: finalEpisodes.map(({ path, number, title }) => ({ path, number, title })),
   };
 };
