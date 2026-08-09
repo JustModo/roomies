@@ -32,6 +32,14 @@ export class AudioRelay {
     private desiredSinkId: string | undefined;
     private analyserNode: AnalyserNode | null = null;
     private vadInterval: number | ReturnType<typeof setInterval> | null = null;
+    /** All peer outputs route through this so a single control scales everyone at once. */
+    private masterGainNode: GainNode | null = null;
+    /** Auto-ducks the master bus relative to the video's volume. */
+    private duckGainNode: GainNode | null = null;
+    private desiredMasterVolume = 100;
+    private desiredDuckLevel = 1;
+    /** Voice bus gain tracks video volume scaled by this fraction, so voices stay under the video's level. */
+    private static readonly DUCK_RATIO = 0.7;
 
     /** Called with each encoded Opus chunk that should be sent to the server. */
     public onChunk?: ChunkCallback;
@@ -203,17 +211,56 @@ export class AudioRelay {
             this.audioCtx.resume().catch(() => {});
         }
 
+        const output = this.ensureOutputChain(this.audioCtx);
+
         let peer = this.peers.get(userId);
         if (!peer) {
-            peer = new PeerPlayer(this.audioCtx, this.config);
+            peer = new PeerPlayer(this.audioCtx, this.config, output);
             this.peers.set(userId, peer);
         }
         peer.scheduleChunk(packet);
     }
 
-    /** Sets the playback volume (0–100) for a specific peer. */
+    /** Sets the playback volume (0–200) for a specific peer. */
     public setVolume(userId: string, volume: number): void {
         this.peers.get(userId)?.setVolume(volume);
+    }
+
+    /** Creates (once per AudioContext) the shared master/duck gain chain all peers route through. */
+    private ensureOutputChain(ctx: AudioContext): GainNode {
+        if (!this.masterGainNode || !this.duckGainNode) {
+            this.masterGainNode = ctx.createGain();
+            this.duckGainNode = ctx.createGain();
+            this.masterGainNode.gain.value = Math.max(0, Math.min(1, this.desiredMasterVolume / 100));
+            this.duckGainNode.gain.value = this.desiredDuckLevel;
+            this.masterGainNode.connect(this.duckGainNode);
+            this.duckGainNode.connect(ctx.destination);
+        }
+        return this.masterGainNode;
+    }
+
+    /** Sets the master voice volume (0–100) applied on top of every individual peer's volume. */
+    public setMasterVolume(volume: number): void {
+        this.desiredMasterVolume = volume;
+        if (this.masterGainNode && this.audioCtx) {
+            this.masterGainNode.gain.setTargetAtTime(
+                Math.max(0, Math.min(1, volume / 100)),
+                this.audioCtx.currentTime,
+                this.config.playback.gainRampSeconds
+            );
+        }
+    }
+
+    /** Ducks the voice bus to track the video's volume (0–1), scaled by DUCK_RATIO so it stays under it. */
+    public setDuckLevel(videoVolume: number): void {
+        this.desiredDuckLevel = Math.max(0, Math.min(1, videoVolume)) * AudioRelay.DUCK_RATIO;
+        if (this.duckGainNode && this.audioCtx) {
+            this.duckGainNode.gain.setTargetAtTime(
+                this.desiredDuckLevel,
+                this.audioCtx.currentTime,
+                this.config.playback.gainRampSeconds
+            );
+        }
     }
 
     /** Locally silences or restores a specific peer's audio output. */
@@ -301,6 +348,16 @@ export class AudioRelay {
         if (this.analyserNode) {
             this.analyserNode.disconnect();
             this.analyserNode = null;
+        }
+
+        if (this.masterGainNode) {
+            this.masterGainNode.disconnect();
+            this.masterGainNode = null;
+        }
+
+        if (this.duckGainNode) {
+            this.duckGainNode.disconnect();
+            this.duckGainNode = null;
         }
 
         if (this.encoder) {

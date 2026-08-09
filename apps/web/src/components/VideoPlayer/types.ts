@@ -38,6 +38,8 @@ export interface VideoPlayerProps {
   onStatusChange: (status: SyncStatus) => void;
   onReportTime: (time: number) => void;
   onReportResolution?: (resolution: string) => void;
+  /** Called whenever local playback volume (0–1) changes, so voice chat can duck under it. */
+  onVolumeChange?: (volume: number) => void;
   showChat?: boolean;
   onToggleChat?: () => void;
   isFullscreen?: boolean;

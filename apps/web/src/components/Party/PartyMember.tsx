@@ -143,12 +143,12 @@ export const PartyMember: React.FC<PartyMemberProps> = ({
                 <input
                   type="range"
                   min="0"
-                  max="100"
+                  max="200"
                   value={volume}
                   onChange={(e) => onUpdateLocalState({ volume: parseInt(e.target.value) })}
                   className="volume-slider w-full h-1 rounded cursor-pointer appearance-none outline-none opacity-70 hover:opacity-100 transition-opacity"
                   style={{
-                    background: `linear-gradient(to right, rgb(160 160 160) 0%, rgb(160 160 160) ${volume}%, rgb(255 255 255 / 0.1) ${volume}%, rgb(255 255 255 / 0.1) 100%)`
+                    background: `linear-gradient(to right, rgb(160 160 160) 0%, rgb(160 160 160) ${volume / 2}%, rgb(255 255 255 / 0.1) ${volume / 2}%, rgb(255 255 255 / 0.1) 100%)`
                   }}
                 />
                 <span className="text-[10px] font-mono text-paper/50 w-7 text-right select-none leading-none">

@@ -6,10 +6,15 @@ import { useAudioDevices, AudioDeviceInfo } from '../hooks/useAudioDevices';
 
 const INPUT_DEVICE_STORAGE_KEY = 'roomies_voice_input_device';
 const OUTPUT_DEVICE_STORAGE_KEY = 'roomies_voice_output_device';
+const MASTER_VOLUME_STORAGE_KEY = 'roomies_voice_master_volume';
 
 interface VoiceContextValue {
   joinVoice: () => Promise<void>;
   setVolume: (userId: string, volume: number) => void;
+  masterVolume: number;
+  setMasterVolume: (volume: number) => void;
+  /** Feeds the video's current volume (0–1) into the auto-ducking system. */
+  setVideoVolume: (volume: number) => void;
   setPeerMuted: (userId: string, muted: boolean) => void;
   removePeer: (userId: string) => void;
   localStates: Record<string, LocalMemberState>;
@@ -138,6 +143,17 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   // Local state for peers (volume, mute)
   const [localStates, setLocalStates] = useState<Record<string, LocalMemberState>>({});
 
+  // VideoPlayer can report its volume before the relay is created (it's a
+  // child effect, which fires before this provider's own mount effect), so
+  // remember the last value to prime the relay once it actually exists.
+  const videoVolumeRef = useRef(1);
+
+  const [masterVolume, setMasterVolumeState] = useState<number>(() => {
+    const saved = localStorage.getItem(MASTER_VOLUME_STORAGE_KEY);
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) ? parsed : 100;
+  });
+
   // Device selection (input/output mic+speaker picker) + fallback handling
   const { inputs, outputs, refresh: refreshDevices, outputSelectionSupported } = useAudioDevices();
   const [selectedInputId, setSelectedInputId] = useState<string | undefined>(
@@ -239,6 +255,8 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     relay.onActiveSpeakersChanged = (speakers: Set<string>) => {
       setActiveSpeakers(speakers);
     };
+    relay.setMasterVolume(masterVolume);
+    relay.setDuckLevel(videoVolumeRef.current);
     relayRef.current = relay;
     isComponentMounted.current = true;
     return () => {
@@ -392,7 +410,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     relay.onChunk = (chunk: Uint8Array) => {
       const ws = voiceWsRef.current;
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(chunk);
+        ws.send(chunk as Uint8Array<ArrayBuffer>);
       }
     };
 
@@ -412,9 +430,22 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     }
   }, [fallbackToDefaultInput, refreshDevices]);
 
-  /** Sets playback volume (0–100) for a specific peer. */
+  /** Sets playback volume (0–200) for a specific peer. */
   const setVolume = useCallback((userId: string, volume: number) => {
     relayRef.current?.setVolume(userId, volume);
+  }, []);
+
+  /** Sets the master voice volume (0–100) applied on top of every peer's individual volume. */
+  const setMasterVolume = useCallback((volume: number) => {
+    setMasterVolumeState(volume);
+    localStorage.setItem(MASTER_VOLUME_STORAGE_KEY, String(volume));
+    relayRef.current?.setMasterVolume(volume);
+  }, []);
+
+  /** Feeds the video's current volume (0–1) into the auto-ducking system. */
+  const setVideoVolume = useCallback((volume: number) => {
+    videoVolumeRef.current = volume;
+    relayRef.current?.setDuckLevel(volume);
   }, []);
 
   /** Locally mutes or unmutes a specific peer. */
@@ -435,6 +466,9 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   const value: VoiceContextValue = {
     joinVoice,
     setVolume,
+    masterVolume,
+    setMasterVolume,
+    setVideoVolume,
     setPeerMuted,
     removePeer,
     localStates,

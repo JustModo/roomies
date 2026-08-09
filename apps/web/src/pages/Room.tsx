@@ -203,7 +203,7 @@ function RoomInner({
   sendMessage
 }: RoomInnerProps) {
   const { user } = useAuth();
-  const { activeSpeakers } = useVoice();
+  const { activeSpeakers, setVideoVolume } = useVoice();
   const vpHeight = useVisualViewportHeight();
   const { isOpen, setIsOpen, addLocalSystemMessage, setActiveTab, focusChatInput } = useChat();
 
@@ -337,6 +337,7 @@ function RoomInner({
           onStatusChange={setStatus}
           onReportTime={reportLocalTime}
           onReportResolution={reportActiveResolution}
+          onVolumeChange={setVideoVolume}
           showChat={isOpen}
           onToggleChat={() => setIsOpen(!isOpen)}
           isFullscreen={isFullscreen}

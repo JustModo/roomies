@@ -31,6 +31,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onStatusChange,
   onReportTime,
   onReportResolution,
+  onVolumeChange,
   showChat = false,
   onToggleChat,
   isFullscreen = false,
@@ -62,7 +63,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) {
       videoRef.current.volume = volume;
     }
-  }, [volume]);
+    onVolumeChange?.(volume);
+  }, [volume, onVolumeChange]);
 
   const activeOffsetRef = useRef<number>(0);
   const pendingReinitRef = useRef<boolean>(false);
