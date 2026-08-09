@@ -49,6 +49,10 @@ ENV NODE_ENV=production
 ENV ROOMIES_CONFIG_PATH=/config/roomies.conf
 EXPOSE 5123
 
+# Probes through Caddy so an unhealthy result covers both processes.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:5123/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 # Copy the deployed production backend
 COPY --from=builder /app/deploy/server /app/apps/api
 # Copy the built frontend

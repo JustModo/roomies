@@ -27,10 +27,6 @@
         uri strip_prefix /hls
         file_server
 
-        header {
-            Access-Control-Allow-Origin *
-        }
-
         # NOTE: Segments are immutable once written (seek/restart always gets a fresh
         # randomly-suffixed directory), so they can be cached forever. The playlist keeps
         # growing as new segments are appended, so it must never be cached.

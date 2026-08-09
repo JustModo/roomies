@@ -3,6 +3,7 @@ import { AuthService } from './service';
 import { SetupRootSchema, LoginSchema, LoginRequest } from '@roomies/contracts';
 import { prisma } from '../database/sqlite';
 import { kickUserConnections } from '../websocket/gateway';
+import { clearLoginAttempts, recordLoginFailure } from './middleware';
 
 export const AuthController = {
   async status(req: FastifyRequest, reply: FastifyReply) {
@@ -35,10 +36,12 @@ export const AuthController = {
 
     try {
       const response = await AuthService.login(parsedBody.data);
+      clearLoginAttempts(req.ip);
       kickUserConnections(req.server, response.user.id);
       return reply.send(response);
     } catch (e: any) {
       if (e.message === 'Invalid credentials') {
+        recordLoginFailure(req.ip);
         return reply.status(401).send({ error: e.message });
       }
       return reply.status(500).send({ error: 'Internal Server Error' });

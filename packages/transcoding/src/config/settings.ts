@@ -1,5 +1,5 @@
 import { FFMPEG_PRESET, HWACCEL_MODE } from '@roomies/config';
-import { detectHardwareEncoder } from '../ffmpeg/hwaccel';
+import { assertFfmpegAvailable, detectHardwareEncoder } from '../ffmpeg/hwaccel';
 
 export type FfmpegPreset = 'ultrafast' | 'veryfast' | 'fast' | 'medium' | 'slow';
 export type HwAccelMode = 'auto' | 'cpu';
@@ -25,6 +25,7 @@ const isHwAccelMode = (value: string): value is HwAccelMode =>
 
 /** Initializes and caches transcode settings from config and hardware detection. */
 export const initTranscodeSettings = async (): Promise<TranscodeSettings> => {
+  await assertFfmpegAvailable();
   const detectedHardware = await detectHardwareEncoder();
 
   cache = {

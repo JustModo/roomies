@@ -8,6 +8,18 @@ const execFileAsync = promisify(execFile);
 
 let cached: HardwareEncoder | null = null;
 
+/** Fails fast at boot when the binary is missing, instead of at first playback. */
+export const assertFfmpegAvailable = async (): Promise<void> => {
+  try {
+    await execFileAsync(FFMPEG_PATH, ['-version']);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`ffmpeg not found at "${FFMPEG_PATH}". Install ffmpeg or set FFMPEG_PATH.`);
+    }
+    throw err;
+  }
+};
+
 /**
  * Detects supported hardware H.264 encoder.
  * NOTE: Cached after the first call.

@@ -20,6 +20,9 @@ import { registerPartySocketEvents } from './party/socket';
 import { registerSyncSocketEvents } from './sync/socket';
 import { registerStoreSocketEvents } from './websocket/store';
 import { getCorsOptions } from './config/cors';
+import { errorHandler } from './config/errors';
+import { healthRoutes } from './health';
+
 export interface BootstrapOptions {
   /** Skip wiping the transcode cache directory on startup. Useful in tests. */
   skipTranscodeClean?: boolean;
@@ -41,9 +44,12 @@ declare module 'fastify' {
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
   const ctx = createAppContext(options);
-  const app = fastify({ logger: false });
+  // NOTE: trustProxy so req.ip is the real client behind Caddy, not loopback —
+  // the login rate limiter keys on it. Only Caddy's port is published.
+  const app = fastify({ logger: false, trustProxy: true });
 
   app.decorate('ctx', ctx);
+  app.setErrorHandler(errorHandler);
 
   if (!options.skipTranscodeClean) {
     ctx.transcodeManager.stopAll();
@@ -94,6 +100,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   setupWebsocketGateway(app);
   setupVoiceGateway(app);
 
+  await app.register(healthRoutes, { prefix: '/api/health' });
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(userRoutes, { prefix: '/api/users' });
   await app.register(libraryRoutes, { prefix: '/api/library' });
