@@ -1,14 +1,10 @@
 export const defaultConf = `
 # Roomies Configuration File
 # --------------------------
-# All configuration properties strictly controlled here.
-# Do not rely on environment variables for overrides.
-
-# Internal Server Port
-PORT=3000
-
-# CORS Origin for the web frontend
-CORS_ORIGIN=http://localhost
+# Timezone for log timestamps and time-aware operations (IANA timezone name).
+# Examples: UTC, America/New_York, Europe/London, Asia/Tokyo
+# https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+TZ=UTC
 
 # FFmpeg video codec for transcoding
 FFMPEG_VIDEO_CODEC=libx264

@@ -28,6 +28,7 @@ export function loadConfig(): Config {
   const parsedConf = dotenv.parse(fs.readFileSync(configPath, 'utf8'));
 
   const devDefaults = {
+    CORS_ORIGIN: 'http://localhost',
     MEDIA_ROOT: path.resolve(projectRoot, 'media'),
     CACHE_DIR: path.resolve(projectRoot, 'cache'),
     FFMPEG_PATH: 'ffmpeg',
@@ -35,6 +36,7 @@ export function loadConfig(): Config {
   };
 
   const prodDefaults = {
+    CORS_ORIGIN: 'http://localhost',
     MEDIA_ROOT: '/media',
     CACHE_DIR: '/cache',
     FFMPEG_PATH: '/usr/lib/jellyfin-ffmpeg/ffmpeg',
@@ -44,13 +46,14 @@ export function loadConfig(): Config {
   const defaults = isDev ? devDefaults : prodDefaults;
 
   const rawConfig = {
-    CORS_ORIGIN: parsedConf.CORS_ORIGIN,
     FFMPEG_VIDEO_CODEC: parsedConf.FFMPEG_VIDEO_CODEC,
     FFMPEG_PRESET: parsedConf.FFMPEG_PRESET,
     HWACCEL_MODE: parsedConf.HWACCEL_MODE,
     MAX_CONCURRENT_VARIANTS: parsedConf.MAX_CONCURRENT_VARIANTS,
-    PORT: parsedConf.PORT,
+    TZ: parsedConf.TZ,
 
+    PORT: 3000,
+    CORS_ORIGIN: process.env.CORS_ORIGIN || defaults.CORS_ORIGIN,
     MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,
     CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
     SUBTITLE_DATA_DIR: process.env.SUBTITLE_DATA_DIR || subtitleDataDir,

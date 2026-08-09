@@ -30,6 +30,7 @@ export const SUBTITLE_DATA_DIR = config.SUBTITLE_DATA_DIR;
 export const DATABASE_URL = config.DATABASE_URL;
 export const FFMPEG_PATH = config.FFMPEG_PATH;
 export const FFPROBE_PATH = config.FFPROBE_PATH;
+export const TZ = config.TZ;
 
 export const VIDEO_CODEC = config.FFMPEG_VIDEO_CODEC;
 
