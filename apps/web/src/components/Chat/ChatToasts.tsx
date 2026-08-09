@@ -50,7 +50,7 @@ function useIsFullscreen(): boolean {
 }
 
 export const ChatToasts: React.FC = () => {
-  const { isOpen, setIsOpen, toasts, activeTab, roomMembers = [] } = useChat();
+  const { isOpen, setIsOpen, toasts, activeTab, knownUsernames = [] } = useChat();
   const isMobile = useIsMobile();
   const isFullscreen = useIsFullscreen();
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -84,8 +84,6 @@ export const ChatToasts: React.FC = () => {
         : isOpen && activeTab === 'chat';
 
   if (chatPanelVisible || visible.length === 0) return null;
-
-  const knownUsernames = roomMembers.map((m) => m.username);
 
   return (
     <div

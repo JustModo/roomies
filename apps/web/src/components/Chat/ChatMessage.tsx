@@ -12,7 +12,7 @@ interface ChatMessageProps {
 
 /** A single chat message row — supports chat and system message variants */
 export const ChatMessage: React.FC<ChatMessageProps> = ({ msg, isGrouped, isNextGrouped }) => {
-  const { roomMembers = [], currentUsername } = useChat();
+  const { knownUsernames = [], currentUsername } = useChat();
 
   if (msg.isSystem) {
     return (
@@ -37,7 +37,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ msg, isGrouped, isNext
   else if (isGrouped && !isNextGrouped) paddingClass = 'pt-0.5 pb-1';
 
   const isPingedForMe = !msg.isMine && isUserPinged(msg.body, currentUsername);
-  const knownUsernames = roomMembers.map((m) => m.username);
   const tokens = parseMentions(msg.body, knownUsernames);
 
   return (

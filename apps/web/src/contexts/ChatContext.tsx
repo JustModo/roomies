@@ -48,6 +48,8 @@ interface ChatContextType {
   registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
   emojiReactions: EmojiReaction[];
   roomMembers: { userId: string; username: string }[];
+  /** Every username ever seen in this room, so a mention keeps its formatting after that user leaves. */
+  knownUsernames: string[];
   currentUsername?: string | null;
 }
 
@@ -116,6 +118,38 @@ export function ChatProvider({
   useEffect(() => {
     roomMembersRef.current = roomMembers;
   }, [roomMembers]);
+
+  const knownUsernamesKey = `chat_known_usernames:${window.location.pathname}`;
+  // Superset of every username ever seen in this room — unlike roomMembers, this
+  // never shrinks when someone leaves, so a mention of them stays formatted.
+  const [knownUsernames, setKnownUsernames] = useState<string[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(knownUsernamesKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Grow the ever-seen username set as members come and go; never remove from it.
+  useEffect(() => {
+    if (roomMembers.length === 0) return;
+    setKnownUsernames((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const m of roomMembers) {
+        if (!next.has(m.username)) {
+          next.add(m.username);
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      const result = [...next];
+      sessionStorage.setItem(knownUsernamesKey, JSON.stringify(result));
+      return result;
+    });
+  }, [roomMembers, knownUsernamesKey]);
+  
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [toasts, setToasts] = useState<Message[]>([]);
@@ -498,6 +532,7 @@ export function ChatProvider({
       focusChatInput, registerChatInputRef,
       emojiReactions,
       roomMembers,
+      knownUsernames,
       currentUsername: roomMembers.find(m => m.userId === currentUserId)?.username,
     }}>
       {children}
