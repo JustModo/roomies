@@ -15,13 +15,7 @@ export interface SeekResult {
   needsReinit: boolean;
 }
 
-/**
- * Single decision point for all seek operations, regardless of session scope.
- *
- * Sync and async sessions go through the same coverage-check → align → recreate
- * pipeline. The only difference is which TranscodeSession is consulted, determined
- * by the SessionScope.
- */
+/** Unified decision point for seek operations across session scopes. */
 export class SessionPlaybackCoordinator {
   /** Last soft-warmed resolution/offset per async user — avoid per-heartbeat spawn/force-resume. */
   private lastAsyncWarm = new Map<string, { resolution: string; offset: number }>();
@@ -36,8 +30,7 @@ export class SessionPlaybackCoordinator {
       roomStore.updateMember(userId, { asyncSession: { transcodeOffset: swappedOffset } });
     }
 
-    // Soft warm only when resolution/offset changes — every offset always carries the
-    // full ladder now, so there's no "locked to another resolution" case to gate on.
+    // Soft warm only when resolution/offset changes.
     if (isResolution(resolution)) {
       const offset =
         swappedOffset

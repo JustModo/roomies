@@ -84,10 +84,7 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
   await runWithConcurrency(episodes, async (episode) => {
     let mediaFile = existing.find((mf) => mf.path === episode.path);
 
-    // A file's mtime only moves when its content is actually rewritten (e.g. a re-grab
-    // replacing the same path) — checking it is one stat() syscall, orders of magnitude
-    // cheaper than the ffprobe/ffmpeg calls below. Everything expensive is gated on it, so
-    // an unchanged library re-scans at stat-only cost instead of re-probing every file.
+    // Check file mtime via stat() to avoid expensive probe calls on unchanged files.
     let sourceMtimeMs: number;
     try {
       sourceMtimeMs = (await fs.promises.stat(episode.path)).mtimeMs;
@@ -131,16 +128,14 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
 
     if (!isNewOrChanged) return;
 
-    // Fire-and-forget: embedded subtitle extraction shouldn't block the scan.
-    // NOTE: this is the only automatic subtitle source left — sidecar files next to
-    // media are no longer read; external subtitles are added via the admin upload UI.
+    // Asynchronously extract embedded subtitles without blocking scan loop.
     const mediaFileId = mediaFile.id;
     const mediaFilePath = mediaFile.path;
     extractEmbeddedSubtitles(prisma, mediaFileId, mediaFilePath).catch((err) => {
       console.error(`[library] Embedded subtitle extraction failed for ${mediaFilePath}:`, err);
     });
 
-    // Fire-and-forget: audio track probing shouldn't block the scan either.
+    // Asynchronously probe audio tracks without blocking scan loop.
     probeAudioTracks(prisma, mediaFileId, mediaFilePath).catch((err) => {
       console.error(`[library] Audio track probing failed for ${mediaFilePath}:`, err);
     });

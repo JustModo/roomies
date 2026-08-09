@@ -54,8 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUser();
   }, [token]);
 
-  // Any fetchApi 401 (token expired, revoked, or the account was removed) logs out
-  // gracefully instead of leaving stale auth state behind, same as the WS kick path.
+  // Automatically log out on 401 unauthorized API responses.
   useEffect(() => {
     setUnauthorizedHandler(() => {
       logout();

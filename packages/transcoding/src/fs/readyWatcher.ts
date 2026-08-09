@@ -56,7 +56,7 @@ export function startSegmentReadyWatcher(options: SegmentReadyWatcherOptions): {
     }
   }
 
-  // Docker bind mounts on Windows/WSL2 often skip inotify — poll for the full lifetime.
+  // Poll continuously for environments (e.g. Docker bind mounts) where inotify is unreliable.
   pollInterval = setInterval(checkAll, pollMs);
 
   return {

@@ -1,12 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { getEmbeddedAudioStreams } from './ffprobe';
 
-/**
- * Probes a video's embedded audio streams and syncs them into the AudioTrack table —
- * upserts streams still present, and deletes rows for streams that no longer exist (e.g.
- * the file at this path was replaced by a re-rip with a different track layout).
- * Fire-and-forget: callers should not await this inline in the scan loop, just log failures.
- */
+/** Probes embedded audio streams and syncs them into the AudioTrack table. */
 export const probeAudioTracks = async (
   prisma: PrismaClient,
   mediaFileId: string,
@@ -14,8 +9,7 @@ export const probeAudioTracks = async (
 ): Promise<void> => {
   const streams = await getEmbeddedAudioStreams(videoPath);
 
-  // The container's own default flag wins; if none is set (or several conflicting ones
-  // are), fall back to the first stream rather than trusting raw ffprobe disposition blindly.
+  // Use the container's default stream flag or fall back to the first stream.
   const defaultIndex = streams.find((s) => s.isDefault)?.index ?? streams[0]?.index;
 
   await prisma.$transaction([

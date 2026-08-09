@@ -59,7 +59,7 @@ export function useWebSocket() {
       setIsConnected(false);
 
       if (attemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        // Kept retrying and never got back in — treat as a dead session rather than looping forever.
+        // Treat max retry exhaustion as an unreachable dead session.
         setAuthError('unreachable');
         return;
       }

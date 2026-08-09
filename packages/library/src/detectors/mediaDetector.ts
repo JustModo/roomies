@@ -7,8 +7,7 @@ export const detectMediaType = (folderName: string, videoFiles: string[]): 'movi
     return 'show';
   }
 
-  // 2. Single video file in a title directory:
-  // Default to 'movie' unless there are explicit TV show indicators (Season subfolder or S01E01 format)
+  // 2. Single video file: default to 'movie' unless explicit show markers exist.
   if (videoFiles.length === 1) {
     const filePath = videoFiles[0];
     const fileName = path.basename(filePath).toLowerCase();

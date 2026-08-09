@@ -56,8 +56,7 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
     };
   }
 
-  // 5. Try leading 101 format (3+ digits often means season + episode, e.g. 101 -> S1E1, 1205 -> S12E5)
-  // Only if standalone to avoid matching 1080p etc.
+  // 5. Try leading 3/4-digit standalone format (e.g. 101 -> S1E1, 1205 -> S12E5).
   const joinedMatch = lowerBase.match(/(?:^|\s|[\[\(-])([1-9]\d{2,3})(?:\s|[\]\)-]|$)/);
   if (joinedMatch) {
     const numStr = joinedMatch[1];

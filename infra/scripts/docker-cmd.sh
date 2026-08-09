@@ -1,9 +1,7 @@
 #!/bin/bash
 set -e
 
-# NOTE: `caddy run` (not `start`) stays in the foreground so its death is visible —
-# the container must exit when either process dies, or Docker sees a healthy
-# container that is silently serving nothing.
+# Run Caddy in foreground so container exits if either process dies.
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
 CADDY_PID=$!
 

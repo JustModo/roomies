@@ -31,21 +31,14 @@ interface LegState {
   maxCoveredTime: number;
 }
 
-/**
- * Manages one shared FFmpeg process that decodes the source once and encodes every configured
- * resolution via a `-filter_complex split` graph, instead of N independent processes each
- * redundantly decoding the same frames. Used uniformly by both sync and async sessions —
- * the resolution list is policy-driven (see policy.ts), not a fork in this class.
- */
+/** Manages a shared FFmpeg process encoding all configured resolutions via filter_complex split. */
 export class TranscodeWorker extends EventEmitter {
   public readonly resolutions: Resolution[];
   public readonly sessionId: string;
   public readonly audioTracks: AudioTrackDescriptor[];
-  /** Only when there's a genuine choice do we pay for separate audio-only HLS outputs;
-   *  a single audio track keeps today's behavior (muxed into each resolution, zero extra cost). */
+  /** Enables separate audio-only HLS outputs when multiple audio tracks exist. */
   public readonly hasSeparateAudio: boolean;
-  /** Zero audio tracks means there's nothing to map — omit `-map 0:a`/`-c:a` entirely
-   *  instead of pointing ffmpeg at a stream that doesn't exist (fatal arg error). */
+  /** Omits audio mapping options when zero audio tracks are present in source. */
   public readonly hasMuxedAudio: boolean;
 
   private readonly legDirs: Map<Resolution, string>;
@@ -149,10 +142,7 @@ export class TranscodeWorker extends EventEmitter {
     const splitLabels = this.resolutions.map((_, i) => `v${i}`);
     const outLabels = this.resolutions.map((_, i) => `o${i}`);
 
-    // NOTE: decode + split happen once; per-leg scale (and, for vaapi/qsv, the hwupload)
-    // must live inside this filter_complex graph — a labeled complex-filter output can't
-    // also go through a separate simple `-vf` after `-map`. Works fine for a single
-    // resolution too (split=1 is a cheap no-op), so there's no separate single-output path.
+    // Decode and split happen once; per-leg scaling is performed within filter_complex.
     const filterParts = [`[0:v]split=${this.resolutions.length}${splitLabels.map(l => `[${l}]`).join('')}`];
     this.resolutions.forEach((res, i) => {
       const preset = RESOLUTION_PRESETS[res];
@@ -161,8 +151,7 @@ export class TranscodeWorker extends EventEmitter {
       filterParts.push(`[${splitLabels[i]}]${scaleFilter}${hwSuffix}[${outLabels[i]}]`);
     });
 
-    // WHY: Use encoder-native -g instead of filtergraph force_key_frames to save CPU.
-    // GOP size is derived from the probed source fps so keyframes land on segment boundaries.
+    // Use encoder-native -g based on source FPS for segment-aligned keyframes.
     const gopSize = Math.round(SEGMENT_DURATION * this.sourceFps);
 
     const outputArgs: string[] = [];
@@ -189,9 +178,7 @@ export class TranscodeWorker extends EventEmitter {
 
       outputArgs.push(
         '-map', `[${outLabels[i]}]`,
-        // NOTE: with >1 audio track, audio is demuxed into its own sibling HLS outputs below
-        // (so hls.js can switch tracks without touching the video buffer); with exactly 1,
-        // audio stays muxed into every resolution; with 0, there's nothing to map at all.
+        // Audio is demuxed into sibling HLS outputs when multiple tracks exist.
         ...(this.hasMuxedAudio ? ['-map', '0:a'] : []),
         ...videoArgs,
         '-b:v', preset.videoBitrate,
@@ -264,11 +251,7 @@ export class TranscodeWorker extends EventEmitter {
     proc.on('exit', (code, signal) => {
       this._isRunning = false;
 
-      // NOTE: if the process exits after producing at least one segment for a leg that
-      // hadn't been marked ready yet (e.g. a very short source), mark it ready so callers
-      // awaiting `once('ready')` aren't stuck. A leg that's still empty when a non-stop-requested
-      // exit happens (e.g. a seek past EOF, or a bad -map for that leg) never will be — that's
-      // a failure, not a no-op, even when ffmpeg's own exit code is 0.
+      // Mark leg ready on exit if segments exist; flag starved legs on unexpected exit.
       let anyLegStarved = false;
       for (const res of this.resolutions) {
         const leg = this.legs.get(res)!;
@@ -298,9 +281,7 @@ export class TranscodeWorker extends EventEmitter {
       }
 
       this.stopWatchers();
-      // NOTE: FFmpeg traps SIGTERM to shut down gracefully (flushing the final segment/playlist)
-      // and then exits with its own code (observed: 255) rather than being reported as killed by
-      // signal — so `signal === 'SIGTERM'` alone doesn't reliably detect an intentional stop.
+      // FFmpeg traps SIGTERM to flush segments and exit cleanly.
       if (!this.stopRequested && (anyLegStarved || (code !== 0 && signal !== 'SIGTERM'))) {
         this.handleFailure(hw, new Error(`FFmpeg exited with code ${code}, signal ${signal}, produced no output for one or more legs`));
         return;
@@ -311,14 +292,13 @@ export class TranscodeWorker extends EventEmitter {
     this.watchSegments();
   }
 
-  /** NOTE: Fall back to CPU encoding once if hardware encoding fails before ANY leg becomes ready. */
+  /** Fall back to CPU encoding once if hardware encoding fails before any leg is ready. */
   private handleFailure(hw: HardwareEncoder | null, err: Error): void {
     const anyLegReady = this.resolutions.some(res => this.legs.get(res)!.isReady);
     if (hw !== null && !anyLegReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
       console.error(`[transcode] worker [${this.resolutions.join(',')}] hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
-      // The encoder was falsely detected as usable (or degraded at runtime) — downgrade the
-      // shared detection cache so future workers don't keep re-attempting it from scratch.
+      // Downgrade shared detection cache so subsequent workers skip hardware encoder.
       downgradeToCpu();
       this.spawnProcess(null);
       return;
@@ -342,13 +322,13 @@ export class TranscodeWorker extends EventEmitter {
           this.on('exit', onExit);
         });
 
-        // NOTE: SIGCONT is required to process SIGTERM if suspended.
+        // SIGCONT is required to process SIGTERM if suspended.
         if (this._isSuspended) {
           this.process.kill('SIGCONT');
         }
         this.process.kill('SIGTERM');
 
-        // NOTE: Force kill if FFmpeg hangs for more than 3 seconds
+        // Force kill if FFmpeg hangs for more than 3 seconds.
         const timeout = setTimeout(() => {
           if (this.process) this.process.kill('SIGKILL');
         }, 3000);
@@ -365,10 +345,7 @@ export class TranscodeWorker extends EventEmitter {
     return this.stopPromise;
   }
 
-  /** NOTE: Suspend/resume the whole shared process based on the MOST-BEHIND leg's progress.
-   *  There's no per-resolution independent throttling anymore — an offset either has active
-   *  playheads (this gets called with their furthest position) or it doesn't (the caller,
-   *  TranscodeSession, simply stops calling this and relies on cleanupOffsetIfEmpty/GC instead). */
+  /** Suspend/resume the shared process based on the most-behind leg's progress. */
   manageCache(currentPlayhead: number): void {
     if (!this.resolutions.some(res => this.legs.get(res)!.isReady)) return;
 

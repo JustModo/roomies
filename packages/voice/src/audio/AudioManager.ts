@@ -16,13 +16,7 @@ export interface AcquireResult {
 /** Fired when the active input track ends unexpectedly (e.g. the device was unplugged). */
 export type TrackEndedCallback = () => void;
 
-/**
- * Manages the local microphone capture pipeline:
- *   getUserMedia → RNNoise AudioWorklet (noise suppression) → MediaStreamDestination
- *
- * The resulting `stream` is what gets fed into the encoder. Muting is done by
- * disabling the source track so no audio data enters the worklet graph.
- */
+/** Manages local microphone capture and RNNoise noise suppression pipeline. */
 export class AudioManager {
     private readonly config: VoiceConfig;
     private localStream: MediaStream | null = null;
@@ -68,11 +62,7 @@ export class AudioManager {
         } as MediaStreamConstraints;
     }
 
-    /**
-     * Acquires a mic stream for the given deviceId. If the device is no longer
-     * available (unplugged, or a stale saved preference), falls back to the
-     * system default device rather than throwing.
-     */
+    /** Acquires a mic stream with fallback to default device if target is unavailable. */
     private async acquireStream(deviceId?: string): Promise<{ stream: MediaStream; usedFallback: boolean }> {
         try {
             const stream = await navigator.mediaDevices.getUserMedia(this.buildConstraints(deviceId));
@@ -111,8 +101,7 @@ export class AudioManager {
 
     private async buildRnnoiseGraph(): Promise<void> {
         if (!this.localStream) return;
-        // Attempt to wire up the RNNoise AudioWorklet for ML-based noise suppression.
-        // Falls back to raw localStream if WASM/worklet fails.
+        // Wire up RNNoise AudioWorklet with fallback to raw localStream on failure.
         try {
             this.audioContext = new AudioContext({ sampleRate: this.config.sampleRate });
 
@@ -139,11 +128,7 @@ export class AudioManager {
         }
     }
 
-    /**
-     * Acquires the microphone and builds the RNNoise pipeline.
-     * Safe to call multiple times — no-ops if already active.
-     * If RNNoise fails to load, falls back to raw mic stream with a warning.
-     */
+    /** Acquires microphone stream and builds the RNNoise processing graph. */
     public async join(deviceId?: string): Promise<AcquireResult> {
         // Revive dead mic tracks (e.g. killed by mobile OS backgrounding)
         if (this.localStream && this.localStream.getAudioTracks().every(t => t.readyState === 'ended')) {
@@ -166,10 +151,7 @@ export class AudioManager {
         return { usedFallback };
     }
 
-    /**
-     * Switches the active input device while a session is already live.
-     * Acquires the new device first so a failure leaves the current mic intact.
-     */
+    /** Switches active input device while maintaining live session state. */
     public async switchInput(deviceId?: string): Promise<AcquireResult> {
         const wasMuted = this.localStream?.getAudioTracks().some(t => !t.enabled) ?? false;
 
@@ -190,10 +172,7 @@ export class AudioManager {
         return { usedFallback };
     }
 
-    /**
-     * Enables or disables the microphone track.
-     * Disabling prevents audio data from flowing into the worklet graph entirely.
-     */
+    /** Enables or disables the local microphone stream tracks. */
     public setMuted(muted: boolean): void {
         if (this.localStream) {
             this.localStream.getAudioTracks().forEach(track => {

@@ -1,8 +1,5 @@
-# Roomies - Unified Reverse Proxy
-# Single entrypoint routing to internal services
-
+# Roomies reverse proxy configuration
 {
-    # Global options
     admin off
     log {
         output stderr
@@ -11,25 +8,23 @@
 }
 
 :5123 {
-    # --- API Routes (Fastify backend) ---
+    # Fastify API backend
     handle /api/* {
         reverse_proxy 127.0.0.1:3000
     }
 
-    # --- WebSocket Gateway ---
+    # WebSocket gateway
     handle /ws* {
         reverse_proxy 127.0.0.1:3000
     }
 
-    # --- HLS Media Delivery (served from shared cache volume) ---
+    # HLS media delivery
     handle /hls/* {
         root * /cache
         uri strip_prefix /hls
         file_server
 
-        # NOTE: Segments are immutable once written (seek/restart always gets a fresh
-        # randomly-suffixed directory), so they can be cached forever. The playlist keeps
-        # growing as new segments are appended, so it must never be cached.
+        # Immutable segment caching and uncached playlists.
         @segments path *.ts
         header @segments Cache-Control "public, max-age=31536000, immutable"
 
@@ -37,7 +32,7 @@
         header @playlists Cache-Control "no-store, no-cache, must-revalidate"
     }
 
-    # --- React Frontend (built static files) ---
+    # Static web app frontend
     handle {
         root * /app/apps/web/dist
         try_files {path} {path}/ /index.html

@@ -25,8 +25,7 @@ export class TranscodeSessionManagerClass {
   startSession(sessionId: string, mediaFileId: string, inputPath: string, audioTracks: AudioTrackDescriptor[] = []): TranscodeSession {
     this.stopSession(sessionId);
 
-    // Isolate cache directory per session, media, and run (uniqueId)
-    // to prevent race conditions where a stopping session deletes the directory of a new session.
+    // Isolate cache directory per session, media, and run to prevent directory deletion race conditions.
     const uniqueRunId = Math.random().toString(36).substring(2, 10);
     const outputDir = path.join(this.baseCacheDir, sessionId, mediaFileId, uniqueRunId);
     TranscodeCache.cleanDirectory(outputDir);

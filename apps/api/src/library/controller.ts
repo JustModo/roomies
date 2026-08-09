@@ -118,8 +118,7 @@ export const LibraryController = {
         providedLanguage = languageField.value.trim();
       }
     }
-    // NOTE: 'external' means admin-uploaded without language; 'external:<lang>' means admin-uploaded with language.
-    // The frontend renders 'external' as 'External' and 'external:<lang>' as '<Lang> (Ext)'.
+    // Format external subtitle language tag (e.g. 'external' or 'external:<lang>').
     const language = providedLanguage ? `external:${providedLanguage}` : 'external';
     const mediaSubtitleDir = path.join(SUBTITLE_DATA_DIR, mediaFile.id);
     const destPath = path.join(mediaSubtitleDir, `${crypto.randomUUID()}${ext}`);
@@ -146,9 +145,7 @@ export const LibraryController = {
 
     const resolved = path.resolve(subtitle.path);
     if (resolved !== SUBTITLE_DATA_DIR && !resolved.startsWith(SUBTITLE_DATA_DIR + path.sep)) {
-      // NOTE: Sidecar subtitles matched from the media library live under MEDIA_ROOT and
-      // are owned by the user's files on disk, not by us — only managed (extracted/uploaded)
-      // subtitles under SUBTITLE_DATA_DIR can be deleted here.
+      // Only managed subtitles under SUBTITLE_DATA_DIR can be deleted from disk.
       return reply.status(400).send({ error: 'This subtitle is not managed by the app and cannot be deleted here' });
     }
 

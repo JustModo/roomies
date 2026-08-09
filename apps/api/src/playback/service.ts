@@ -47,8 +47,7 @@ export class PlaybackService {
     const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path, audioTrackDescriptors);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
 
-    // NOTE: One worker creation covers every configured resolution together — no need to
-    // fan out a call per resolution anymore.
+    // One worker creation covers every configured resolution together.
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
     session.ensureVariantReady(session.policy.variants[0], 0, ffmpegPreset, hwAccelMode).catch((err) => {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -153,9 +152,7 @@ export class PlaybackService {
       });
     }
 
-    // Both sync and async workers now carry the full resolution ladder, highest first.
-    // Policy-driven (not session-instance-dependent) so the ladder is known even before
-    // a worker has actually spun up for this offset.
+    // Both sync and async workers carry the full resolution ladder, highest first.
     const resolutions: Resolution[] = [...policyForSessionId(sessionId).variants].reverse();
 
     const sharedAudioKbps = parseInt(AUDIO_BITRATE, 10);

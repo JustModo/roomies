@@ -16,17 +16,7 @@ export type ChunkCallback = (chunk: Uint8Array) => void;
 /** AudioContext.setSinkId is still experimental and missing from some lib.dom versions. */
 type SinkCapableContext = AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
 
-/**
- * AudioRelay — server-relay voice chat engine.
- *
- * Local:  mic → AudioManager (RNNoise) → AudioWorklet → FrameBuffer →
- *         voice gate → OpusEncoder (libopus-wasm) → binary onChunk()
- *
- * Remote: binary Opus → OpusDecoder (libopus-wasm) → AudioBufferSourceNode
- *         (scheduled per peer via GainNode for volume/mute)
- *
- * No WebRTC. No ICE. No SDP. The server is the relay.
- */
+/** AudioRelay — server-relay voice chat engine. */
 export class AudioRelay {
     private readonly config: VoiceConfig;
     private readonly preprocessor: AudioPreprocessor;
@@ -73,11 +63,7 @@ export class AudioRelay {
         }
     }
 
-    /**
-     * Sets the preferred audio output device. Applies immediately to the live
-     * AudioContext (if any) and to any AudioContext created afterwards.
-     * No-ops silently on browsers that don't support output selection.
-     */
+    /** Sets the preferred audio output device. */
     public async setOutputDevice(deviceId?: string): Promise<void> {
         this.desiredSinkId = deviceId;
         if (this.audioCtx) {
@@ -85,11 +71,7 @@ export class AudioRelay {
         }
     }
 
-    /**
-     * Acquires the mic, builds the RNNoise pipeline, initialises the
-     * Opus encoder, and begins streaming 20ms frames. Safe to call
-     * multiple times — no-ops if already active.
-     */
+    /** Acquires microphone, initialises Opus encoder, and starts streaming frames. */
     public async join(deviceId?: string): Promise<AcquireResult> {
         if (this.encoder) return { usedFallback: false };
 
@@ -148,8 +130,7 @@ export class AudioRelay {
 
             return acquireResult;
         } catch (e) {
-            // A failure here must not leave the mic captured (browser mic
-            // indicator staying on) or a half-built AudioContext dangling.
+            // Teardown resources on error so mic isn't left captured.
             if (this.captureSource) {
                 this.captureSource.disconnect();
                 this.captureSource = null;
@@ -180,12 +161,7 @@ export class AudioRelay {
         }
     }
 
-    /**
-     * Switches the active microphone while joined, without dropping the
-     * encoder/connection to peers — only the capture source is rewired.
-     * Falls back to the system default device if the requested one is
-     * unavailable. Safe to call before joining (just re-acquires for next join).
-     */
+    /** Switches active microphone without dropping the encoder connection. */
     public async switchMic(deviceId?: string): Promise<AcquireResult> {
         const result = await this.audioManager.switchInput(deviceId);
 
@@ -216,10 +192,7 @@ export class AudioRelay {
         this.audioManager.setMuted(muted);
     }
 
-    /**
-     * Schedules an incoming encoded audio chunk from a remote peer.
-     * Lazily creates a PeerPlayer (with its own decoder) for each new userId.
-     */
+    /** Schedules an incoming encoded audio chunk from a remote peer. */
     public scheduleChunk(userId: string, packet: Uint8Array): void {
         // Ensure we have an AudioContext even for receive-only (non-joined) users
         if (!this.audioCtx) {

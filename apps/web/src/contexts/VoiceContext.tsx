@@ -171,8 +171,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     void relayRef.current?.setOutputDevice(undefined);
   }, []);
 
-  // If the currently selected device disappears from the enumerated list
-  // (unplugged, disabled, etc.), fall back to the system default.
+  // Revert to system default if selected device disappears from enumerated list.
   useEffect(() => {
     if (selectedInputId && inputs.length > 0 && !inputs.some((d) => d.deviceId === selectedInputId)) {
       fallbackToDefaultInput();

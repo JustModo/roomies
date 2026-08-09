@@ -36,8 +36,7 @@ export const RESOLUTION_PRESETS: Record<Resolution, ResolutionConfig> = {
   },
 };
 
-/** Canonical, scalable list of every resolution the pipeline supports — derived from
- *  RESOLUTION_PRESETS so adding a new tier (e.g. '480p') only requires editing that one map. */
+/** Canonical, scalable list of every resolution supported by the pipeline. */
 export const SUPPORTED_RESOLUTIONS: Resolution[] = Object.keys(RESOLUTION_PRESETS) as Resolution[];
 
 export function isResolution(value: string | undefined): value is Resolution {
@@ -53,30 +52,20 @@ export const HLS_LIST_SIZE = 0;
 /** Number of segments that must exist on disk before the variant is ready. */
 export const LOOK_AHEAD_SEGMENTS = 4;
 
-/** Kills a stuck ffprobe call after this long, so a corrupted/unreadable source can't hang
- *  variant readiness before ffmpeg is even spawned. */
+/** Probe timeout in milliseconds to prevent hung ffprobe processes. */
 export const PROBE_TIMEOUT_MS = 10000;
 
-/** Safety net for playheads whose owner never called removePlayhead (e.g. an ungraceful
- *  socket drop) — a playhead not updated within this window is swept and its offset group
- *  released for GC like a normal disconnect. Comfortably above the 5s sync heartbeat cadence. */
+/** Timeout threshold to sweep inactive playheads after dropped socket connections. */
 export const PLAYHEAD_STALE_MS = 30000;
 
-/** manageCache() SIGSTOP/SIGCONT hysteresis: how far (in seconds) the worker's
- *  encoded output may run ahead of the playhead before it's paused, and how
- *  far it must shrink back before resuming. */
+/** Distance in seconds worker output may run ahead before pausing or resuming. */
 export const CACHE_SUSPEND_AHEAD_SECONDS = 300;
 export const CACHE_RESUME_AHEAD_SECONDS = 60;
 
-/** Flat audio bitrate for demuxed alternate-audio-track renditions (multi-audio media only) —
- *  audio is now encoded once and shared across all resolutions, so it no longer needs to vary
- *  per resolution like RESOLUTION_PRESETS[res].audioBitrate does for the single-track case. */
+/** Flat audio bitrate for demuxed alternate-audio-track renditions. */
 export const AUDIO_BITRATE = '160k';
 
-/** Upper bound on concurrent FFmpeg variant processes per session.
- *  Defaults to 2x logical CPU count (floor 4, so small/CI hosts can still
- *  fit the 3-resolutions-per-offset prewarm); override via
- *  MAX_CONCURRENT_VARIANTS in roomies.conf. */
+/** Upper bound on concurrent FFmpeg variant processes per session. */
 export const MAX_CONCURRENT_VARIANTS = CONFIG_MAX_CONCURRENT_VARIANTS ?? Math.max(4, os.cpus().length * 2);
 
 export const FFMPEG_PATH = CONFIG_FFMPEG_PATH;

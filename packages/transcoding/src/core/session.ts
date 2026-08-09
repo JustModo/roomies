@@ -7,11 +7,7 @@ import { getSourceVideoInfo, SourceVideoInfo } from '../ffmpeg/ffprobe';
 import { TranscodeCache } from '../fs/cache';
 import { policyForSessionId, PlaybackPolicy, variantsForSourceHeight } from '../config/policy';
 
-/**
- * Aligns a given seek position to the nearest segment boundary,
- * ensuring the player has a key-frame to decode from while
- * keeping alignment consistent with SEGMENT_DURATION.
- */
+/** Aligns seek position to nearest segment boundary. */
 export function getAlignedPosition(position: number): number {
   return Math.max(
     0,
@@ -26,9 +22,7 @@ export interface PlayheadState {
   lastSeenAt: number;
 }
 
-/** Manages all transcoding workers for a single media file, grouped by transcode offset.
- *  Every offset spawns exactly one TranscodeWorker covering every resolution in the
- *  session's policy — sync and async differ only in policy (see policy.ts), not in code path. */
+/** Manages all transcoding workers for a single media file, grouped by transcode offset. */
 export class TranscodeSession {
   public readonly sessionId: string;
   public readonly mediaFileId: string;
@@ -57,8 +51,7 @@ export class TranscodeSession {
 
     TranscodeCache.ensureDirectory(this.outputBaseDir);
 
-    // Safety net for playheads whose owner never called removePlayhead (e.g. an
-    // ungraceful socket drop) — updatePlayhead() normally does this instead.
+    // Sweep stale playheads that missed removePlayhead call.
     this.staleSweepTimer = setInterval(() => this.sweepStalePlayheads(), PLAYHEAD_STALE_MS);
   }
 
@@ -88,9 +81,7 @@ export class TranscodeSession {
     return this.videoInfoPromise;
   }
 
-  /** A ladder rung the source is too small to genuinely benefit from is pruned from the
-   *  worker entirely (see variantsForSourceHeight) — resolve any request for it to the
-   *  nearest rung the worker actually encodes, so callers never hit a missing leg. */
+  /** Resolves a requested resolution to the nearest available worker resolution rung. */
   private resolveAvailableResolution(worker: TranscodeWorker, resolution: Resolution): Resolution {
     if (worker.resolutions.includes(resolution)) return resolution;
     const idx = SUPPORTED_RESOLUTIONS.indexOf(resolution);
@@ -129,9 +120,7 @@ export class TranscodeSession {
     return this.awaitLegReady(worker, this.resolveAvailableResolution(worker, resolution));
   }
 
-  /** Memoized per-offset worker creation — concurrent calls for the same offset (e.g.
-   *  prewarming several resolutions at once) share one in-flight creation instead of each
-   *  racing past the `!variantGroups.has(offset)` check and spawning their own worker. */
+  /** Memoized worker creation per offset to prevent concurrent spawn races. */
   private getOrCreateWorker(
     offset: number,
     preset: FfmpegPreset,
@@ -178,8 +167,7 @@ export class TranscodeSession {
     worker.on('ready', (res: Resolution) => console.log(`[transcode] [session ${this.sessionId}] Variant ${res}@${offset} ready`));
     worker.on('error', (err: Error) => {
       console.error(`[transcode] [session ${this.sessionId}] Worker @${offset} error:`, err.message);
-      // The worker is dead — drop it so the next request spawns a fresh one instead of
-      // waiting on a corpse that will never emit 'ready' again.
+      // Drop dead worker so subsequent requests spawn a fresh worker.
       if (this.variantGroups.get(offset) === worker) {
         this.variantGroups.delete(offset);
         this.groupCreatedAt.delete(offset);
@@ -314,8 +302,7 @@ export class TranscodeSession {
     const worker = this.variantGroups.get(offset);
     if (!worker) return;
 
-    // NOTE: Immediately remove the group so new requests create a fresh worker
-    // instead of latching onto this dying one.
+    // Remove group immediately so new requests spawn a fresh worker.
     this.variantGroups.delete(offset);
     this.groupCreatedAt.delete(offset);
     clearTimeout(this.gcTimers.get(offset));
@@ -324,8 +311,7 @@ export class TranscodeSession {
     console.log(`[transcode] Stopping worker for offset ${offset}`);
     await worker.stop();
 
-    // NOTE: Only clean the entire offset directory if a new group hasn't
-    // been created for this offset in the meantime.
+    // Clean offset directory if no new group was created in the meantime.
     if (!this.variantGroups.has(offset)) {
       const groupDir = path.join(this.outputBaseDir, offset.toString());
       TranscodeCache.cleanDirectory(groupDir);
@@ -418,9 +404,7 @@ export class TranscodeSession {
     return worker.legOutputDir(this.resolveAvailableResolution(worker, resolution));
   }
 
-  /** Ensures an audio track's HLS output is ready. Audio is always encoded on the same shared
-   *  worker as every video resolution at this offset — there's no separate audio-routing
-   *  concern to resolve between sync/async now that both always carry the full ladder. */
+  /** Ensures an audio track's HLS output is ready. */
   async ensureAudioTrackReady(
     trackId: string,
     offset: number = 0,

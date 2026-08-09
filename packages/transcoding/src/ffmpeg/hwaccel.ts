@@ -20,17 +20,14 @@ export const assertFfmpegAvailable = async (): Promise<void> => {
   }
 };
 
-/**
- * Detects supported hardware H.264 encoder.
- * NOTE: Cached after the first call.
- */
+/** Detects supported hardware H.264 encoder. */
 export const detectHardwareEncoder = async (): Promise<HardwareEncoder> => {
   if (cached) return cached;
 
   try {
     const { stdout } = await execFileAsync(FFMPEG_PATH, ['-hide_banner', '-encoders']);
 
-    // NOTE: Prefer nvenc (dGPU) over integrated VAAPI.
+    // Prefer nvenc (dGPU) over integrated VAAPI.
     if (stdout.includes('h264_nvenc') && fs.existsSync('/dev/nvidia0')) {
       cached = 'nvenc';
     } else if (stdout.includes('h264_vaapi') && fs.existsSync('/dev/dri')) {
@@ -54,8 +51,7 @@ export const getDetectedHardwareEncoder = (): HardwareEncoder => {
   return cached ?? 'cpu';
 };
 
-/** Downgrades the cache to 'cpu' after a runtime encoder failure, so a hardware encoder
- *  that was falsely detected as usable doesn't keep getting retried by every new worker. */
+/** Downgrades cached encoder to 'cpu' after a runtime failure. */
 export const downgradeToCpu = (): void => {
   cached = 'cpu';
 };

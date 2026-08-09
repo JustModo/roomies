@@ -10,8 +10,7 @@ export class PeerPlayer {
     private readonly config: VoiceConfig;
     private nextPlayTime = 0;
     private destroyed = false;
-    // Serializes all decoder access so a destroy() can never free the wasm
-    // handle while a scheduleChunk() call is still mid-decode with it.
+    // Serializes decoder access so destroy() never frees WASM during active decode.
     private opQueue: Promise<void> = Promise.resolve();
 
     constructor(ctx: AudioContext, config: VoiceConfig) {

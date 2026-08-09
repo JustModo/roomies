@@ -33,7 +33,7 @@ export function useMobileView(): MobileViewState {
       }
 
       const isMobileFullscreenLandscape = isFullscreen && isLandscape;
-      // Mobile portrait: touch device, mobile viewport, in portrait orientation
+      // Mobile portrait check for touch devices in portrait orientation.
       const isMobilePortrait = !isLandscape;
 
       setState({
