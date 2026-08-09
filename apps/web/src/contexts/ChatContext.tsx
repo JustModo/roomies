@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
+import { isUserPinged } from '../components/Chat/mentionUtils';
 
 export interface EmojiReaction {
   userId: string;
@@ -46,6 +47,8 @@ interface ChatContextType {
   focusChatInput: () => void;
   registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
   emojiReactions: EmojiReaction[];
+  roomMembers: { userId: string; username: string }[];
+  currentUsername?: string | null;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -270,7 +273,9 @@ export function ChatProvider({
 
     if (msg.eventType === 'chat' && !msg.isSystem && !msg.isMine) {
       const now = Date.now();
-      if (soundEnabledRef.current && isDocumentHidden && now - lastSoundTimeRef.current >= 3000) {
+      const myUsername = roomMembersRef.current.find(m => m.userId === currentUserId)?.username;
+      const isPinged = isUserPinged(msg.body, myUsername);
+      if (soundEnabledRef.current && (isDocumentHidden || isPinged) && now - lastSoundTimeRef.current >= 1000) {
         lastSoundTimeRef.current = now;
         playNotificationSound();
       }
@@ -492,6 +497,8 @@ export function ChatProvider({
       emojiPicker, setEmojiPicker,
       focusChatInput, registerChatInputRef,
       emojiReactions,
+      roomMembers,
+      currentUsername: roomMembers.find(m => m.userId === currentUserId)?.username,
     }}>
       {children}
     </ChatContext.Provider>

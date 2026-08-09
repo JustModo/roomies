@@ -9,6 +9,7 @@ export function useKeyboardShortcuts({ handlePlayPause, handleSeekOffset }: UseK
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLElement && e.target.isContentEditable) return;
 
       switch (e.key) {
         case ' ':
