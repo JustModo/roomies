@@ -39,7 +39,7 @@ export class AudioRelay {
     private desiredMasterVolume = 100;
     private desiredDuckLevel = 1;
     /** Voice bus gain tracks video volume scaled by this fraction, so voices stay under the video's level. */
-    private static readonly DUCK_RATIO = 0.7;
+    // private static readonly DUCK_RATIO = 0.7;
 
     /** Called with each encoded Opus chunk that should be sent to the server. */
     public onChunk?: ChunkCallback;
@@ -251,9 +251,13 @@ export class AudioRelay {
         }
     }
 
-    /** Ducks the voice bus to track the video's volume (0–1), scaled by DUCK_RATIO so it stays under it. */
-    public setDuckLevel(videoVolume: number): void {
-        this.desiredDuckLevel = Math.max(0, Math.min(1, videoVolume)) * AudioRelay.DUCK_RATIO;
+    /**
+     * Ducks the voice bus to track the video's volume (0–1), scaled by DUCK_RATIO so it stays under it.
+     * Disabled: tracking video volume down to near-zero made voice audibly cut out. Voice now stays
+     * at a fixed level regardless of video volume — only the master/peer volume controls apply.
+     */
+    public setDuckLevel(_videoVolume: number): void {
+        this.desiredDuckLevel = 1;
         if (this.duckGainNode && this.audioCtx) {
             this.duckGainNode.gain.setTargetAtTime(
                 this.desiredDuckLevel,

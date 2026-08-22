@@ -40,7 +40,7 @@ export const DEFAULT_VOICE_CONFIG: VoiceConfig = {
 
   playback: {
     jitterLookaheadSeconds: 0.12,
-    gainRampSeconds: 0.005,
+    gainRampSeconds: 0.1,
   },
 
   opus: {
