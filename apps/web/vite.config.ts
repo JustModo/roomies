@@ -11,6 +11,10 @@ export default defineConfig({
     },
   },
   build: {
+    // Tailwind v4 emits ungated @property / oklch() / color-mix(), which floors
+    // us at Safari 16.4 regardless of what JS targets. Stated explicitly so the
+    // JS output does not imply support the CSS cannot deliver.
+    target: ['es2022', 'safari16.4', 'chrome111', 'firefox128'],
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {

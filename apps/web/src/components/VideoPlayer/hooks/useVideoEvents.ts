@@ -22,6 +22,8 @@ interface UseVideoEventsParams {
    *  the pending seek target before the reinit consumes it. */
   pendingReinitRef: MutableRefObject<boolean>;
   onEnded?: () => void;
+  /** iOS blocks play() without a user gesture; the player shows a tap-to-play prompt. */
+  onAutoplayBlocked?: (blocked: boolean) => void;
 }
 
 /** Returns how many seconds are buffered ahead of the current playhead. */
@@ -54,6 +56,7 @@ export function useVideoEvents({
   activeOffsetRef,
   pendingReinitRef,
   onEnded,
+  onAutoplayBlocked,
 }: UseVideoEventsParams) {
   const lastHandledSeekIdRef = useRef(-1);
   const pendingSeekRef = useRef<number | null>(null);
@@ -68,11 +71,22 @@ export function useVideoEvents({
     const video = videoRef.current;
 
     if (state === 'playing' && video.paused && !isDragging) {
-      video.play().catch(err => console.error('[playback] Play failed:', err));
+      video.play().then(
+        () => onAutoplayBlocked?.(false),
+        (err: DOMException) => {
+          // iOS/Safari refuse programmatic play() outside a user gesture. That
+          // is not an error to swallow — the user has to be offered a tap.
+          if (err?.name === 'NotAllowedError') {
+            onAutoplayBlocked?.(true);
+          } else {
+            console.error('[playback] Play failed:', err);
+          }
+        },
+      );
     } else if (state !== 'playing' && !video.paused) {
       video.pause();
     }
-  }, [roomPlaybackState?.state, isDragging, isPlaying]);
+  }, [roomPlaybackState?.state, isDragging, isPlaying, onAutoplayBlocked]);
 
   // ── Playback Rate ─────────────────────────────────────────────────────────
   useEffect(() => {

@@ -14,6 +14,7 @@ import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { SeekCommand } from '../components/VideoPlayer/types';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
+import { useIsFullscreen, isFullscreenNow, onFullscreenChange, requestFullscreen, exitFullscreen } from '../hooks/useIsFullscreen';
 import { BAR_EDGE_X, ICON_BTN_PADDING, ICON_PRIMARY, ICON_SECONDARY } from '../components/VideoPlayer/styleTokens';
 
 /**
@@ -210,7 +211,10 @@ function RoomInner({
   const handleToggleAsync = useCallback(() => {
     toggleAsyncMode();
   }, [toggleAsyncMode]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const nativeFullscreen = useIsFullscreen();
+  // iPhone Safari has no element fullscreen; this drives a CSS-only equivalent.
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
+  const isFullscreen = nativeFullscreen || pseudoFullscreen;
   const [controlsVisible, setControlsVisible] = useState(true);
 
   useEffect(() => {
@@ -252,57 +256,58 @@ function RoomInner({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
+  // Orientation locking is a no-op on iOS (Safari has no screen.orientation.lock)
+  // but still works on Android Chrome, so it stays behind a capability check.
+  const lockOrientation = useCallback((mode: 'landscape' | 'portrait' | null) => {
+    const scr = screen as any;
+    if (!scr.orientation) return;
+    if (mode === null) {
+      scr.orientation.unlock?.();
+    } else {
+      scr.orientation.lock?.(mode).catch(() => { });
+    }
+  }, []);
+
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      const isFs = !!document.fullscreenElement;
-      setIsFullscreen(isFs);
-      const scr = screen as any;
+    const sync = () => {
+      const isFs = isFullscreenNow();
+      // Native fullscreen exited on its own (Esc, iOS "Done") — drop the CSS fallback too.
+      if (!isFs) setPseudoFullscreen(false);
       if (isFs) {
         window.history.pushState({ fullscreen: true }, '');
-        if (scr.orientation && scr.orientation.lock) {
-          scr.orientation.lock('landscape').catch(() => { });
-        }
+        lockOrientation('landscape');
       } else {
-        if (isOpen) {
-          if (scr.orientation && scr.orientation.lock) {
-            scr.orientation.lock('portrait').catch(() => { });
-          }
-        } else {
-          if (scr.orientation && scr.orientation.unlock) {
-            scr.orientation.unlock();
-          }
-        }
+        lockOrientation(isOpen ? 'portrait' : null);
       }
     };
 
     const handlePopState = () => {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => { });
-      }
+      exitFullscreen();
+      setPseudoFullscreen(false);
     };
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    const offFullscreen = onFullscreenChange(sync);
     window.addEventListener('popstate', handlePopState);
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      offFullscreen();
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [isOpen]);
+  }, [isOpen, lockOrientation]);
 
   useEffect(() => {
-    const scr = screen as any;
-    if (!document.fullscreenElement) {
-      if (isOpen) {
-        if (scr.orientation && scr.orientation.lock) {
-          scr.orientation.lock('portrait').catch(() => { });
-        }
-      } else {
-        if (scr.orientation && scr.orientation.unlock) {
-          scr.orientation.unlock();
-        }
-      }
+    if (!isFullscreenNow()) lockOrientation(isOpen ? 'portrait' : null);
+  }, [isOpen, lockOrientation]);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    if (isFullscreen) {
+      await exitFullscreen();
+      setPseudoFullscreen(false);
+      return;
     }
-  }, [isOpen]);
+    // No element fullscreen on iPhone Safari — fall back to filling the viewport with CSS.
+    const ok = await requestFullscreen(document.getElementById('room-root'));
+    if (!ok) setPseudoFullscreen(true);
+  }, [isFullscreen]);
 
   useKeyboardShortcut('t', () => {
     setIsOpen(true);
@@ -318,6 +323,7 @@ function RoomInner({
 
   return (
     <div
+      id="room-root"
       className="fixed top-0 left-0 w-full bg-ink overflow-hidden text-paper flex flex-col lg:flex-row"
       style={{ height: vpHeight }}
     >
@@ -341,6 +347,7 @@ function RoomInner({
           showChat={isOpen}
           onToggleChat={() => setIsOpen(!isOpen)}
           isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
           isAsyncMode={isAsyncMode}
           onToggleAsync={handleToggleAsync}
           allowAsyncMode={roomState?.settings?.allowAsyncMode ?? true}

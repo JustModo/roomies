@@ -191,7 +191,7 @@ export function useHlsPlayer({
       videoRef.current.src = buildHlsMasterUrl(mediaInfo.hlsUrl, transcodeOffset);
       const targetTime = relativeStartPosition(localTime, transcodeOffset);
       const videoEl = videoRef.current;
-      videoEl.addEventListener('loadedmetadata', () => {
+      const onLoadedMetadata = () => {
         if (videoRef.current) {
           videoRef.current.currentTime = targetTime;
         }
@@ -234,7 +234,12 @@ export function useHlsPlayer({
         }
 
         reportStatus('ready');
-      }, { once: true });
+      };
+      videoEl.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+
+      // { once: true } only detaches on fire, so without this the listener
+      // leaks whenever the effect re-runs before metadata arrives.
+      return () => videoEl.removeEventListener('loadedmetadata', onLoadedMetadata);
     }
   }, [mediaInfo?.mediaFileId, mediaInfo?.transcodeOffset, seekKey, reportStatus, isAsyncMode, onReportResolution]);
 

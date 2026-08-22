@@ -8,13 +8,20 @@ import { MentionMenu, MentionMember } from './MentionMenu';
 import { RichChatInput, RichChatInputHandle } from './RichChatInput';
 
 export const ChatSection: React.FC = () => {
-  const { isOpen, messages, sendMessage, roomMembers = [] } = useChat();
+  const { isOpen, messages, sendMessage, roomMembers = [], registerChatInputRef } = useChat();
   const { isMobilePortrait } = useMobileView();
   const [newMessage, setNewMessage] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const richInputRef = useRef<RichChatInputHandle>(null);
   const prevIsOpen = useRef(isOpen);
+
+  // Hand the input to the context so the 't' shortcut can focus it.
+  useEffect(() => {
+    registerChatInputRef(richInputRef.current);
+    return () => registerChatInputRef(null);
+  }, [registerChatInputRef]);
+
   const initialScrollDoneRef = useRef(false);
 
   // Mention autocomplete state
@@ -186,7 +193,10 @@ export const ChatSection: React.FC = () => {
         })}
       </div>
 
-      <div className="shrink-0 border-t border-ash/20 bg-ink relative">
+      <div
+        className="shrink-0 border-t border-ash/20 bg-ink relative"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         {isMentionOpen && filteredMembers.length > 0 && (
           <MentionMenu
             members={filteredMembers}

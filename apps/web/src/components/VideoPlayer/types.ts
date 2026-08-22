@@ -43,6 +43,7 @@ export interface VideoPlayerProps {
   showChat?: boolean;
   onToggleChat?: () => void;
   isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   isAsyncMode: boolean;
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;

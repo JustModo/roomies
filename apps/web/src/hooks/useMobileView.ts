@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { isFullscreenNow, onFullscreenChange } from './useIsFullscreen';
 
 export interface MobileViewState {
   /** Mobile device in fullscreen + landscape (e.g. phone rotated in fullscreen video) */
@@ -20,7 +21,7 @@ export function useMobileView(): MobileViewState {
     const check = () => {
       const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       const isLandscape = window.innerWidth > window.innerHeight;
-      const isFullscreen = !!document.fullscreenElement;
+      const isFullscreen = isFullscreenNow();
       const isMobileViewport = window.innerWidth < 1024; // lg breakpoint
 
       if (!isTouchDevice || !isMobileViewport) {
@@ -46,12 +47,12 @@ export function useMobileView(): MobileViewState {
     check();
     window.addEventListener('resize', check);
     window.addEventListener('orientationchange', check);
-    document.addEventListener('fullscreenchange', check);
+    const offFullscreen = onFullscreenChange(check);
 
     return () => {
       window.removeEventListener('resize', check);
       window.removeEventListener('orientationchange', check);
-      document.removeEventListener('fullscreenchange', check);
+      offFullscreen();
     };
   }, []);
 

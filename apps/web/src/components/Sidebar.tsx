@@ -48,7 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, u
       ref={sidebarRef}
       className={`
         relative flex-1 min-h-0
-        lg:fixed lg:top-0 lg:right-0 lg:w-[360px] lg:h-screen
+        lg:fixed lg:top-0 lg:right-0 lg:w-[360px] lg:h-dvh
         bg-void border-t border-ash/10
         lg:border-t-0 lg:border-l lg:border-ash/10
         z-45 shadow-2xl w-full flex flex-col

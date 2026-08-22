@@ -131,6 +131,15 @@ export function usePlayerGestures({
       activePointerIdRef.current = e.pointerId;
       downPosRef.current = { x: e.clientX, y: e.clientY };
 
+      // Without capture, a finger leaving the container means pointerup never
+      // arrives here, activePointerIdRef stays set, and the guard above then
+      // rejects every later gesture for the life of the player.
+      try {
+        container.setPointerCapture(e.pointerId);
+      } catch {
+        // Pointer already released; the up/cancel handlers still clean up.
+      }
+
       if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = setTimeout(() => {
         // Trigger 2x speed hold

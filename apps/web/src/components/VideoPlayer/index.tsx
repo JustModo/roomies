@@ -35,6 +35,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   showChat = false,
   onToggleChat,
   isFullscreen = false,
+  onToggleFullscreen,
   isAsyncMode = false,
   onToggleAsync,
   allowAsyncMode = true,
@@ -51,6 +52,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [dragProgress, setDragProgress] = useState(0);
   const [isSelfLocked, setIsSelfLocked] = useState(false);
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  // iOS refuses play() outside a user gesture; we surface a tap target instead.
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   // Floating emoji state
   const [floatingEmojis, setFloatingEmojis] = useState<Array<{ id: string; emoji: string; username: string }>>([]);
@@ -156,6 +159,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLElement && e.target.isContentEditable) return;
       showControls();
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -225,6 +229,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     activeOffsetRef,
     pendingReinitRef,
     onEnded: handleEnded,
+    onAutoplayBlocked: setAutoplayBlocked,
   });
 
   // ── Controls ───────────────────────────────────────────────────────────────
@@ -343,14 +348,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div
       ref={containerRef}
       className={`relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none touch-manipulation`}
+      style={{ WebkitTouchCallout: 'none' }}
       onMouseMove={showControls}
     >
       <video
         ref={videoRef}
+        playsInline
         className="w-full h-full object-contain bg-ink"
         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='%23000000'/%3E%3C/svg%3E"
         muted={volume === 0}
       />
+
+      {autoplayBlocked && (
+        <button
+          onClick={() => {
+            videoRef.current?.play().then(
+              () => setAutoplayBlocked(false),
+              () => { /* still blocked — leave the prompt up */ },
+            );
+          }}
+          className="absolute inset-0 z-40 flex items-center justify-center bg-ink/70 text-paper"
+        >
+          <span className="text-16 uppercase tracking-[0.12em] border border-paper/40 px-6 py-3">
+            Tap to play
+          </span>
+        </button>
+      )}
 
       {/* Floating emoji reactions overlay */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -385,7 +408,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <EmojiReactions visible={uiVisible} />
 
       {/* Bottom Controls */}
-      <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div
+        className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         <SeekBar
           ref={progressBarRef}
           isLocked={isLocked}
@@ -415,6 +441,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           showChat={showChat}
           onToggleChat={onToggleChat}
           isFullscreen={isFullscreen}
+          onToggleFullscreen={onToggleFullscreen}
           isAsyncMode={isAsyncMode}
           onToggleAsync={onToggleAsync}
           allowAsyncMode={allowAsyncMode}

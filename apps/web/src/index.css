@@ -26,15 +26,21 @@
     box-shadow: none !important;
   }
 
+  html {
+    /* body overflow:hidden alone does not stop iOS rubber-band overscroll. */
+    overscroll-behavior: none;
+  }
+
   body {
     background-color: var(--void);
+    -webkit-tap-highlight-color: transparent;
     color: var(--paper);
     font-family: 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     margin: 0;
     padding: 0;
-    min-height: 100vh;
+    min-height: 100dvh;
   }
 }
 

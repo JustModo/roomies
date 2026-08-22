@@ -1,6 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
 import { isUserPinged } from '../components/Chat/mentionUtils';
+import { isFullscreenNow } from '../hooks/useIsFullscreen';
+
+/** Anything the chat can focus — currently RichChatInput's imperative handle. */
+export interface FocusableInput {
+  focus: () => void;
+}
 
 export interface EmojiReaction {
   userId: string;
@@ -45,7 +51,7 @@ interface ChatContextType {
   emojiPicker: string[];
   setEmojiPicker: (picker: string[]) => void;
   focusChatInput: () => void;
-  registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
+  registerChatInputRef: (el: FocusableInput | null) => void;
   emojiReactions: EmojiReaction[];
   roomMembers: { userId: string; username: string }[];
   /** Every username ever seen in this room, so a mention keeps its formatting after that user leaves. */
@@ -204,9 +210,9 @@ export function ChatProvider({
   const soundEnabledRef = useRef(soundEnabled);
   const browserNotificationsRef = useRef(browserNotificationsEnabled);
   const lastSoundTimeRef = useRef(0);
-  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatInputRef = useRef<FocusableInput | null>(null);
 
-  const registerChatInputRef = useCallback((el: HTMLTextAreaElement | null) => {
+  const registerChatInputRef = useCallback((el: FocusableInput | null) => {
     chatInputRef.current = el;
   }, []);
 
@@ -331,7 +337,7 @@ export function ChatProvider({
       }
     }
 
-    const isFullscreen = typeof document !== 'undefined' && !!document.fullscreenElement;
+    const isFullscreen = isFullscreenNow();
     const showToast = isFullscreen || (isMobile ? activeTabRef.current !== 'chat' : (!isOpenRef.current || activeTabRef.current !== 'chat'));
 
     if (showToast) {

@@ -26,10 +26,10 @@ export default function Lobby() {
   const status = !activePlayback?.mediaTitle ? 'WAITING' : (activePlayback?.state === 'playing' ? 'PLAYING' : 'PAUSED');
   const viewersCount = activePlayback?.viewersCount || 0;
 
-  if (loading) return <div className="min-h-screen bg-void" />;
+  if (loading) return <div className="min-h-dvh bg-void" />;
 
   return (
-    <div className="min-h-screen bg-void flex flex-col relative">
+    <div className="min-h-dvh bg-void flex flex-col relative">
 
       <main className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-[480px] flex flex-col items-center">

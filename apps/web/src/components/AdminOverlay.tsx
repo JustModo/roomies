@@ -213,10 +213,10 @@ const UsersTab = () => {
                 <div className="flex items-center gap-3 sm:gap-6 min-w-0">
                   <div className="w-2 hidden sm:block" />
                   <div className="min-w-0">
-                    <p className="text-11 sm:text-12 text-fog/60 font-mono mt-1 lowercase">
+                    <p className="text-paper truncate uppercase">{u.username}</p>
+                    <p className="text-fog/60 font-mono lowercase">
                       {u.role === 'root' ? 'admin' : u.role}
                     </p>
-
                   </div>
                 </div>
 

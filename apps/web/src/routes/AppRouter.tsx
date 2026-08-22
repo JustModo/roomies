@@ -11,7 +11,7 @@ const ProtectedRoute = () => {
   const { token, isLoading } = useAuth();
 
   if (isLoading) {
-    return <div className="min-h-screen bg-void" />;
+    return <div className="min-h-dvh bg-void" />;
   }
 
   if (!token) {

@@ -3,6 +3,7 @@ import { useChat } from '../../contexts/ChatContext';
 import { SystemIcon } from './SystemIcon';
 import { getUsernameColor } from './utils';
 import { parseMentions } from './mentionUtils';
+import { useIsFullscreen } from '../../hooks/useIsFullscreen';
 
 /**
  * ChatToasts — minimal floating message overlay on the video player.
@@ -34,19 +35,6 @@ function useIsMobile(): boolean {
   }, []);
 
   return isMobile;
-}
-
-/** Returns true when the browser is in fullscreen mode. */
-function useIsFullscreen(): boolean {
-  const [isFs, setIsFs] = useState(() => !!document.fullscreenElement);
-
-  useEffect(() => {
-    const update = () => setIsFs(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', update);
-    return () => document.removeEventListener('fullscreenchange', update);
-  }, []);
-
-  return isFs;
 }
 
 export const ChatToasts: React.FC = () => {

@@ -27,6 +27,7 @@ interface VideoControlsProps {
   showChat?: boolean;
   onToggleChat?: () => void;
   isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   mediaInfo?: MediaInfo | null;
   activeSubtitleId?: string | null;
   setActiveSubtitleId?: (id: string | null) => void;
@@ -146,6 +147,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   showChat,
   onToggleChat,
   isFullscreen,
+  onToggleFullscreen,
   mediaInfo,
   activeSubtitleId,
   setActiveSubtitleId,
@@ -538,13 +540,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
 
         {/* Fullscreen */}
         <Btn
-          onClick={() => {
-            if (document.fullscreenElement) {
-              document.exitFullscreen();
-            } else {
-              document.documentElement.requestFullscreen();
-            }
-          }}
+          onClick={() => onToggleFullscreen?.()}
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           important
         >
