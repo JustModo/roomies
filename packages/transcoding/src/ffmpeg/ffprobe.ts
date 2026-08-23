@@ -12,6 +12,15 @@ const DEFAULT_HEIGHT = Number.POSITIVE_INFINITY;
 export interface SourceVideoInfo {
   fps: number;
   height: number;
+  /** Default audio track's bit rate in bits/s, so rungs never encode below the source. */
+  audioBitrate?: number;
+}
+
+interface ProbeStream {
+  codec_type?: string;
+  bit_rate?: string;
+  r_frame_rate?: string;
+  height?: number;
 }
 
 /** Parses an ffprobe r_frame_rate value (e.g. "24000/1001" or "25/1") into a float. */
@@ -22,27 +31,29 @@ const parseFrameRate = (value: string): number => {
 };
 
 /** Probes the first video stream's frame rate (GOP sizing) and height (resolution-ladder
- *  pruning) in a single ffprobe call, with a timeout so a stuck probe can't hang the caller. */
+ *  pruning) plus the default audio track's bit rate (encode-bitrate floor) in a single
+ *  ffprobe call, with a timeout so a stuck probe can't hang the caller. */
 export const getSourceVideoInfo = async (filePath: string): Promise<SourceVideoInfo> => {
   try {
     const { stdout } = await execFileAsync(FFPROBE_PATH, [
       '-v', 'error',
-      '-select_streams', 'v:0',
-      '-show_entries', 'stream=r_frame_rate,height',
-      '-of', 'default=noprint_wrappers=1',
+      '-show_entries', 'stream=codec_type,bit_rate,r_frame_rate,height',
+      '-of', 'json',
       filePath,
     ], { timeout: PROBE_TIMEOUT_MS });
 
-    const fields = new Map(
-      stdout.trim().split('\n').map(line => line.split('=') as [string, string])
-    );
+    const streams: ProbeStream[] = JSON.parse(stdout).streams ?? [];
+    const video = streams.find(s => s.codec_type === 'video');
+    const audio = streams.find(s => s.codec_type === 'audio');
 
-    const fps = parseFrameRate(fields.get('r_frame_rate') ?? '');
-    const height = Number(fields.get('height'));
+    const fps = parseFrameRate(video?.r_frame_rate ?? '');
+    const height = Number(video?.height);
+    const audioBitrate = Number(audio?.bit_rate);
 
     return {
       fps: Number.isFinite(fps) && fps > 0 ? fps : DEFAULT_FPS,
       height: Number.isFinite(height) && height > 0 ? height : DEFAULT_HEIGHT,
+      audioBitrate: Number.isFinite(audioBitrate) && audioBitrate > 0 ? audioBitrate : undefined,
     };
   } catch {
     return { fps: DEFAULT_FPS, height: DEFAULT_HEIGHT };

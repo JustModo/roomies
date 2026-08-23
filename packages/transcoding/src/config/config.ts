@@ -65,6 +65,9 @@ export const CACHE_RESUME_AHEAD_SECONDS = 60;
 /** Flat audio bitrate for demuxed alternate-audio-track renditions. */
 export const AUDIO_BITRATE = '160k';
 
+/** Upper bound for the source-aware audio bitrate floor (matches the top rung's preset). */
+export const AUDIO_BITRATE_CEILING = 192000;
+
 /** Upper bound on concurrent FFmpeg variant processes per session. */
 export const MAX_CONCURRENT_VARIANTS = CONFIG_MAX_CONCURRENT_VARIANTS ?? Math.max(4, os.cpus().length * 2);
 

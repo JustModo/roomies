@@ -48,5 +48,9 @@ export interface VideoPlayerProps {
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;
   isLockedByAdmin?: boolean;
+  /** Voice-party mic state — the controls-bar mic button only renders while joined. */
+  isPartyJoined?: boolean;
+  isMicMuted?: boolean;
+  onToggleMic?: () => void;
   children?: ReactNode | ((props: TopBarRenderProps) => ReactNode);
 }

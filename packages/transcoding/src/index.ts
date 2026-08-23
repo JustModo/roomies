@@ -20,8 +20,8 @@ export {
   HLS_BASE_URL,
   AUDIO_BITRATE,
 } from './config/config';
-export { SyncPolicy, AsyncPolicy, policyForSessionId } from './config/policy';
+export { SyncPolicy, AsyncPolicy, policyForSessionId, variantsForSourceHeight } from './config/policy';
 export type { PlaybackPolicy, SeekNotifyPolicy } from './config/policy';
-export { buildHlsMuxArgs, buildSeparateAudioEncodeArgs, appendAudioTrackHlsOutput } from './ffmpeg/hlsArgs';
+export { buildHlsMuxArgs, buildSeparateAudioEncodeArgs, appendAudioTrackHlsOutput, audioBitrateFor, AUDIO_TIMESTAMP_FIX } from './ffmpeg/hlsArgs';
 export { startSegmentReadyWatcher } from './fs/readyWatcher';
 export type { SegmentReadyTarget, SegmentReadyWatcherOptions } from './fs/readyWatcher';

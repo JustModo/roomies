@@ -225,7 +225,7 @@ export const RichChatInput = forwardRef<RichChatInputHandle, RichChatInputProps>
       {value === '' && !composing && (
         <span
           aria-hidden
-          className="absolute left-0 top-1 text-16 text-fog/70 leading-snug pointer-events-none select-none"
+          className="absolute left-0 top-1 text-14 text-fog/70 leading-snug pointer-events-none select-none"
         >
           {placeholder}
         </span>
@@ -249,8 +249,10 @@ export const RichChatInput = forwardRef<RichChatInputHandle, RichChatInputProps>
         onCompositionEnd={handleCompositionEnd}
         onFocus={onFocus}
         onBlur={onBlur}
-        // text-16: below 16px iOS Safari auto-zooms the page on focus and never zooms back.
-        className="w-full bg-transparent text-16 text-paper/80 focus:outline-none transition-colors duration-150 overflow-y-auto max-h-[120px] py-1 leading-snug wrap-break-word whitespace-pre-wrap"
+        // text-14 to match the message body. Below 16px iOS Safari auto-zooms the page on focus
+        // and never zooms back, so index.html pins maximum-scale=1 to suppress that — the two
+        // have to stay paired.
+        className="w-full bg-transparent text-14 text-paper/80 focus:outline-none transition-colors duration-150 overflow-y-auto max-h-[120px] py-1 leading-snug wrap-break-word whitespace-pre-wrap"
         style={{ outline: 'none' }}
       />
     </div>

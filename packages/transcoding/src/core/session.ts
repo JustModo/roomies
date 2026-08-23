@@ -81,6 +81,16 @@ export class TranscodeSession {
     return this.videoInfoPromise;
   }
 
+  /** The rungs this session's workers will actually encode, after pruning any that would
+   *  upscale the source. Reuses the memoized probe, so callers pay no extra ffprobe.
+   *  The master playlist must advertise exactly this — advertising a rung that is never
+   *  encoded makes the server serve a lower rung under its URL, and hls.js then ABR-switches
+   *  between two levels that are the same stream, flushing the buffer on every switch. */
+  async availableVariants(): Promise<Resolution[]> {
+    const { height } = await this.getVideoInfo();
+    return variantsForSourceHeight(this.policy.variants, height);
+  }
+
   /** Resolves a requested resolution to the nearest available worker resolution rung. */
   private resolveAvailableResolution(worker: TranscodeWorker, resolution: Resolution): Resolution {
     if (worker.resolutions.includes(resolution)) return resolution;
@@ -149,7 +159,7 @@ export class TranscodeSession {
       throw new Error('Maximum concurrent transcode workers reached');
     }
 
-    const { fps: sourceFps, height: sourceHeight } = await this.getVideoInfo();
+    const { fps: sourceFps, height: sourceHeight, audioBitrate } = await this.getVideoInfo();
     const variants = variantsForSourceHeight(this.policy.variants, sourceHeight);
 
     const randomSuffix = Math.random().toString(36).substring(2, 8);
@@ -178,7 +188,7 @@ export class TranscodeSession {
       if (code === 0) console.log(`[transcode] [session ${this.sessionId}] Worker @${offset} completed`);
     });
 
-    worker.start(this.inputPath, offset, preset, hwAccelMode, sourceFps);
+    worker.start(this.inputPath, offset, preset, hwAccelMode, sourceFps, audioBitrate);
     return worker;
   }
 

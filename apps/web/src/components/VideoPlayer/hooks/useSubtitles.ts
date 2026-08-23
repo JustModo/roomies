@@ -28,12 +28,20 @@ interface UseSubtitlesProps {
   currentTime: number; // absolute playback time (video.currentTime + transcodeOffset)
 }
 
-const OFFSET_STORAGE_KEY = 'roomies_subtitle_offset';
-const FONT_SCALE_STORAGE_KEY = 'roomies_subtitle_font_scale';
+// Keyed per media file, like the track selection below: a sync offset calibrated for one rip
+// is wrong for the next title, so a new media file must start from the defaults.
+const OFFSET_STORAGE_PREFIX = 'roomies_subtitle_offset_';
+const FONT_SCALE_STORAGE_PREFIX = 'roomies_subtitle_font_scale_';
 const MIN_FONT_SCALE = 0.6;
 const MAX_FONT_SCALE = 2.0;
 
 const clampFontScale = (value: number) => Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, value));
+
+const readStoredNumber = (key: string | null, fallback: number): number => {
+  if (!key) return fallback;
+  const saved = parseFloat(localStorage.getItem(key) || '');
+  return isNaN(saved) ? fallback : saved;
+};
 
 /** Find active cues for a given time using binary search */
 const findActiveCues = (cues: SubtitleCue[], time: number): SubtitleCue[] => {
@@ -62,36 +70,36 @@ const findActiveCues = (cues: SubtitleCue[], time: number): SubtitleCue[] => {
 };
 
 export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
+  const mediaFileId = mediaInfo?.mediaFileId ?? null;
+  const offsetKey = mediaFileId && `${OFFSET_STORAGE_PREFIX}${mediaFileId}`;
+  const fontScaleKey = mediaFileId && `${FONT_SCALE_STORAGE_PREFIX}${mediaFileId}`;
+
   const [activeSubtitleId, setActiveSubtitleId] = useState<string | null>(null);
   const [parsedTracks, setParsedTracks] = useState<Record<string, SubtitleCue[]>>({});
 
-  const [subtitleOffsetSec, setSubtitleOffsetSecState] = useState<number>(() => {
-    const saved = parseFloat(localStorage.getItem(OFFSET_STORAGE_KEY) || '0');
-    return isNaN(saved) ? 0 : saved;
-  });
-  const [subtitleFontScale, setSubtitleFontScaleState] = useState<number>(() => {
-    const saved = parseFloat(localStorage.getItem(FONT_SCALE_STORAGE_KEY) || '1');
-    return isNaN(saved) ? 1 : clampFontScale(saved);
-  });
+  const [subtitleOffsetSec, setSubtitleOffsetSecState] = useState(0);
+  const [subtitleFontScale, setSubtitleFontScaleState] = useState(1);
 
   const setSubtitleOffsetSec = useCallback((offset: number) => {
     setSubtitleOffsetSecState(offset);
-    localStorage.setItem(OFFSET_STORAGE_KEY, String(offset));
-  }, []);
+    if (offsetKey) localStorage.setItem(offsetKey, String(offset));
+  }, [offsetKey]);
 
   const setSubtitleFontScale = useCallback((scale: number) => {
     const clamped = clampFontScale(scale);
     setSubtitleFontScaleState(clamped);
-    localStorage.setItem(FONT_SCALE_STORAGE_KEY, String(clamped));
-  }, []);
+    if (fontScaleKey) localStorage.setItem(fontScaleKey, String(clamped));
+  }, [fontScaleKey]);
 
   const subtitlesSignature = (mediaInfo?.subtitles || []).map(s => s.id).join(',');
 
   useEffect(() => {
     setParsedTracks({});
-    if (mediaInfo?.mediaFileId) {
-      const savedId = localStorage.getItem(`roomies_subtitle_${mediaInfo.mediaFileId}`);
-      if (savedId && mediaInfo.subtitles?.some(s => s.id === savedId)) {
+    setSubtitleOffsetSecState(readStoredNumber(offsetKey, 0));
+    setSubtitleFontScaleState(clampFontScale(readStoredNumber(fontScaleKey, 1)));
+    if (mediaFileId) {
+      const savedId = localStorage.getItem(`roomies_subtitle_${mediaFileId}`);
+      if (savedId && mediaInfo?.subtitles?.some(s => s.id === savedId)) {
         setActiveSubtitleId(savedId);
       } else {
         setActiveSubtitleId(null);
@@ -99,18 +107,18 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
     } else {
       setActiveSubtitleId(null);
     }
-  }, [mediaInfo?.mediaFileId, subtitlesSignature]);
+  }, [mediaFileId, subtitlesSignature]);
 
   const handleSetActiveSubtitleId = useCallback((id: string | null) => {
     setActiveSubtitleId(id);
-    if (mediaInfo?.mediaFileId) {
+    if (mediaFileId) {
       if (id) {
-        localStorage.setItem(`roomies_subtitle_${mediaInfo.mediaFileId}`, id);
+        localStorage.setItem(`roomies_subtitle_${mediaFileId}`, id);
       } else {
-        localStorage.removeItem(`roomies_subtitle_${mediaInfo.mediaFileId}`);
+        localStorage.removeItem(`roomies_subtitle_${mediaFileId}`);
       }
     }
-  }, [mediaInfo?.mediaFileId]);
+  }, [mediaFileId]);
 
   // Fetch only the selected track, and only once (cached in parsedTracks thereafter).
   const parsedTracksRef = useRef(parsedTracks);

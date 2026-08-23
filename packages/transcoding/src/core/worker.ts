@@ -13,7 +13,7 @@ import {
 } from '../config/config';
 import { getDetectedHardwareEncoder, downgradeToCpu } from '../ffmpeg/hwaccel';
 import { TranscodeCache } from '../fs/cache';
-import { appendAudioTrackHlsOutput, buildHlsMuxArgs } from '../ffmpeg/hlsArgs';
+import { appendAudioTrackHlsOutput, audioBitrateFor, buildHlsMuxArgs, AUDIO_TIMESTAMP_FIX } from '../ffmpeg/hlsArgs';
 import { startSegmentReadyWatcher } from '../fs/readyWatcher';
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
@@ -56,6 +56,7 @@ export class TranscodeWorker extends EventEmitter {
   private inputPath: string = '';
   private hwFallbackAttempted = false;
   private sourceFps: number = 24;
+  private sourceAudioBitrate: number | undefined;
   private stopRequested = false;
   private stopPromise: Promise<void> | null = null;
 
@@ -120,7 +121,8 @@ export class TranscodeWorker extends EventEmitter {
     startPosition: number = 0,
     preset: FfmpegPreset = 'veryfast',
     hwAccelMode: HwAccelMode = 'auto',
-    sourceFps: number = 24
+    sourceFps: number = 24,
+    sourceAudioBitrate?: number
   ): void {
     if (this._isRunning) return;
     this.inputPath = inputPath;
@@ -128,6 +130,7 @@ export class TranscodeWorker extends EventEmitter {
     this.preset = preset;
     this.hwAccelMode = hwAccelMode;
     this.sourceFps = sourceFps;
+    this.sourceAudioBitrate = sourceAudioBitrate;
 
     this.spawnProcess(this.shouldUseHardware());
   }
@@ -153,6 +156,9 @@ export class TranscodeWorker extends EventEmitter {
 
     // Use encoder-native -g based on source FPS for segment-aligned keyframes.
     const gopSize = Math.round(SEGMENT_DURATION * this.sourceFps);
+    // -g alone is advisory: x264 clamps keyint_min to keyint/2 and hardware encoders ignore
+    // sc_threshold, so scene cuts still emit IDRs and segments drift (0.4s-3.9s observed).
+    const forceKeyframes = ['-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`];
 
     const outputArgs: string[] = [];
     this.resolutions.forEach((res, i) => {
@@ -163,9 +169,9 @@ export class TranscodeWorker extends EventEmitter {
 
       let videoArgs: string[];
       if (hw === 'vaapi' || hw === 'qsv') {
-        videoArgs = ['-vaapi_device', '/dev/dri/renderD128', '-c:v', 'h264_vaapi', '-g', String(gopSize)];
+        videoArgs = ['-vaapi_device', '/dev/dri/renderD128', '-c:v', 'h264_vaapi', '-g', String(gopSize), ...forceKeyframes];
       } else if (hw === 'nvenc') {
-        videoArgs = ['-c:v', 'h264_nvenc', '-preset', NVENC_PRESET_MAP[this.preset], '-g', String(gopSize)];
+        videoArgs = ['-c:v', 'h264_nvenc', '-preset', NVENC_PRESET_MAP[this.preset], '-g', String(gopSize), ...forceKeyframes];
       } else {
         videoArgs = [
           '-c:v', VIDEO_CODEC,
@@ -173,6 +179,7 @@ export class TranscodeWorker extends EventEmitter {
           '-tune', 'zerolatency',
           '-g', String(gopSize),
           '-keyint_min', String(gopSize),
+          ...forceKeyframes,
         ];
       }
 
@@ -185,7 +192,9 @@ export class TranscodeWorker extends EventEmitter {
         '-maxrate', preset.maxRate,
         '-bufsize', preset.bufSize,
 
-        ...(this.hasMuxedAudio ? ['-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2'] : []),
+        ...(this.hasMuxedAudio
+          ? [...AUDIO_TIMESTAMP_FIX, '-c:a', 'aac', '-b:a', audioBitrateFor(preset.audioBitrate, this.sourceAudioBitrate), '-ac', '2']
+          : []),
 
         ...buildHlsMuxArgs(segmentPattern),
         playlistPath,
@@ -200,6 +209,7 @@ export class TranscodeWorker extends EventEmitter {
           track.streamIndex,
           path.join(dir, 'playlist.m3u8'),
           path.join(dir, 'audio_%05d.ts'),
+          this.sourceAudioBitrate,
         );
       }
     }
@@ -209,7 +219,6 @@ export class TranscodeWorker extends EventEmitter {
       '-i', this.inputPath,
       ...(this.startPosition > 0 ? ['-avoid_negative_ts', 'make_zero'] : []),
       '-threads', '0',
-      '-sc_threshold', '0',
       '-filter_complex', filterParts.join(';'),
       ...outputArgs,
     ];

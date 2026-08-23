@@ -83,14 +83,21 @@ export class AudioRelay {
     public async join(deviceId?: string): Promise<AcquireResult> {
         if (this.encoder) return { usedFallback: false };
 
-        const acquireResult = await this.audioManager.join(deviceId);
+        this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+        await this.applyDesiredSinkId(this.audioCtx);
+
+        let acquireResult: AcquireResult;
+        try {
+            acquireResult = await this.audioManager.join(deviceId, this.audioCtx);
+        } catch (e) {
+            await this.audioCtx.close().catch(() => {});
+            this.audioCtx = null;
+            throw e;
+        }
 
         try {
             const stream = this.audioManager.stream;
             if (!stream) throw new Error('[AudioRelay] No microphone stream available.');
-
-            this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
-            await this.applyDesiredSinkId(this.audioCtx);
 
             this.encoder = await createEncoder({
                 channels: this.config.channels,
@@ -171,7 +178,8 @@ export class AudioRelay {
 
     /** Switches active microphone without dropping the encoder connection. */
     public async switchMic(deviceId?: string): Promise<AcquireResult> {
-        const result = await this.audioManager.switchInput(deviceId);
+        if (!this.audioCtx) throw new Error('[AudioRelay] switchMic called before join.');
+        const result = await this.audioManager.switchInput(deviceId, this.audioCtx);
 
         if (this.encoder && this.audioCtx && this.workletNode) {
             const stream = this.audioManager.stream;

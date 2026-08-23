@@ -1,6 +1,6 @@
 export const VOICE_PROTOCOL = {
   maxOpusPacketBytes: 1275,
-  maxPacketsPerSecond: 60,
+  maxPacketsPerSecond: 120,
   rateLimitWindowMs: 1000,
   heartbeatIntervalMs: 5000,
   closeCodePolicyViolation: 1008,

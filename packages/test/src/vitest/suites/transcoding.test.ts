@@ -8,11 +8,44 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 
-import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
+import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, audioBitrateFor, buildSeparateAudioEncodeArgs, variantsForSourceHeight, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
 import fs from 'fs';
 import { spawn as mockedSpawn } from 'child_process';
 
 describe('Transcoding & Quality Variant Pipeline', () => {
+  it('zeroes the mpegts mux delay so audio PTS stays monotonic across segment cuts', () => {
+    const args = buildHlsMuxArgs('/tmp/seg_%05d.ts');
+    expect(args[args.indexOf('-muxdelay') + 1]).toBe('0');
+    expect(args[args.indexOf('-muxpreload') + 1]).toBe('0');
+  });
+
+  it('rebuilds audio timestamps so a jittered source sample table cannot punch segment-boundary holes', () => {
+    const args = buildSeparateAudioEncodeArgs(138150);
+    expect(args.slice(0, 2)).toEqual(['-af', 'aresample=async=1']);
+  });
+
+  it('prunes ladder rungs that would upscale the source, so the master never advertises a phantom rung', () => {
+    const full = SyncPolicy.variants;
+    // A 2.35:1 1080p rip is only 816 tall — 1080p must not be offered.
+    expect(variantsForSourceHeight(full, 816)).toEqual(['360p', '720p']);
+    expect(variantsForSourceHeight(full, 1080)).toEqual(['360p', '720p', '1080p']);
+    // Shorter than every rung still leaves one to play.
+    expect(variantsForSourceHeight(full, 240)).toEqual(['360p']);
+  });
+
+  it('never encodes audio below the source bitrate, capped at the top rung', () => {
+    // Unknown source bitrate: leave the rung preset alone.
+    expect(audioBitrateFor('96k', undefined)).toBe('96k');
+    // Source above the rung (138k AAC rip on the 360p/720p rungs): lift it, with tandem headroom.
+    expect(audioBitrateFor('96k', 138150)).toBe('192k');
+    expect(audioBitrateFor('128k', 138150)).toBe('192k');
+    // Source comfortably below the rung: no inflation.
+    expect(audioBitrateFor('192k', 64000)).toBe('192k');
+    expect(audioBitrateFor('96k', 48000)).toBe('96k');
+    // Ceiling holds for a fat source.
+    expect(audioBitrateFor('96k', 640000)).toBe('192k');
+  });
+
   it('defines valid resolution presets for 1080p, 720p, and 360p', () => {
     expect(RESOLUTION_PRESETS['1080p']).toBeDefined();
     expect(RESOLUTION_PRESETS['720p']).toBeDefined();

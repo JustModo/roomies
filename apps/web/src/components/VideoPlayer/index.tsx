@@ -40,6 +40,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onToggleAsync,
   allowAsyncMode = true,
   isLockedByAdmin = false,
+  isPartyJoined = false,
+  isMicMuted = true,
+  onToggleMic,
   children,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -458,6 +461,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           handleAudioTrackChange={handleAudioTrackChange}
           uiVisible={uiVisible}
           onSettingsMenuChange={setSettingsMenuOpen}
+          isPartyJoined={isPartyJoined}
+          isMicMuted={isMicMuted}
+          onToggleMic={onToggleMic}
         />
       </div>
     </div>

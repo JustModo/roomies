@@ -11,7 +11,6 @@ import {
   getTranscodeSettings,
   AUDIO_BITRATE,
   AudioTrackDescriptor,
-  policyForSessionId,
 } from '@roomies/transcoding';
 import { coordinator } from './coordinator';
 import { SessionScope } from './types';
@@ -152,8 +151,13 @@ export class PlaybackService {
       });
     }
 
-    // Both sync and async workers carry the full resolution ladder, highest first.
-    const resolutions: Resolution[] = [...policyForSessionId(sessionId).variants].reverse();
+    // Advertise only the rungs the worker will actually encode. A source shorter than a
+    // rung's height is pruned by variantsForSourceHeight, and listing it anyway makes
+    // resolveAvailableResolution serve the next rung down under its URL — two levels that
+    // are byte-identical, which hls.js ABR then oscillates between, flushing the audio
+    // buffer on every switch. Highest first.
+    const session = await ensurePlaybackSession(sessionId, mediaId);
+    const resolutions: Resolution[] = [...await session.availableVariants()].reverse();
 
     const sharedAudioKbps = parseInt(AUDIO_BITRATE, 10);
 

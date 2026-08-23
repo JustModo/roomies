@@ -71,7 +71,6 @@ export default function Room() {
   }
 
   const {
-    isConnected,
     roomState,
     mediaInfo,
     seekKey,
@@ -121,7 +120,6 @@ export default function Room() {
     <ChatProvider sendMessage={sendMessage} addMessageHandler={addMessageHandler} currentUserId={user?.id} roomMembers={roomState?.members}>
       <VoiceProvider isJoined={isJoined} isMicMuted={isMicMuted}>
         <RoomInner
-          isConnected={isConnected}
           roomState={roomState}
           mediaInfo={mediaInfo}
           seekKey={seekKey}
@@ -153,7 +151,6 @@ export default function Room() {
 }
 
 interface RoomInnerProps {
-  isConnected: boolean;
   roomState: RoomState | null;
   mediaInfo: MediaInfo | null;
   seekKey: number;
@@ -181,7 +178,6 @@ interface RoomInnerProps {
 }
 
 function RoomInner({
-  isConnected,
   roomState,
   mediaInfo,
   seekKey,
@@ -208,7 +204,7 @@ function RoomInner({
   sendMessage
 }: RoomInnerProps) {
   const { user } = useAuth();
-  const { activeSpeakers, setVideoVolume, joinVoice } = useVoice();
+  const { activeSpeakers, setVideoVolume } = useVoice();
   const vpHeight = useVisualViewportHeight();
   const { isOpen, setIsOpen, addLocalSystemMessage, setActiveTab, focusChatInput } = useChat();
 
@@ -236,33 +232,6 @@ function RoomInner({
   const isJoined = currentUserMember?.party.isJoined ?? false;
   const isMicMuted = currentUserMember?.party.micMuted ?? true;
   const isActiveSpeaker = activeSpeakers.has('local');
-
-  // Auto-rejoin voice after a brief disconnect (e.g. wifi blip) — a socket drop
-  // wipes our server-side party state entirely, so this has to be remembered
-  // client-side. Ignored once the gap since disconnect exceeds 5 minutes.
-  const REJOIN_VOICE_WINDOW_MS = 5 * 60 * 1000;
-  const isJoinedRef = useRef(isJoined);
-  useEffect(() => { isJoinedRef.current = isJoined; }, [isJoined]);
-  const voiceDisconnectedAtRef = useRef<number | null>(null);
-  const prevConnectedRef = useRef(isConnected);
-  useEffect(() => {
-    const wasConnected = prevConnectedRef.current;
-    prevConnectedRef.current = isConnected;
-
-    if (wasConnected && !isConnected) {
-      voiceDisconnectedAtRef.current = isJoinedRef.current ? Date.now() : null;
-      return;
-    }
-
-    if (!wasConnected && isConnected) {
-      const disconnectedAt = voiceDisconnectedAtRef.current;
-      voiceDisconnectedAtRef.current = null;
-      if (disconnectedAt !== null && Date.now() - disconnectedAt < REJOIN_VOICE_WINDOW_MS) {
-        updatePartyState({ isJoined: true });
-        joinVoice().catch(() => {});
-      }
-    }
-  }, [isConnected, updatePartyState, joinVoice]);
 
   const prevMediaFileIdRef = useRef<string | null>(null);
 
@@ -346,10 +315,12 @@ function RoomInner({
     requestAnimationFrame(() => focusChatInput());
   }, { disabled: isOpen });
 
+  const handleToggleMic = useCallback(() => {
+    updatePartyState({ micMuted: !isMicMuted });
+  }, [updatePartyState, isMicMuted]);
+
   useKeyboardShortcut('m', () => {
-    if (isJoined) {
-      updatePartyState({ micMuted: !isMicMuted });
-    }
+    if (isJoined) handleToggleMic();
   }, { disabled: !isJoined });
 
   return (
@@ -383,6 +354,9 @@ function RoomInner({
           onToggleAsync={handleToggleAsync}
           allowAsyncMode={roomState?.settings?.allowAsyncMode ?? true}
           isLockedByAdmin={isLockedByAdmin}
+          isPartyJoined={isJoined}
+          isMicMuted={isMicMuted}
+          onToggleMic={handleToggleMic}
         >
           {({ isSelfLocked, onToggleSelfLock, isServerLocked, activeLockByAdmin }) => (
             <div className={`flex justify-between items-center ${BAR_EDGE_X} py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative`}>

@@ -61,9 +61,9 @@ interface WebkitEnterVideo extends HTMLVideoElement {
 }
 
 /**
- * Try every fullscreen path in order of fidelity. Returns false when the
- * browser has none — iPhone Safari below 16.4 — so the caller can fall back to
- * a CSS pseudo-fullscreen layout.
+ * Try every element-level fullscreen path in order of fidelity. Returns false
+ * when the browser has none — iPhone Safari, which has no element fullscreen
+ * at all — so the caller can fall back to a CSS pseudo-fullscreen layout.
  */
 export async function requestFullscreen(container: HTMLElement | null): Promise<boolean> {
   const el = container as WebkitElement | null;
@@ -77,18 +77,7 @@ export async function requestFullscreen(container: HTMLElement | null): Promise<
       return true;
     }
   } catch {
-    // Denied or unsupported — fall through to the video-element path.
-  }
-
-  // iPhone: the native video overlay is the only fullscreen that exists.
-  const video = document.querySelector('video') as WebkitEnterVideo | null;
-  if (video?.webkitEnterFullscreen) {
-    try {
-      video.webkitEnterFullscreen();
-      return true;
-    } catch {
-      // Throws if no media is loaded yet.
-    }
+    // Denied or unsupported.
   }
   return false;
 }

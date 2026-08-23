@@ -21,7 +21,8 @@ export class AudioManager {
     private readonly config: VoiceConfig;
     private localStream: MediaStream | null = null;
     private processedStream: MediaStream | null = null;
-    private audioContext: AudioContext | null = null;
+    private sourceNode: MediaStreamAudioSourceNode | null = null;
+    private destinationNode: MediaStreamAudioDestinationNode | null = null;
     private rnnoiseNode: RnnoiseWorkletNode | null = null;
     private currentDeviceId: string | undefined;
 
@@ -51,8 +52,8 @@ export class AudioManager {
             audio: {
                 channelCount: { ideal: 1 },
                 echoCancellation: { ideal: true },
-                noiseSuppression: { ideal: false },
-                autoGainControl: { ideal: false },
+                noiseSuppression: { exact: false },
+                autoGainControl: { exact: false },
                 sampleRate: this.config.sampleRate,
                 // Chromium-only today; ignored by browsers that do not support it.
                 suppressLocalAudioPlayback: { ideal: true },
@@ -86,41 +87,45 @@ export class AudioManager {
     }
 
     private teardownProcessingGraph(): void {
+        this.sourceNode?.disconnect();
+        this.sourceNode = null;
         if (this.rnnoiseNode) {
             this.rnnoiseNode.disconnect();
             this.rnnoiseNode.destroy();
             this.rnnoiseNode = null;
         }
-        // Close AudioContext — this also disconnects all nodes
-        if (this.audioContext) {
-            this.audioContext.close();
-            this.audioContext = null;
-        }
+        this.destinationNode?.disconnect();
+        this.destinationNode = null;
         this.processedStream = null;
     }
 
-    private async buildRnnoiseGraph(): Promise<void> {
+    /**
+     * Wires RNNoise into the caller's own AudioContext (rather than creating a
+     * second one) so capture stays on a single audio clock — bridging two
+     * independently-clocked AudioContexts via a MediaStream causes intermittent
+     * underrun/drift glitches.
+     */
+    private async buildRnnoiseGraph(ctx: AudioContext): Promise<void> {
         if (!this.localStream) return;
-        // Wire up RNNoise AudioWorklet with fallback to raw localStream on failure.
         try {
-            this.audioContext = new AudioContext({ sampleRate: this.config.sampleRate });
-
             const wasmBinary = await loadRnnoise({
                 url: rnnoiseWasmPath,
                 simdUrl: rnnoiseWasmSimdPath,
             });
-            await this.audioContext.audioWorklet.addModule(rnnoiseWorkletPath);
+            await ctx.audioWorklet.addModule(rnnoiseWorkletPath);
 
-            const source = this.audioContext.createMediaStreamSource(this.localStream);
-            this.rnnoiseNode = new RnnoiseWorkletNode(this.audioContext, {
+            const source = ctx.createMediaStreamSource(this.localStream);
+            this.rnnoiseNode = new RnnoiseWorkletNode(ctx, {
                 wasmBinary,
                 maxChannels: 1,
             });
-            const destination = this.audioContext.createMediaStreamDestination();
+            const destination = ctx.createMediaStreamDestination();
 
             source.connect(this.rnnoiseNode);
             this.rnnoiseNode.connect(destination);
 
+            this.sourceNode = source;
+            this.destinationNode = destination;
             this.processedStream = destination.stream;
         } catch (e) {
             console.warn('[AudioManager] RNNoise failed to load, using raw mic stream:', e);
@@ -128,8 +133,8 @@ export class AudioManager {
         }
     }
 
-    /** Acquires microphone stream and builds the RNNoise processing graph. */
-    public async join(deviceId?: string): Promise<AcquireResult> {
+    /** Acquires microphone stream and builds the RNNoise processing graph inside `ctx`. */
+    public async join(deviceId: string | undefined, ctx: AudioContext): Promise<AcquireResult> {
         // Revive dead mic tracks (e.g. killed by mobile OS backgrounding)
         if (this.localStream && this.localStream.getAudioTracks().every(t => t.readyState === 'ended')) {
             this.leave();
@@ -146,13 +151,13 @@ export class AudioManager {
         this.currentDeviceId = usedFallback ? undefined : deviceId;
         this.wireTrackEndedListener();
 
-        await this.buildRnnoiseGraph();
+        await this.buildRnnoiseGraph(ctx);
 
         return { usedFallback };
     }
 
     /** Switches active input device while maintaining live session state. */
-    public async switchInput(deviceId?: string): Promise<AcquireResult> {
+    public async switchInput(deviceId: string | undefined, ctx: AudioContext): Promise<AcquireResult> {
         const wasMuted = this.localStream?.getAudioTracks().some(t => !t.enabled) ?? false;
 
         const { stream, usedFallback } = await this.acquireStream(deviceId);
@@ -167,7 +172,7 @@ export class AudioManager {
         this.wireTrackEndedListener();
         if (wasMuted) this.setMuted(true);
 
-        await this.buildRnnoiseGraph();
+        await this.buildRnnoiseGraph(ctx);
 
         return { usedFallback };
     }

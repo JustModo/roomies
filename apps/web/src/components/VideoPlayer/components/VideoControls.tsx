@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, Minimize, MessageSquare, Settings, ChevronRight, ChevronLeft, Minus, Plus } from 'lucide-react';
+import { Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Mic, MicOff, Maximize, Minimize, MessageSquare, Settings, ChevronRight, ChevronLeft, Minus, Plus } from 'lucide-react';
 import { RoomState, MediaInfo } from '@roomies/contracts';
 import { Level } from 'hls.js';
 import type { MediaPlaylist } from 'hls.js';
@@ -44,6 +44,9 @@ interface VideoControlsProps {
   audioTracks?: MediaPlaylist[];
   currentAudioTrack?: number;
   handleAudioTrackChange?: (id: number) => void;
+  isPartyJoined?: boolean;
+  isMicMuted?: boolean;
+  onToggleMic?: () => void;
 }
 
 // Compact icon button — smaller padding on mobile
@@ -164,6 +167,9 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   audioTracks = [],
   currentAudioTrack = -1,
   handleAudioTrackChange,
+  isPartyJoined = false,
+  isMicMuted = true,
+  onToggleMic,
 }) => {
   const { activeMenu, toggleMenu, containerRef } = useActiveMenu<'settings'>();
   const { unreadCount } = useChat();
@@ -259,6 +265,19 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             <RotateCw className={ICON_SECONDARY} strokeWidth={1.5} />
           </Btn>
         </div>
+
+        {/* Party mic — sits with the other audio controls so it stays thumb-reachable in landscape */}
+        {isPartyJoined && onToggleMic && (
+          <Btn
+            onClick={onToggleMic}
+            title={isMicMuted ? 'Unmute mic (M)' : 'Mute mic (M)'}
+          >
+            {/* Colour goes on the icon, not the Btn: Btn's own text-* class would race it. */}
+            {isMicMuted
+              ? <MicOff className={`${ICON_SECONDARY} text-red-400`} strokeWidth={1.5} />
+              : <Mic className={ICON_SECONDARY} strokeWidth={1.5} />}
+          </Btn>
+        )}
 
         {/* Volume */}
         <div className="group relative flex items-center justify-center">
