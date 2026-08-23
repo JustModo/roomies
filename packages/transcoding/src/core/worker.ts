@@ -149,7 +149,10 @@ export class TranscodeWorker extends EventEmitter {
     const filterParts = [`[0:v]split=${this.resolutions.length}${splitLabels.map(l => `[${l}]`).join('')}`];
     this.resolutions.forEach((res, i) => {
       const preset = RESOLUTION_PRESETS[res];
-      const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p`;
+      // Fit inside the rung's box keeping the source aspect; deliberately no pad. Padding
+      // bakes black bars into every frame of a non-16:9 source, which the player then
+      // letterboxes again whenever its container is not 16:9. See scaledResolution().
+      const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p`;
       const hwSuffix = (hw === 'vaapi' || hw === 'qsv') ? ',format=nv12,hwupload' : '';
       filterParts.push(`[${splitLabels[i]}]${scaleFilter}${hwSuffix}[${outLabels[i]}]`);
     });

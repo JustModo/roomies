@@ -152,23 +152,24 @@ export class PlaybackService {
     }
 
     // Advertise only the rungs the worker will actually encode. A source shorter than a
-    // rung's height is pruned by variantsForSourceHeight, and listing it anyway makes
+    // rung that would enlarge it is pruned by variantsForSource, and listing it anyway makes
     // resolveAvailableResolution serve the next rung down under its URL — two levels that
     // are byte-identical, which hls.js ABR then oscillates between, flushing the audio
     // buffer on every switch. Highest first.
     const session = await ensurePlaybackSession(sessionId, mediaId);
-    const resolutions: Resolution[] = [...await session.availableVariants()].reverse();
+    const variants = [...await session.availableVariants()].reverse();
 
     const sharedAudioKbps = parseInt(AUDIO_BITRATE, 10);
 
-    for (const res of resolutions) {
+    for (const { resolution: res, width, height } of variants) {
       const preset = RESOLUTION_PRESETS[res];
       const audioKbps = hasSeparateAudio ? sharedAudioKbps : parseInt(preset.audioBitrate, 10);
       const bandwidth = parseInt(preset.videoBitrate, 10) * 1000 + audioKbps * 1000;
       const url = offset !== undefined ? `${res}/stream.m3u8?offset=${offset}` : `${res}/stream.m3u8`;
       const audioAttr = hasSeparateAudio ? ',AUDIO="audio"' : '';
+      // The encoded frame, not the rung's box — they differ for any non-16:9 source.
       lines.push(
-        `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${res}"${audioAttr}`,
+        `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height},NAME="${res}"${audioAttr}`,
         url
       );
     }

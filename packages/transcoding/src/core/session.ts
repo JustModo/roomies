@@ -2,10 +2,10 @@ import path from 'path';
 import { FfmpegPreset, HwAccelMode } from '../config/settings';
 import { Resolution, AudioTrackDescriptor } from '../types';
 import { TranscodeWorker } from './worker';
-import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION, SUPPORTED_RESOLUTIONS, PLAYHEAD_STALE_MS } from '../config/config';
+import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION, SUPPORTED_RESOLUTIONS, PLAYHEAD_STALE_MS, RESOLUTION_PRESETS } from '../config/config';
 import { getSourceVideoInfo, SourceVideoInfo } from '../ffmpeg/ffprobe';
 import { TranscodeCache } from '../fs/cache';
-import { policyForSessionId, PlaybackPolicy, variantsForSourceHeight } from '../config/policy';
+import { policyForSessionId, PlaybackPolicy, variantsForSource, scaledResolution } from '../config/policy';
 
 /** Aligns seek position to nearest segment boundary. */
 export function getAlignedPosition(position: number): number {
@@ -86,9 +86,12 @@ export class TranscodeSession {
    *  The master playlist must advertise exactly this — advertising a rung that is never
    *  encoded makes the server serve a lower rung under its URL, and hls.js then ABR-switches
    *  between two levels that are the same stream, flushing the buffer on every switch. */
-  async availableVariants(): Promise<Resolution[]> {
-    const { height } = await this.getVideoInfo();
-    return variantsForSourceHeight(this.policy.variants, height);
+  async availableVariants(): Promise<{ resolution: Resolution; width: number; height: number }[]> {
+    const { width, height } = await this.getVideoInfo();
+    return variantsForSource(this.policy.variants, width, height).map(resolution => ({
+      resolution,
+      ...scaledResolution(RESOLUTION_PRESETS[resolution], width, height),
+    }));
   }
 
   /** Resolves a requested resolution to the nearest available worker resolution rung. */
@@ -159,8 +162,8 @@ export class TranscodeSession {
       throw new Error('Maximum concurrent transcode workers reached');
     }
 
-    const { fps: sourceFps, height: sourceHeight, audioBitrate } = await this.getVideoInfo();
-    const variants = variantsForSourceHeight(this.policy.variants, sourceHeight);
+    const { fps: sourceFps, width: sourceWidth, height: sourceHeight, audioBitrate } = await this.getVideoInfo();
+    const variants = variantsForSource(this.policy.variants, sourceWidth, sourceHeight);
 
     const randomSuffix = Math.random().toString(36).substring(2, 8);
     const legDirs = new Map<Resolution, string>(

@@ -203,8 +203,12 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
     setSettingsSubMenu(null);
   };
 
+  // The rung's NAME from the master playlist, not its pixel height: a 2.35:1 film's 1080p
+  // rung is 1920x816, and "816p" is a frame dimension, not a quality tier the viewer picked.
+  const levelLabel = (level?: Level) => level?.name || (level ? `${level.height}p` : '');
+
   // Current value labels for the top-level menu
-  const qualityLabel = currentLevel === -1 ? 'Auto' : `${levels[currentLevel]?.height}p`;
+  const qualityLabel = currentLevel === -1 ? 'Auto' : levelLabel(levels[currentLevel]);
   const subtitleLabel = activeSubtitleId === null
     ? 'Off'
     : (displaySubtitleLabel
@@ -424,7 +428,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
                           active={currentLevel === originalIndex}
                           onClick={() => handleQualityChange(originalIndex)}
                         >
-                          {level.height}p
+                          {levelLabel(level)}
                         </PopoverItem>
                       );
                     })}

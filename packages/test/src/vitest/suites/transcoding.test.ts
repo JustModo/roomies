@@ -8,7 +8,7 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 
-import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, audioBitrateFor, buildSeparateAudioEncodeArgs, variantsForSourceHeight, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
+import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, audioBitrateFor, buildSeparateAudioEncodeArgs, variantsForSource, scaledResolution, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
 import fs from 'fs';
 import { spawn as mockedSpawn } from 'child_process';
 
@@ -24,13 +24,33 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(args.slice(0, 2)).toEqual(['-af', 'aresample=async=1']);
   });
 
-  it('prunes ladder rungs that would upscale the source, so the master never advertises a phantom rung', () => {
+  it('encodes the source frame rather than padding it into the rung box', () => {
+    // 2.35:1 rip (1920x816) — no black bars baked in, aspect preserved, even dimensions.
+    expect(scaledResolution(RESOLUTION_PRESETS['720p'], 1920, 816)).toEqual({ width: 1280, height: 544 });
+    expect(scaledResolution(RESOLUTION_PRESETS['360p'], 1920, 816)).toEqual({ width: 640, height: 272 });
+    // A true 16:9 source still fills its box exactly.
+    expect(scaledResolution(RESOLUTION_PRESETS['720p'], 1920, 1080)).toEqual({ width: 1280, height: 720 });
+    // Every rung keeps the same aspect, so ABR switches don't resize the picture.
+    const a = scaledResolution(RESOLUTION_PRESETS['720p'], 1920, 816);
+    const b = scaledResolution(RESOLUTION_PRESETS['360p'], 1920, 816);
+    expect(a.width / a.height).toBeCloseTo(b.width / b.height, 2);
+  });
+
+  it('keeps every rung that does not enlarge the source, judged by scale not box height', () => {
     const full = SyncPolicy.variants;
-    // A 2.35:1 1080p rip is only 816 tall — 1080p must not be offered.
-    expect(variantsForSourceHeight(full, 816)).toEqual(['360p', '720p']);
-    expect(variantsForSourceHeight(full, 1080)).toEqual(['360p', '720p', '1080p']);
-    // Shorter than every rung still leaves one to play.
-    expect(variantsForSourceHeight(full, 240)).toEqual(['360p']);
+    // 2.35:1 scope film: full-width 1080p source, so the 1080p rung is native (scale 1.0).
+    // A box-height rule would drop it for being under 1080 tall and cap the film at 544p.
+    expect(variantsForSource(full, 1920, 816)).toEqual(['360p', '720p', '1080p']);
+    expect(scaledResolution(RESOLUTION_PRESETS['1080p'], 1920, 816)).toEqual({ width: 1920, height: 816 });
+    // True 16:9 1080p behaves the same as before.
+    expect(variantsForSource(full, 1920, 1080)).toEqual(['360p', '720p', '1080p']);
+    // A 720p scope rip must not be upscaled into the 1080p rung.
+    expect(variantsForSource(full, 1280, 536)).toEqual(['360p', '720p']);
+    // Small source keeps only what fits, and never returns nothing.
+    expect(variantsForSource(full, 640, 480)).toEqual(['360p']);
+    expect(variantsForSource(full, 100, 100)).toEqual(['360p']);
+    // Unknown source size prunes nothing.
+    expect(variantsForSource(full, Infinity, Infinity)).toEqual(full);
   });
 
   it('never encodes audio below the source bitrate, capped at the top rung', () => {
