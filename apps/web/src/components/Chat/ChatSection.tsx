@@ -4,6 +4,7 @@ import { useChat } from '../../contexts/ChatContext';
 import { useMobileView } from '../../hooks/useMobileView';
 import { ChatMessage } from './ChatMessage';
 import { FloatingReactionButton } from './FloatingReactionButton';
+import { ChatEmojiButton } from './ChatEmojiButton';
 
 export const ChatSection: React.FC = () => {
   const { isOpen, messages, sendMessage, registerChatInputRef } = useChat();
@@ -14,6 +15,7 @@ export const ChatSection: React.FC = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevIsOpen = useRef(isOpen);
   const initialScrollDoneRef = useRef(false);
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
 
   useLayoutEffect(() => {
     if (containerRef.current) {
@@ -120,6 +122,7 @@ export const ChatSection: React.FC = () => {
     if (!newMessage.trim()) return;
     sendMessage(newMessage);
     setNewMessage('');
+    selectionRef.current = null;
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
@@ -129,6 +132,36 @@ export const ChatSection: React.FC = () => {
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     doSend();
+  };
+
+  const syncSelection = (el: HTMLTextAreaElement) => {
+    selectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    let targetCursor = 0;
+
+    setNewMessage((prev) => {
+      const sel = selectionRef.current ?? { start: prev.length, end: prev.length };
+      const start = Math.min(sel.start, prev.length);
+      const end = Math.min(sel.end, prev.length);
+      const next = prev.slice(0, start) + emoji + prev.slice(end);
+      targetCursor = start + emoji.length;
+      selectionRef.current = { start: targetCursor, end: targetCursor };
+      return next;
+    });
+
+    requestAnimationFrame(() => {
+      if (!el) return;
+      // el.focus() fires onFocus, which re-syncs selectionRef from the DOM's
+      // (stale) selection — use the captured cursor, not the ref, here.
+      el.focus();
+      el.setSelectionRange(targetCursor, targetCursor);
+      selectionRef.current = { start: targetCursor, end: targetCursor };
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    });
   };
 
   return (
@@ -170,6 +203,7 @@ export const ChatSection: React.FC = () => {
                 : false;
 
               setNewMessage(e.target.value);
+              syncSelection(e.target);
               e.target.style.height = 'auto';
               e.target.style.height = `${e.target.scrollHeight}px`;
 
@@ -184,11 +218,18 @@ export const ChatSection: React.FC = () => {
                 doSend();
               }
             }}
-            onFocus={() => setIsInputFocused(true)}
+            onKeyUp={(e) => syncSelection(e.currentTarget)}
+            onClick={(e) => syncSelection(e.currentTarget)}
+            onSelect={(e) => syncSelection(e.currentTarget)}
+            onFocus={(e) => {
+              setIsInputFocused(true);
+              syncSelection(e.currentTarget);
+            }}
             onBlur={() => setIsInputFocused(false)}
             className="flex-1 bg-transparent text-13 text-paper/60 focus:outline-none placeholder:text-fog/70 transition-colors duration-150 resize-none overflow-y-auto max-h-[120px] py-1"
             style={{ outline: 'none' }}
           />
+          <ChatEmojiButton onEmojiSelect={insertEmoji} />
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
