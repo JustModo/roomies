@@ -1,10 +1,14 @@
-
+import { RoomSocket } from './websocket/router';
 import { WebSocket } from '@fastify/websocket';
+import { JWTPayload } from '@roomies/contracts';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    room: Set<WebSocket>;
-    /** Separate registry for voice-chat WebSocket connections. */
-    voiceRoom: Set<any>;
+    room: Set<RoomSocket>;
+    voiceRoom: Set<WebSocket>;
+  }
+
+  interface FastifyRequest {
+    user?: JWTPayload;
   }
 }

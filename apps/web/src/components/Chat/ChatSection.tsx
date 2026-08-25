@@ -1,32 +1,47 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Send } from 'lucide-react';
 import { useChat } from '../../contexts/ChatContext';
 import { useMobileView } from '../../hooks/useMobileView';
 import { ChatMessage } from './ChatMessage';
 import { FloatingReactionButton } from './FloatingReactionButton';
 import { ChatEmojiButton } from './ChatEmojiButton';
+import { MentionMenu, MentionMember } from './MentionMenu';
+import { RichChatInput, RichChatInputHandle } from './RichChatInput';
 
 export const ChatSection: React.FC = () => {
-  const { isOpen, messages, sendMessage, registerChatInputRef } = useChat();
+  const { isOpen, messages, sendMessage, roomMembers = [], registerChatInputRef } = useChat();
   const { isMobilePortrait } = useMobileView();
   const [newMessage, setNewMessage] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const richInputRef = useRef<RichChatInputHandle>(null);
   const prevIsOpen = useRef(isOpen);
+
+  // Hand the input to the context so the 't' shortcut can focus it.
+  useEffect(() => {
+    registerChatInputRef(richInputRef.current);
+    return () => registerChatInputRef(null);
+  }, [registerChatInputRef]);
+
   const initialScrollDoneRef = useRef(false);
-  const selectionRef = useRef<{ start: number; end: number } | null>(null);
+  const caretOffsetRef = useRef(0);
+
+  // Mention autocomplete state
+  const [isMentionOpen, setIsMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionMatchIndex, setMentionMatchIndex] = useState(0);
+  const [mentionStartIndex, setMentionStartIndex] = useState(-1);
+
+  const filteredMembers = useMemo(() => {
+    if (!isMentionOpen) return [];
+    const q = mentionQuery.toLowerCase();
+    return roomMembers.filter((m) => m.username.toLowerCase().includes(q));
+  }, [isMentionOpen, mentionQuery, roomMembers]);
 
   useLayoutEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, []);
-
-  useEffect(() => {
-    const el = inputRef.current;
-    if (el) registerChatInputRef(el);
-    return () => registerChatInputRef(null);
   }, []);
 
   useEffect(() => {
@@ -118,15 +133,41 @@ export const ChatSection: React.FC = () => {
     };
   }, [isInputFocused]);
 
+  const checkMentionTrigger = (val: string, selectionStart: number) => {
+    const textBeforeCursor = val.slice(0, selectionStart);
+    const lastAtPos = textBeforeCursor.lastIndexOf('@');
+
+    if (lastAtPos !== -1) {
+      const charBeforeAt = lastAtPos > 0 ? val[lastAtPos - 1] : ' ';
+      const queryCandidate = textBeforeCursor.slice(lastAtPos + 1);
+
+      if (/\s/.test(charBeforeAt) && !/\s/.test(queryCandidate)) {
+        setMentionStartIndex(lastAtPos);
+        setMentionQuery(queryCandidate);
+        setIsMentionOpen(true);
+        setMentionMatchIndex(0);
+        return;
+      }
+    }
+
+    setIsMentionOpen(false);
+  };
+
+  const handleSelectMember = (member: MentionMember) => {
+    if (mentionStartIndex >= 0) {
+      richInputRef.current?.insertMention(member.username, mentionStartIndex, mentionQuery.length);
+    }
+    setIsMentionOpen(false);
+  };
+
   const doSend = () => {
     if (!newMessage.trim()) return;
-    sendMessage(newMessage);
+    sendMessage(newMessage.replace(/^\n+|\n+$/g, ''));
     setNewMessage('');
-    selectionRef.current = null;
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-    }
-    requestAnimationFrame(() => inputRef.current?.focus());
+    caretOffsetRef.current = 0;
+    setIsMentionOpen(false);
+    richInputRef.current?.clear();
+    requestAnimationFrame(() => richInputRef.current?.focus());
   };
 
   const handleSend = (e: React.FormEvent) => {
@@ -134,34 +175,8 @@ export const ChatSection: React.FC = () => {
     doSend();
   };
 
-  const syncSelection = (el: HTMLTextAreaElement) => {
-    selectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
-  };
-
   const insertEmoji = (emoji: string) => {
-    const el = inputRef.current;
-    let targetCursor = 0;
-
-    setNewMessage((prev) => {
-      const sel = selectionRef.current ?? { start: prev.length, end: prev.length };
-      const start = Math.min(sel.start, prev.length);
-      const end = Math.min(sel.end, prev.length);
-      const next = prev.slice(0, start) + emoji + prev.slice(end);
-      targetCursor = start + emoji.length;
-      selectionRef.current = { start: targetCursor, end: targetCursor };
-      return next;
-    });
-
-    requestAnimationFrame(() => {
-      if (!el) return;
-      // el.focus() fires onFocus, which re-syncs selectionRef from the DOM's
-      // (stale) selection — use the captured cursor, not the ref, here.
-      el.focus();
-      el.setSelectionRange(targetCursor, targetCursor);
-      selectionRef.current = { start: targetCursor, end: targetCursor };
-      el.style.height = 'auto';
-      el.style.height = `${el.scrollHeight}px`;
-    });
+    richInputRef.current?.insertText(emoji, caretOffsetRef.current);
   };
 
   return (
@@ -185,49 +200,68 @@ export const ChatSection: React.FC = () => {
         })}
       </div>
 
-      <div className="shrink-0 border-t border-ash/20 bg-ink">
+      <div
+        className="shrink-0 border-t border-ash/20 bg-ink relative"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {isMentionOpen && filteredMembers.length > 0 && (
+          <MentionMenu
+            members={filteredMembers}
+            selectedIndex={mentionMatchIndex}
+            onSelectMember={handleSelectMember}
+          />
+        )}
         <form 
           onSubmit={handleSend} 
           className="flex items-end gap-2 px-4 py-2 transition-all duration-150"
         >
-          <textarea
-            ref={inputRef}
-            placeholder="Message"
-            spellCheck={false}
+          <RichChatInput
+            ref={richInputRef}
             value={newMessage}
-            rows={1}
-            onChange={(e) => {
+            onChange={(val, cursorOffset) => {
               const container = containerRef.current;
               const wasAtBottom = container 
                 ? container.scrollHeight - container.scrollTop - container.clientHeight <= 20
                 : false;
 
-              setNewMessage(e.target.value);
-              syncSelection(e.target);
-              e.target.style.height = 'auto';
-              e.target.style.height = `${e.target.scrollHeight}px`;
+              setNewMessage(val);
+              caretOffsetRef.current = cursorOffset;
+              checkMentionTrigger(val, cursorOffset);
 
               if (wasAtBottom && container) {
                 container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
               }
             }}
+            onSend={doSend}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                e.preventDefault();
-                doSend();
+              if (isMentionOpen && filteredMembers.length > 0) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setMentionMatchIndex((prev) => (prev + 1) % filteredMembers.length);
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setMentionMatchIndex((prev) => (prev - 1 + filteredMembers.length) % filteredMembers.length);
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  handleSelectMember(filteredMembers[mentionMatchIndex]);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setIsMentionOpen(false);
+                  return;
+                }
               }
             }}
-            onKeyUp={(e) => syncSelection(e.currentTarget)}
-            onClick={(e) => syncSelection(e.currentTarget)}
-            onSelect={(e) => syncSelection(e.currentTarget)}
-            onFocus={(e) => {
-              setIsInputFocused(true);
-              syncSelection(e.currentTarget);
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => {
+              setIsInputFocused(false);
+              setTimeout(() => setIsMentionOpen(false), 150);
             }}
-            onBlur={() => setIsInputFocused(false)}
-            className="flex-1 bg-transparent text-13 text-paper/60 focus:outline-none placeholder:text-fog/70 transition-colors duration-150 resize-none overflow-y-auto max-h-[120px] py-1"
-            style={{ outline: 'none' }}
           />
           <ChatEmojiButton onEmojiSelect={insertEmoji} />
           <button
@@ -246,3 +280,4 @@ export const ChatSection: React.FC = () => {
     </div>
   );
 };
+

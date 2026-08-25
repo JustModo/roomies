@@ -1,96 +1,51 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { MediaInfo } from '@roomies/contracts';
+import type { SubtitleCue } from '../types/subtitle.ts';
+import { parseSubtitleContent } from '../utils/subtitleParser.ts';
 
-export const displaySubtitleLabel = (language: string | null): string => {
-  if (!language) return 'Unknown';
+const capitalize = (str: string): string => {
   try {
-    return new Intl.DisplayNames(['en'], { type: 'language' }).of(language) ?? language;
+    const formatted = new Intl.DisplayNames(['en'], { type: 'language' }).of(str) ?? str;
+    return formatted.charAt(0).toUpperCase() + formatted.slice(1);
   } catch {
-    return language;
+    return str.charAt(0).toUpperCase() + str.slice(1);
   }
 };
 
-interface ParsedCue {
-  startTime: number; // seconds, original (absolute) time
-  endTime: number;
-  text: string;
-}
+export const displaySubtitleLabel = (language: string | null): string => {
+  if (!language || language.toLowerCase() === 'external') return 'External';
+
+  if (language.toLowerCase().startsWith('external:')) {
+    const name = language.slice(9).trim();
+    return name ? `${capitalize(name)} External` : 'External';
+  }
+
+  return capitalize(language.trim());
+};
 
 interface UseSubtitlesProps {
   mediaInfo: MediaInfo | null;
   currentTime: number; // absolute playback time (video.currentTime + transcodeOffset)
 }
 
-const OFFSET_STORAGE_KEY = 'roomies_subtitle_offset';
-const FONT_SCALE_STORAGE_KEY = 'roomies_subtitle_font_scale';
+// Keyed per media file, like the track selection below: a sync offset calibrated for one rip
+// is wrong for the next title, so a new media file must start from the defaults.
+const OFFSET_STORAGE_PREFIX = 'roomies_subtitle_offset_';
+const FONT_SCALE_STORAGE_PREFIX = 'roomies_subtitle_font_scale_';
 const MIN_FONT_SCALE = 0.6;
 const MAX_FONT_SCALE = 2.0;
 
 const clampFontScale = (value: number) => Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, value));
 
-/** Convert VTT inline tags to safe HTML, preserving <i>, <b>, <u> */
-const vttTagToHtml = (text: string): string => {
-  return text
-    .replace(/<(\/?)(i|b|u)(?:\.[^>]*)?>|<[^>]*>/g, (_m, slash, tag) => {
-      if (tag) return `<${slash}${tag}>`;
-      return '';
-    })
-    .replace(/&/g, '&amp;')
-    .replace(/\n/g, '<br/>');
-};
-
-/** Parse a WebVTT string into an array of cues with absolute timestamps */
-const parseVtt = (vttText: string): ParsedCue[] => {
-  const cues: ParsedCue[] = [];
-  // Split into blocks separated by blank lines
-  const blocks = vttText.replace(/\r\n/g, '\n').split(/\n\n+/);
-
-  for (const block of blocks) {
-    const lines = block.trim().split('\n');
-    // Find the line with the timestamp arrow
-    let timestampLineIdx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('-->')) {
-        timestampLineIdx = i;
-        break;
-      }
-    }
-    if (timestampLineIdx === -1) continue;
-
-    const timeParts = lines[timestampLineIdx].split('-->');
-    if (timeParts.length < 2) continue;
-
-    const startTime = parseTimestamp(timeParts[0].trim());
-    const endTime = parseTimestamp(timeParts[1].trim().split(/\s/)[0]); // strip position metadata
-
-    if (startTime === null || endTime === null) continue;
-
-    // Everything after the timestamp line is cue text
-    const text = lines.slice(timestampLineIdx + 1).join('\n');
-    if (text.trim()) {
-      cues.push({ startTime, endTime, text });
-    }
-  }
-
-  return cues;
-};
-
-/** Parse a VTT/SRT timestamp like "00:01:23.456" or "01:23.456" into seconds */
-const parseTimestamp = (ts: string): number | null => {
-  // Match HH:MM:SS.mmm or MM:SS.mmm
-  const match = ts.match(/(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})/);
-  if (!match) return null;
-  const hours = parseInt(match[1] || '0', 10);
-  const minutes = parseInt(match[2], 10);
-  const seconds = parseInt(match[3], 10);
-  const ms = parseInt(match[4], 10);
-  return hours * 3600 + minutes * 60 + seconds + ms / 1000;
+const readStoredNumber = (key: string | null, fallback: number): number => {
+  if (!key) return fallback;
+  const saved = parseFloat(localStorage.getItem(key) || '');
+  return isNaN(saved) ? fallback : saved;
 };
 
 /** Find active cues for a given time using binary search */
-const findActiveCues = (cues: ParsedCue[], time: number): ParsedCue[] => {
-  const active: ParsedCue[] = [];
-  // Binary search for the first cue that could be active
+const findActiveCues = (cues: SubtitleCue[], time: number): SubtitleCue[] => {
+  const active: SubtitleCue[] = [];
   let lo = 0;
   let hi = cues.length - 1;
 
@@ -106,7 +61,7 @@ const findActiveCues = (cues: ParsedCue[], time: number): ParsedCue[] => {
 
   // From 'lo' onward, check cues that start before 'time'
   for (let i = lo; i < cues.length; i++) {
-    if (cues[i].startTime > time) break; // past our window
+    if (cues[i].startTime > time) break;
     if (cues[i].startTime <= time && cues[i].endTime > time) {
       active.push(cues[i]);
     }
@@ -115,105 +70,90 @@ const findActiveCues = (cues: ParsedCue[], time: number): ParsedCue[] => {
 };
 
 export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
-  const [activeSubtitleId, setActiveSubtitleId] = useState<string | null>(null);
-  // Raw VTT text per subtitle id (fetched once with offset=0)
-  const [parsedTracks, setParsedTracks] = useState<Record<string, ParsedCue[]>>({});
+  const mediaFileId = mediaInfo?.mediaFileId ?? null;
+  const offsetKey = mediaFileId && `${OFFSET_STORAGE_PREFIX}${mediaFileId}`;
+  const fontScaleKey = mediaFileId && `${FONT_SCALE_STORAGE_PREFIX}${mediaFileId}`;
 
-  const [subtitleOffsetSec, setSubtitleOffsetSecState] = useState<number>(() => {
-    const saved = parseFloat(localStorage.getItem(OFFSET_STORAGE_KEY) || '0');
-    return isNaN(saved) ? 0 : saved;
-  });
-  const [subtitleFontScale, setSubtitleFontScaleState] = useState<number>(() => {
-    const saved = parseFloat(localStorage.getItem(FONT_SCALE_STORAGE_KEY) || '1');
-    return isNaN(saved) ? 1 : clampFontScale(saved);
-  });
+  const [activeSubtitleId, setActiveSubtitleId] = useState<string | null>(null);
+  const [parsedTracks, setParsedTracks] = useState<Record<string, SubtitleCue[]>>({});
+
+  const [subtitleOffsetSec, setSubtitleOffsetSecState] = useState(0);
+  const [subtitleFontScale, setSubtitleFontScaleState] = useState(1);
 
   const setSubtitleOffsetSec = useCallback((offset: number) => {
     setSubtitleOffsetSecState(offset);
-    localStorage.setItem(OFFSET_STORAGE_KEY, String(offset));
-  }, []);
+    if (offsetKey) localStorage.setItem(offsetKey, String(offset));
+  }, [offsetKey]);
 
   const setSubtitleFontScale = useCallback((scale: number) => {
     const clamped = clampFontScale(scale);
     setSubtitleFontScaleState(clamped);
-    localStorage.setItem(FONT_SCALE_STORAGE_KEY, String(clamped));
-  }, []);
+    if (fontScaleKey) localStorage.setItem(fontScaleKey, String(clamped));
+  }, [fontScaleKey]);
 
   const subtitlesSignature = (mediaInfo?.subtitles || []).map(s => s.id).join(',');
 
   useEffect(() => {
-    if (mediaInfo?.mediaFileId) {
-      const savedId = localStorage.getItem(`roomies_subtitle_${mediaInfo.mediaFileId}`);
-      // Verify the saved subtitle still exists in the media's subtitle list
-      if (savedId && mediaInfo.subtitles?.some(s => s.id === savedId)) {
+    setParsedTracks({});
+    setSubtitleOffsetSecState(readStoredNumber(offsetKey, 0));
+    setSubtitleFontScaleState(clampFontScale(readStoredNumber(fontScaleKey, 1)));
+    if (mediaFileId) {
+      const savedId = localStorage.getItem(`roomies_subtitle_${mediaFileId}`);
+      if (savedId && mediaInfo?.subtitles?.some(s => s.id === savedId)) {
         setActiveSubtitleId(savedId);
       } else {
         setActiveSubtitleId(null);
       }
     } else {
       setActiveSubtitleId(null);
-      setParsedTracks({});
     }
-  }, [mediaInfo?.mediaFileId, subtitlesSignature]);
+  }, [mediaFileId, subtitlesSignature]);
 
-  // Wrapper to save to localStorage whenever the user changes the selection
   const handleSetActiveSubtitleId = useCallback((id: string | null) => {
     setActiveSubtitleId(id);
-    if (mediaInfo?.mediaFileId) {
+    if (mediaFileId) {
       if (id) {
-        localStorage.setItem(`roomies_subtitle_${mediaInfo.mediaFileId}`, id);
+        localStorage.setItem(`roomies_subtitle_${mediaFileId}`, id);
       } else {
-        localStorage.removeItem(`roomies_subtitle_${mediaInfo.mediaFileId}`);
+        localStorage.removeItem(`roomies_subtitle_${mediaFileId}`);
       }
     }
-  }, [mediaInfo?.mediaFileId]);
+  }, [mediaFileId]);
 
-  // Fetch all subtitle tracks ONCE with offset=0
+  // Fetch only the selected track, and only once (cached in parsedTracks thereafter).
+  const parsedTracksRef = useRef(parsedTracks);
+  parsedTracksRef.current = parsedTracks;
+
   useEffect(() => {
-    const subtitles = mediaInfo?.subtitles || [];
-    if (subtitles.length === 0) {
-      setParsedTracks({});
-      return;
-    }
+    if (!activeSubtitleId || parsedTracksRef.current[activeSubtitleId]) return;
 
     let cancelled = false;
 
-    Promise.all(subtitles.map(async (sub) => {
-      const res = await fetch(`/api/library/subtitles/${sub.id}?offset=0`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (!res.ok) return null;
-      const vttText = await res.text();
-      const cues = parseVtt(vttText);
-      return [sub.id, cues] as const;
-    })).then((entries) => {
+    fetch(`/api/library/subtitles/${activeSubtitleId}?offset=0`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    }).then(async (res) => {
+      if (!res.ok || cancelled) return;
+      const text = await res.text();
+      const cues = parseSubtitleContent(text);
       if (cancelled) return;
-      const tracks: Record<string, ParsedCue[]> = {};
-      for (const entry of entries) {
-        if (entry) tracks[entry[0]] = entry[1];
-      }
-      setParsedTracks(tracks);
+      setParsedTracks((prev) => ({ ...prev, [activeSubtitleId]: cues }));
     }).catch(() => { });
 
     return () => { cancelled = true; };
-  }, [subtitlesSignature]); // use signature to prevent refetch on seek
+  }, [activeSubtitleId]);
 
-  // Compute active cue HTML from currentTime — no effects, pure derivation
-  const activeCueHtml = useMemo(() => {
-    if (!activeSubtitleId) return '';
+  const activeCues = useMemo(() => {
+    if (!activeSubtitleId) return [];
     const cues = parsedTracks[activeSubtitleId];
-    if (!cues || cues.length === 0) return '';
+    if (!cues || cues.length === 0) return [];
 
-    const active = findActiveCues(cues, currentTime + subtitleOffsetSec);
-    if (active.length === 0) return '';
-
-    return active.map((cue) => vttTagToHtml(cue.text)).join('<br/>');
+    return findActiveCues(cues, currentTime + subtitleOffsetSec);
   }, [activeSubtitleId, parsedTracks, currentTime, subtitleOffsetSec]);
 
   return {
     activeSubtitleId,
     setActiveSubtitleId: handleSetActiveSubtitleId,
-    activeCueHtml,
+    activeCues,
     subtitleOffsetSec,
     setSubtitleOffsetSec,
     subtitleFontScale,

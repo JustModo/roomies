@@ -38,13 +38,19 @@ export interface VideoPlayerProps {
   onStatusChange: (status: SyncStatus) => void;
   onReportTime: (time: number) => void;
   onReportResolution?: (resolution: string) => void;
+  /** Called whenever local playback volume (0–1) changes, so voice chat can duck under it. */
+  onVolumeChange?: (volume: number) => void;
   showChat?: boolean;
   onToggleChat?: () => void;
   isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   isAsyncMode: boolean;
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;
-  userId?: string;
   isLockedByAdmin?: boolean;
+  /** Voice-party mic state — the controls-bar mic button only renders while joined. */
+  isPartyJoined?: boolean;
+  isMicMuted?: boolean;
+  onToggleMic?: () => void;
   children?: ReactNode | ((props: TopBarRenderProps) => ReactNode);
 }

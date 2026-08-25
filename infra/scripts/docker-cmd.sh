@@ -1,8 +1,23 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-# Start Caddy in the background using docker specific Caddyfile
-caddy start --config /etc/caddy/Caddyfile --adapter caddyfile
+# Run Caddy in foreground so container exits if either process dies.
+caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
+CADDY_PID=$!
 
-# Start the Node.js API server in the foreground
-exec node dist/index.js
+node dist/index.js &
+NODE_PID=$!
+
+terminate() {
+  kill -TERM "$NODE_PID" "$CADDY_PID" 2>/dev/null || true
+}
+trap terminate TERM INT
+
+set +e
+wait -n
+EXIT=$?
+
+echo "[cmd] Process exited (status $EXIT), stopping container"
+terminate
+wait
+exit "$EXIT"

@@ -4,19 +4,20 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { LogOut } from 'lucide-react';
 import { fetchApi } from '../api/client';
-import { setHasUserInteracted } from './Room';
+import { setHasUserInteracted } from '../userInteraction';
+import { ActivePlaybackResponse } from '@roomies/contracts';
 
 export default function Lobby() {
   const { logout } = useAuth();
   const navigate = useNavigate();
 
-  const [activePlayback, setActivePlayback] = useState<any>(null);
+  const [activePlayback, setActivePlayback] = useState<ActivePlaybackResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchApi('/playback/active')
       .then(data => {
-        setActivePlayback(data);
+        setActivePlayback(data as ActivePlaybackResponse);
       })
       .catch(err => console.error('[playback] Failed to fetch active playback:', err))
       .finally(() => setLoading(false));
@@ -25,10 +26,10 @@ export default function Lobby() {
   const status = !activePlayback?.mediaTitle ? 'WAITING' : (activePlayback?.state === 'playing' ? 'PLAYING' : 'PAUSED');
   const viewersCount = activePlayback?.viewersCount || 0;
 
-  if (loading) return <div className="min-h-screen bg-void" />;
+  if (loading) return <div className="min-h-dvh bg-void" />;
 
   return (
-    <div className="min-h-screen bg-void flex flex-col relative">
+    <div className="min-h-dvh bg-void flex flex-col relative">
 
       <main className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-[480px] flex flex-col items-center">

@@ -18,9 +18,17 @@ export function loadConfig(): Config {
     fs.writeFileSync(configPath, defaultConf);
   }
 
+  // NOTE: Centralized, persistent store for extracted/uploaded subtitles (unlike
+  // CACHE_DIR, which gets wiped on every startup by the transcode cache cleaner).
+  const subtitleDataDir = path.resolve(configDir, 'subtitles');
+  if (!fs.existsSync(subtitleDataDir)) {
+    fs.mkdirSync(subtitleDataDir, { recursive: true });
+  }
+
   const parsedConf = dotenv.parse(fs.readFileSync(configPath, 'utf8'));
 
   const devDefaults = {
+    CORS_ORIGIN: 'http://localhost',
     MEDIA_ROOT: path.resolve(projectRoot, 'media'),
     CACHE_DIR: path.resolve(projectRoot, 'cache'),
     FFMPEG_PATH: 'ffmpeg',
@@ -28,6 +36,7 @@ export function loadConfig(): Config {
   };
 
   const prodDefaults = {
+    CORS_ORIGIN: 'http://localhost',
     MEDIA_ROOT: '/media',
     CACHE_DIR: '/cache',
     FFMPEG_PATH: '/usr/lib/jellyfin-ffmpeg/ffmpeg',
@@ -37,14 +46,17 @@ export function loadConfig(): Config {
   const defaults = isDev ? devDefaults : prodDefaults;
 
   const rawConfig = {
-    CORS_ORIGIN: parsedConf.CORS_ORIGIN,
     FFMPEG_VIDEO_CODEC: parsedConf.FFMPEG_VIDEO_CODEC,
     FFMPEG_PRESET: parsedConf.FFMPEG_PRESET,
     HWACCEL_MODE: parsedConf.HWACCEL_MODE,
+    MAX_CONCURRENT_VARIANTS: parsedConf.MAX_CONCURRENT_VARIANTS,
+    TZ: parsedConf.TZ,
 
-    PORT: process.env.PORT,
+    PORT: 3000,
+    CORS_ORIGIN: process.env.CORS_ORIGIN || defaults.CORS_ORIGIN,
     MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,
     CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
+    SUBTITLE_DATA_DIR: process.env.SUBTITLE_DATA_DIR || subtitleDataDir,
     DATABASE_URL: process.env.DATABASE_URL || `file:${path.resolve(configDir, 'roomies.db')}`,
     FFMPEG_PATH: process.env.FFMPEG_PATH || defaults.FFMPEG_PATH,
     FFPROBE_PATH: process.env.FFPROBE_PATH || defaults.FFPROBE_PATH,

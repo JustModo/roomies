@@ -45,8 +45,7 @@ export class RoomService {
   }
 
   static async handleSetControlLock(payload: SetControlLockPayload, ctx: SocketContext) {
-    const user = await prisma.user.findUnique({ where: { id: ctx.userId } });
-    if (user?.role !== 'root') {
+    if (ctx.role !== 'root') {
       console.warn(`[room] Unauthorized control lock attempt by ${ctx.userId}`);
       return;
     }
@@ -60,11 +59,11 @@ export class RoomService {
   }
 
   static async handleUpdateSettings(payload: UpdateRoomSettingsPayload, ctx: SocketContext) {
-    const user = await prisma.user.findUnique({ where: { id: ctx.userId } });
-    if (user?.role !== 'root') {
+    if (ctx.role !== 'root') {
       console.warn(`[room] Unauthorized room settings update attempt by ${ctx.userId}`);
       return;
     }
+
 
     roomStore.updateSettings(payload.settings);
 

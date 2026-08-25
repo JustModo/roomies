@@ -1,40 +1,41 @@
-# Source control
+# Source control / local tooling
 .git
 .gitignore
-
-# Dependencies
-node_modules/
-apps/*/node_modules/
-packages/*/node_modules/
+.pnpm-store
 .pnp
 .pnp.js
-
-# Build outputs
-dist/
-apps/*/dist/
-packages/*/dist/
-out/
-.turbo/
-.next/
-
-# Environment and secrets
-.env
-.env.*.local
-.env.local
-
-# Data and assets (handled by volumes)
-/config/
-/cache/
-/media/
-
-# IDE and Editor files
-.vscode/
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# macOS
+.vscode
+.idea
 .DS_Store
+
+# Dependencies & build
+node_modules
+**/node_modules
+dist
+**/dist
+.turbo
+.next
+out
+**/*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.*
+
+# Runtime volume data (mounted at runtime)
+config
+cache
+media
+
+# Test artifacts
+packages/test/.e2e
+packages/test/test-results
+packages/test/playwright-report
+packages/test/blob-report
+
+# Docs / unused in image build (infra/ is required by Dockerfile)
+README.md
+LICENSE
+assets
+todo.md
+*.log

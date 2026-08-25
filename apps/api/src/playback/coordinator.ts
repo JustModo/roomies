@@ -1,8 +1,12 @@
-import { TranscodeSessionManager, getTranscodeSettings, getAlignedPosition } from '@roomies/transcoding';
-import { prisma } from '../database/sqlite';
+import {
+  TranscodeSessionManager,
+  getTranscodeSettings,
+  getAlignedPosition,
+  isResolution,
+} from '@roomies/transcoding';
 import { roomStore } from '../room/store';
 import { SessionScope, sessionScopeToId } from './types';
-import { Resolution } from '@roomies/transcoding';
+import { ensurePlaybackSession } from './helpers';
 
 export interface SeekResult {
   /** The transcode start offset to use for HLS streams. */
@@ -11,26 +15,45 @@ export interface SeekResult {
   needsReinit: boolean;
 }
 
-/**
- * Single decision point for all seek operations, regardless of session scope.
- *
- * Sync and async sessions go through the same coverage-check → align → recreate
- * pipeline. The only difference is which TranscodeSession is consulted, determined
- * by the SessionScope.
- */
+/** Unified decision point for seek operations across session scopes. */
 export class SessionPlaybackCoordinator {
-  updateAsyncPlayhead(userId: string, position: number, resolution?: string) {
+  /** Last soft-warmed resolution/offset per async user — avoid per-heartbeat spawn/force-resume. */
+  private lastAsyncWarm = new Map<string, { resolution: string; offset: number }>();
+
+  updateAsyncPlayhead(userId: string, position: number, resolution?: string): number | null {
     const session = TranscodeSessionManager.getSession('async');
-    if (!session) return;
+    if (!session) return null;
 
     const swappedOffset = session.updatePlayhead(userId, position, resolution);
 
     if (swappedOffset !== null) {
       roomStore.updateMember(userId, { asyncSession: { transcodeOffset: swappedOffset } });
     }
+
+    // Soft warm only when resolution/offset changes.
+    if (isResolution(resolution)) {
+      const offset =
+        swappedOffset
+        ?? session.getPlayheadOffset(userId)
+        ?? roomStore.getState().members.find((m) => m.userId === userId)?.asyncSession?.transcodeOffset;
+      if (offset != null && offset >= 0) {
+        const prev = this.lastAsyncWarm.get(userId);
+        const changed = !prev || prev.resolution !== resolution || prev.offset !== offset;
+        if (changed) {
+          this.lastAsyncWarm.set(userId, { resolution, offset });
+          const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+          session.ensureVariantReady(resolution, offset, ffmpegPreset, hwAccelMode).catch((err) => {
+            console.error(`[coordinator] soft warm ${resolution}@${offset} failed:`, err);
+          });
+        }
+      }
+    }
+
+    return swappedOffset;
   }
 
   removeAsyncPlayhead(userId: string) {
+    this.lastAsyncWarm.delete(userId);
     const session = TranscodeSessionManager.getSession('async');
     if (session) {
       session.removePlayhead(userId);
@@ -68,18 +91,21 @@ export class SessionPlaybackCoordinator {
     forceNewOffset: boolean = false,
   ): Promise<SeekResult> {
     const sessionId = sessionScopeToId(scope);
-    const session = TranscodeSessionManager.getSession(sessionId);
+    let session = TranscodeSessionManager.getSession(sessionId);
 
     // No existing session → uncovered by definition.
     if (!session || session.mediaFileId !== mediaFileId) {
       const offset = getAlignedPosition(position);
-      // Lazily create the session so ensureVariant works on first request.
-      await this.ensureSessionExists(sessionId, mediaFileId);
+      session = await ensurePlaybackSession(sessionId, mediaFileId);
+      const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+      session.seek(position, -1, ffmpegPreset, hwAccelMode, session.policy.variants).catch((err) => {
+        console.error(`[coordinator] session.seek (bootstrap) failed for ${sessionId}/${mediaFileId}:`, err);
+      });
       return { effectiveOffset: offset, needsReinit: true };
     }
 
     const currentOffset = this.getCurrentOffset(scope);
-    
+
     if (!forceNewOffset) {
       const isCovered = session.isPositionCovered(position, currentOffset);
       if (isCovered) {
@@ -97,9 +123,7 @@ export class SessionPlaybackCoordinator {
     const newOffset = getAlignedPosition(position);
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
 
-    // Fire-and-forget: variants spin up in background.
-    const resolutionsToPrewarm: Resolution[] = scope.type === 'room' ? ['360p', '720p', '1080p'] : [];
-    session.seek(position, currentOffset, ffmpegPreset, hwAccelMode, resolutionsToPrewarm).catch((err) => {
+    session.seek(position, currentOffset, ffmpegPreset, hwAccelMode, session.policy.variants).catch((err) => {
       console.error(`[coordinator] session.seek failed for ${sessionId}/${mediaFileId}:`, err);
     });
 
@@ -116,14 +140,6 @@ export class SessionPlaybackCoordinator {
     }
     const member = state.members.find((m) => m.userId === scope.userId);
     return member?.asyncSession?.transcodeOffset ?? state.transcodeOffset;
-  }
-
-  /** Ensure a TranscodeSession exists so coverage checks and variant requests work. */
-  private async ensureSessionExists(sessionId: string, mediaFileId: string): Promise<void> {
-    if (TranscodeSessionManager.getSession(sessionId)) return;
-    const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaFileId } });
-    if (!mediaFile) throw new Error('Media file not found');
-    TranscodeSessionManager.startSession(sessionId, mediaFileId, mediaFile.path);
   }
 }
 

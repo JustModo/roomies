@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchApi } from '../api/client';
-import { Movie } from '@roomies/contracts';
+import { Movie, Library } from '@roomies/contracts';
 
 export function useLibrary() {
   const [library, setLibrary] = useState<Movie[]>([]);
@@ -12,11 +12,12 @@ export function useLibrary() {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await fetchApi('/library/');
-      const allMovies = data.flatMap((lib: any) => lib.movies);
+      const data = (await fetchApi('/library/')) as Library[];
+      const allMovies = data.flatMap((lib) => lib.movies || []);
       setLibrary(allMovies);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load library');
+    } catch (err: unknown) {
+      const errorObj = err as Error;
+      setError(errorObj.message || 'Failed to load library');
     } finally {
       setIsLoading(false);
     }
@@ -27,8 +28,9 @@ export function useLibrary() {
       setIsScanning(true);
       await fetchApi('/library/scan', { method: 'POST', body: {} });
       await fetchLibrary();
-    } catch (err: any) {
-      setError(err.message || 'Failed to scan library');
+    } catch (err: unknown) {
+      const errorObj = err as Error;
+      setError(errorObj.message || 'Failed to scan library');
     } finally {
       setIsScanning(false);
     }

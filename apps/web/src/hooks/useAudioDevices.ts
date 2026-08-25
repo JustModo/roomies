@@ -18,19 +18,11 @@ const isSetSinkIdSupported = (): boolean =>
   typeof AudioContext !== 'undefined' &&
   typeof (AudioContext.prototype as unknown as { setSinkId?: unknown }).setSinkId === 'function';
 
-// Chrome/Edge expose synthetic "default" and "communications" device entries
-// that alias whatever the OS default currently is. We already provide our
-// own "System Default" option (an unconstrained getUserMedia call), so these
-// would just show up as confusing duplicates — filter them out.
+// Filter out synthetic "default" and "communications" entries to avoid duplicate labels.
 const isSyntheticDefaultDevice = (deviceId: string): boolean =>
   deviceId === 'default' || deviceId === 'communications';
 
-/**
- * Enumerates available audio input/output devices and keeps the list fresh
- * as devices are plugged/unplugged. Device labels are empty until mic
- * permission has been granted at least once — call `refresh()` again after
- * a successful getUserMedia() to pick up labels.
- */
+/** Enumerates audio input/output devices and updates automatically on device change. */
 export function useAudioDevices(): UseAudioDevicesResult {
   const [inputs, setInputs] = useState<AudioDeviceInfo[]>([]);
   const [outputs, setOutputs] = useState<AudioDeviceInfo[]>([]);

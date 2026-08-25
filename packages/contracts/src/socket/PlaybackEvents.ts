@@ -49,5 +49,6 @@ export const ServerMediaChangedSchema = z.object({
     transcodeOffset: z.number().optional(),
     sessionScope: z.enum(['room', 'user']).optional(),
     subtitles: z.array(z.object({ id: z.string(), language: z.string().nullable() })).optional(),
+    audioTracks: z.array(z.object({ id: z.string(), language: z.string().nullable(), title: z.string().nullable(), channels: z.number().nullable() })).optional(),
   }),
 });

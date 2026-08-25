@@ -1,5 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { IncomingSocketMessage, OutgoingSocketMessage } from '@roomies/contracts';
+import { isUserPinged } from '../components/Chat/mentionUtils';
+import { isFullscreenNow } from '../hooks/useIsFullscreen';
+
+/** Anything the chat can focus — currently RichChatInput's imperative handle. */
+export interface FocusableInput {
+  focus: () => void;
+}
 
 export interface EmojiReaction {
   userId: string;
@@ -44,8 +51,12 @@ interface ChatContextType {
   emojiPicker: string[];
   setEmojiPicker: (picker: string[]) => void;
   focusChatInput: () => void;
-  registerChatInputRef: (el: HTMLTextAreaElement | null) => void;
+  registerChatInputRef: (el: FocusableInput | null) => void;
   emojiReactions: EmojiReaction[];
+  roomMembers: { userId: string; username: string }[];
+  /** Every username ever seen in this room, so a mention keeps its formatting after that user leaves. */
+  knownUsernames: string[];
+  currentUsername?: string | null;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -113,6 +124,38 @@ export function ChatProvider({
   useEffect(() => {
     roomMembersRef.current = roomMembers;
   }, [roomMembers]);
+
+  const knownUsernamesKey = `chat_known_usernames:${window.location.pathname}`;
+  // Superset of every username ever seen in this room — unlike roomMembers, this
+  // never shrinks when someone leaves, so a mention of them stays formatted.
+  const [knownUsernames, setKnownUsernames] = useState<string[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(knownUsernamesKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Grow the ever-seen username set as members come and go; never remove from it.
+  useEffect(() => {
+    if (roomMembers.length === 0) return;
+    setKnownUsernames((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const m of roomMembers) {
+        if (!next.has(m.username)) {
+          next.add(m.username);
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      const result = [...next];
+      sessionStorage.setItem(knownUsernamesKey, JSON.stringify(result));
+      return result;
+    });
+  }, [roomMembers, knownUsernamesKey]);
+  
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [toasts, setToasts] = useState<Message[]>([]);
@@ -167,9 +210,9 @@ export function ChatProvider({
   const soundEnabledRef = useRef(soundEnabled);
   const browserNotificationsRef = useRef(browserNotificationsEnabled);
   const lastSoundTimeRef = useRef(0);
-  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatInputRef = useRef<FocusableInput | null>(null);
 
-  const registerChatInputRef = useCallback((el: HTMLTextAreaElement | null) => {
+  const registerChatInputRef = useCallback((el: FocusableInput | null) => {
     chatInputRef.current = el;
   }, []);
 
@@ -270,7 +313,9 @@ export function ChatProvider({
 
     if (msg.eventType === 'chat' && !msg.isSystem && !msg.isMine) {
       const now = Date.now();
-      if (soundEnabledRef.current && isDocumentHidden && now - lastSoundTimeRef.current >= 3000) {
+      const myUsername = roomMembersRef.current.find(m => m.userId === currentUserId)?.username;
+      const isPinged = isUserPinged(msg.body, myUsername);
+      if (soundEnabledRef.current && (isDocumentHidden || isPinged) && now - lastSoundTimeRef.current >= 1000) {
         lastSoundTimeRef.current = now;
         playNotificationSound();
       }
@@ -292,7 +337,7 @@ export function ChatProvider({
       }
     }
 
-    const isFullscreen = typeof document !== 'undefined' && !!document.fullscreenElement;
+    const isFullscreen = isFullscreenNow();
     const showToast = isFullscreen || (isMobile ? activeTabRef.current !== 'chat' : (!isOpenRef.current || activeTabRef.current !== 'chat'));
 
     if (showToast) {
@@ -492,6 +537,9 @@ export function ChatProvider({
       emojiPicker, setEmojiPicker,
       focusChatInput, registerChatInputRef,
       emojiReactions,
+      roomMembers,
+      knownUsernames,
+      currentUsername: roomMembers.find(m => m.userId === currentUserId)?.username,
     }}>
       {children}
     </ChatContext.Provider>

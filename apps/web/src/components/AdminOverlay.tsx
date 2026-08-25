@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
 
-import { X, Film, ChevronLeft, Play } from 'lucide-react';
+import { X, Film, ChevronLeft, Play, Captions } from 'lucide-react';
 import { Input } from './ui/Input';
 import { IconButton } from './ui/IconButton';
 import { Button } from './ui/Button';
-import { Movie, MediaFile } from '@roomies/contracts';
+import { SubtitleManager } from './SubtitleManager';
+import { Movie, MediaFile, UserProfile, Library, Subtitle } from '@roomies/contracts';
 
-interface AdminOverlayProps {
-  isOpen: boolean;
-  onClose: () => void;
-  mediaTitle?: string | null;
-}
 
-type Tab = 'USERS' | 'MEDIA';
+import { AdminOverlayProps, AdminTab as Tab } from '../types';
+
 
 export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, mediaTitle }) => {
   const [activeTab, setActiveTab] = useState<Tab>('MEDIA');
@@ -101,7 +98,9 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
 };
 
 const UsersTab = () => {
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [isCreating, setIsCreating] = useState(false);
 
   const [newUsername, setNewUsername] = useState('');
@@ -111,6 +110,7 @@ const UsersTab = () => {
   const [loading, setLoading] = useState(false);
 
   const fetchUsers = () => {
+    setIsLoading(true);
     fetch('/api/users', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
@@ -118,7 +118,8 @@ const UsersTab = () => {
       .then(data => {
         if (Array.isArray(data)) setUsers(data);
       })
-      .catch(err => console.error('[library] Failed to fetch users:', err));
+      .catch(err => console.error('[library] Failed to fetch users:', err))
+      .finally(() => setIsLoading(false));
   };
 
   useEffect(() => {
@@ -205,16 +206,16 @@ const UsersTab = () => {
       </div>
 
       <div className="w-full">
-        {users.length > 0 && (
+        {isLoading ? null : users.length > 0 ? (
           <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
             {users.map(u => (
               <div key={u.id} className="flex items-center justify-between p-3 sm:p-4.5 hover:bg-ash/5 transition-all duration-200 group w-full">
                 <div className="flex items-center gap-3 sm:gap-6 min-w-0">
                   <div className="w-2 hidden sm:block" />
                   <div className="min-w-0">
-                    <p className="text-14 sm:text-15 font-medium text-paper/85 truncate">{u.username}</p>
-                    <p className="text-11 sm:text-12 text-fog/60 font-mono mt-1 lowercase">
-                      {u.role === 'root' ? 'admin' : u.role} • joined {u.joined}
+                    <p className="text-paper truncate uppercase">{u.username}</p>
+                    <p className="text-fog/60 font-mono lowercase">
+                      {u.role === 'root' ? 'admin' : u.role}
                     </p>
                   </div>
                 </div>
@@ -232,6 +233,10 @@ const UsersTab = () => {
               </div>
             ))}
           </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-fog text-14 border border-ash/20 border-dashed bg-ash/5">
+            No users found
+          </div>
         )}
       </div>
     </div>
@@ -240,9 +245,25 @@ const UsersTab = () => {
 
 const MediaTab = ({ onClose }: { onClose: () => void }) => {
   const [movies, setMovies] = useState<Movie[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [subtitleTarget, setSubtitleTarget] = useState<MediaFile | null>(null);
+
+  const handleSubtitlesChange = (mediaFileId: string, subtitles: Subtitle[]) => {
+    setMovies((prev) =>
+      prev.map((m) => ({
+        ...m,
+        mediaFiles: m.mediaFiles.map((mf) => (mf.id === mediaFileId ? { ...mf, subtitles } : mf)),
+      }))
+    );
+    setSelectedMovie((prev) =>
+      prev
+        ? { ...prev, mediaFiles: prev.mediaFiles.map((mf) => (mf.id === mediaFileId ? { ...mf, subtitles } : mf)) }
+        : prev
+    );
+  };
 
   const formatDuration = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -251,17 +272,20 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
   };
 
   const fetchLibrary = () => {
+    setIsLoading(true);
     fetch('/api/library', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          const allMovies: Movie[] = data.flatMap((lib: any) => lib.movies || []);
+          const allMovies: Movie[] = (data as Library[]).flatMap((lib) => lib.movies || []);
+
           setMovies(allMovies);
         }
       })
-      .catch(err => console.error('[library] Failed to fetch library:', err));
+      .catch(err => console.error('[library] Failed to fetch library:', err))
+      .finally(() => setIsLoading(false));
   };
 
   useEffect(() => {
@@ -358,13 +382,28 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
                     </div>
                   </div>
 
-                  <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300 flex-shrink-0 ml-4">
-                    PLAY NOW
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0 ml-4">
+                    <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                      PLAY NOW
+                    </span>
+                    <IconButton
+                      icon={<Captions size={16} strokeWidth={1.5} />}
+                      onClick={(e) => { e.stopPropagation(); setSubtitleTarget(mf); }}
+                      title="Manage subtitles"
+                    />
+                  </div>
                 </div>
               );
             })}
           </div>
+        )}
+
+        {subtitleTarget && (
+          <SubtitleManager
+            mediaFile={subtitleTarget}
+            onClose={() => setSubtitleTarget(null)}
+            onSubtitlesChange={(subs) => handleSubtitlesChange(subtitleTarget.id, subs)}
+          />
         )}
       </div>
     );
@@ -383,11 +422,11 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           onChange={(e) => setSearchQuery(e.target.value)}
         />
         <Button onClick={handleScan} disabled={isScanning} className="w-full sm:w-auto min-w-[140px] flex-shrink-0">
-          {isScanning ? 'SCANNING...' : 'SCAN'}
+          {isScanning ? 'RESCANNING...' : 'RESCAN'}
         </Button>
       </div>
 
-      {filteredMovies.length === 0 && !isScanning && (
+      {isLoading ? null : filteredMovies.length === 0 && !isScanning ? (
         <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-ash/20 border-dashed bg-ash/5 w-full">
           <div className="w-12 h-12 rounded-full bg-ash/10 flex items-center justify-center text-fog mb-4">
             <Film size={24} strokeWidth={1.5} />
@@ -397,9 +436,9 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
             {searchQuery ? 'We couldn\'t find anything matching your search.' : 'Try scanning your library directory to import media.'}
           </p>
         </div>
-      )}
+      ) : null}
 
-      {filteredMovies.length > 0 && (
+      {!isLoading && filteredMovies.length > 0 && (
         <div className="flex flex-col border border-ash/20 divide-y divide-ash/15 w-full">
           {filteredMovies.map(m => (
             <div
@@ -430,12 +469,29 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
                 </div>
               </div>
 
-              <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300 flex-shrink-0 ml-4">
-                {m.type === 'show' ? 'VIEW EPISODES' : 'PLAY NOW'}
-              </span>
+              <div className="flex items-center gap-2 shrink-0 ml-4">
+                <span className="hidden sm:block text-12 font-medium tracking-wider text-fog group-hover:text-paper uppercase opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                  {m.type === 'show' ? 'VIEW EPISODES' : 'PLAY NOW'}
+                </span>
+                {m.type === 'movie' && m.mediaFiles[0] && (
+                  <IconButton
+                    icon={<Captions size={16} strokeWidth={1.5} />}
+                    onClick={(e) => { e.stopPropagation(); setSubtitleTarget(m.mediaFiles[0]); }}
+                    title="Manage subtitles"
+                  />
+                )}
+              </div>
             </div>
           ))}
         </div>
+      )}
+
+      {subtitleTarget && (
+        <SubtitleManager
+          mediaFile={subtitleTarget}
+          onClose={() => setSubtitleTarget(null)}
+          onSubtitlesChange={(subs) => handleSubtitlesChange(subtitleTarget.id, subs)}
+        />
       )}
     </div>
   );

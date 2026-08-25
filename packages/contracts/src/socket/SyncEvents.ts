@@ -3,9 +3,9 @@ import { z } from 'zod';
 export const ClientSyncHeartbeatSchema = z.object({
   event: z.literal('sync.heartbeat'),
   payload: z.object({
-    position: z.number(),
-    playing: z.boolean(),
-    playbackRate: z.number(),
+    position: z.number().optional(),
+    playing: z.boolean().optional(),
+    playbackRate: z.number().optional(),
     resolution: z.enum(['360p', '720p', '1080p']).optional(),
     timestamp: z.number().optional(),
     pingQuality: z.number().optional(),

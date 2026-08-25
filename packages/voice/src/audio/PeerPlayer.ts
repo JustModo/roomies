@@ -10,20 +10,19 @@ export class PeerPlayer {
     private readonly config: VoiceConfig;
     private nextPlayTime = 0;
     private destroyed = false;
-    // Serializes all decoder access so a destroy() can never free the wasm
-    // handle while a scheduleChunk() call is still mid-decode with it.
+    // Serializes decoder access so destroy() never frees WASM during active decode.
     private opQueue: Promise<void> = Promise.resolve();
 
-    constructor(ctx: AudioContext, config: VoiceConfig) {
+    constructor(ctx: AudioContext, config: VoiceConfig, output: AudioNode) {
         this.ctx = ctx;
         this.config = config;
         this.gainNode = ctx.createGain();
         this.analyserNode = ctx.createAnalyser();
         this.analyserNode.fftSize = 256;
-        
+
         this.gainNode.connect(this.analyserNode);
-        this.analyserNode.connect(ctx.destination);
-        
+        this.analyserNode.connect(output);
+
         this.decoder = createDecoder({
             channels: config.channels,
             sampleRate: config.sampleRate,
@@ -41,9 +40,10 @@ export class PeerPlayer {
         return Math.sqrt(sumSquares / data.length);
     }
 
+    /** Sets this peer's gain. `volume` is 0–200, where 100 is unity gain. */
     setVolume(volume: number): void {
         this.gainNode.gain.setTargetAtTime(
-            Math.max(0, Math.min(1, volume / 100)),
+            Math.max(0, Math.min(2, volume / 100)),
             this.ctx.currentTime,
             this.config.playback.gainRampSeconds
         );

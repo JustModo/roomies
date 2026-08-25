@@ -17,7 +17,13 @@ interface UseVideoEventsParams {
   setBufferedRanges: (ranges: BufferedRange[]) => void;
   onReportTime: (time: number) => void;
   activeOffsetRef: MutableRefObject<number>;
+  /** Set while waiting for useHlsPlayer to reinit against a corrected offset —
+   *  freezes time/buffer reporting so the still-playing OLD source can't clobber
+   *  the pending seek target before the reinit consumes it. */
+  pendingReinitRef: MutableRefObject<boolean>;
   onEnded?: () => void;
+  /** iOS blocks play() without a user gesture; the player shows a tap-to-play prompt. */
+  onAutoplayBlocked?: (blocked: boolean) => void;
 }
 
 /** Returns how many seconds are buffered ahead of the current playhead. */
@@ -48,7 +54,9 @@ export function useVideoEvents({
   setBufferedRanges,
   onReportTime,
   activeOffsetRef,
+  pendingReinitRef,
   onEnded,
+  onAutoplayBlocked,
 }: UseVideoEventsParams) {
   const lastHandledSeekIdRef = useRef(-1);
   const pendingSeekRef = useRef<number | null>(null);
@@ -63,11 +71,22 @@ export function useVideoEvents({
     const video = videoRef.current;
 
     if (state === 'playing' && video.paused && !isDragging) {
-      video.play().catch(err => console.error('[playback] Play failed:', err));
+      video.play().then(
+        () => onAutoplayBlocked?.(false),
+        (err: DOMException) => {
+          // iOS/Safari refuse programmatic play() outside a user gesture. That
+          // is not an error to swallow — the user has to be offered a tap.
+          if (err?.name === 'NotAllowedError') {
+            onAutoplayBlocked?.(true);
+          } else {
+            console.error('[playback] Play failed:', err);
+          }
+        },
+      );
     } else if (state !== 'playing' && !video.paused) {
       video.pause();
     }
-  }, [roomPlaybackState?.state, isDragging, isPlaying]);
+  }, [roomPlaybackState?.state, isDragging, isPlaying, onAutoplayBlocked]);
 
   // ── Playback Rate ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -94,13 +113,31 @@ export function useVideoEvents({
 
     const video = videoRef.current;
     const transOffset = activeOffsetRef.current;
-    const targetRelative = Math.max(0, seekCommand.position - transOffset);
+    const rawRelative = seekCommand.position - transOffset;
 
     // Update UI time immediately for instant feedback.
     setCurrentTime(seekCommand.position);
     onReportTime(seekCommand.position);
 
     if (!video) return;
+
+    // Target predates the currently-attached offset window (e.g. jumping back
+    // to 0:00 after scrubbing past a rolling-offset boundary). Writing
+    // video.currentTime here would clamp to 0 on the OLD source and snap to
+    // the wrong absolute position. Wait for the server's media.changed to
+    // land — useHlsPlayer reinits with the correct startPosition from there.
+    if (rawRelative < 0) {
+      // Freeze reporting: the still-attached OLD source keeps ticking timeupdate
+      // events, which would otherwise overwrite the seek target (localTime) with
+      // wherever the stale stream drifts to before useHlsPlayer's reinit consumes
+      // it — baking in a wrong startPosition permanently. Also clear the buffer
+      // bar immediately rather than showing stale ranges for the whole wait.
+      pendingReinitRef.current = true;
+      setBufferedRanges([]);
+      reportStatus('buffering');
+      return;
+    }
+    const targetRelative = rawRelative;
 
     // If the video source isn't loaded yet, defer the seek to loadedmetadata.
     if (video.readyState === 0) {
@@ -256,6 +293,9 @@ export function useVideoEvents({
 
     const onTimeUpdate = () => {
       if (video.readyState === 0) return;
+      // A reinit is pending — this source is stale; reporting its position would
+      // clobber the seek target useHlsPlayer is about to consume.
+      if (pendingReinitRef.current) return;
       const absTime = video.currentTime + activeOffsetRef.current;
       if (!isDragging && !video.seeking) {
         setCurrentTime(absTime);
@@ -267,6 +307,7 @@ export function useVideoEvents({
 
     const onProgress = () => {
       if (video.readyState === 0) return;
+      if (pendingReinitRef.current) return;
       updateBufferedRanges();
     };
 

@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
 import { OutgoingSocketMessage } from '@roomies/contracts';
+import { RoomSocket } from './router';
 
 export const SocketEmitter = {
   broadcastToRoom(app: FastifyInstance, message: OutgoingSocketMessage) {
@@ -27,11 +28,12 @@ export const SocketEmitter = {
     
     const serialized = JSON.stringify(message);
     for (const socket of room) {
-      if ((socket as any).userId === userId && socket.readyState === 1) {
+      if ((socket as RoomSocket).userId === userId && socket.readyState === 1) {
         socket.send(serialized);
       }
     }
   },
+
 
   /**
    * Broadcast to all sockets in the voice room except the sender.

@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2, Lock, Unlock, Mic, MicOff } from 'lucide-react';
-import { AdminOverlay } from '../components/AdminOverlay';
 import { useRoomSync } from '../hooks/useRoomSync';
+import { hasUserInteracted } from '../userInteraction';
+
+const AdminOverlay = lazy(() => import('../components/AdminOverlay').then(m => ({ default: m.AdminOverlay })));
+
 import { RoomState, MediaInfo, SyncStatus } from '@roomies/contracts';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
@@ -12,6 +15,8 @@ import { Sidebar } from '../components/Sidebar';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { SeekCommand } from '../components/VideoPlayer/types';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
+import { useIsFullscreen, isFullscreenNow, onFullscreenChange, requestFullscreen, exitFullscreen } from '../hooks/useIsFullscreen';
+import { BAR_EDGE_X, ICON_BTN_PADDING, ICON_PRIMARY, ICON_SECONDARY } from '../components/VideoPlayer/styleTokens';
 
 /**
  * Tracks window.visualViewport height so the layout correctly shrinks when
@@ -44,11 +49,6 @@ function useVisualViewportHeight(): string {
 
   return height;
 }
-
-export let hasUserInteracted = false;
-export const setHasUserInteracted = (val: boolean) => {
-  hasUserInteracted = val;
-};
 
 export default function Room() {
   const navigate = useNavigate();
@@ -86,7 +86,8 @@ export default function Room() {
     toggleAsyncMode,
     updatePartyState,
     setControlLock,
-    updateSettings
+    updateSettings,
+    authError
   } = useRoomSync();
 
   useEffect(() => {
@@ -96,13 +97,11 @@ export default function Room() {
   }, [roomState?.members]);
 
   useEffect(() => {
-    return addMessageHandler((msg: any) => {
-      if (msg.event === 'auth.kicked') {
-        logout();
-        navigate('/login?reason=kicked', { replace: true });
-      }
-    });
-  }, [addMessageHandler, logout, navigate]);
+    if (!authError) return;
+    logout();
+    const reason = authError === 'kicked' ? 'kicked' : 'disconnected';
+    navigate(`/login?reason=${reason}`, { replace: true });
+  }, [authError, logout, navigate]);
 
   const handleExit = () => {
     sendMessage({ event: 'room.leave', payload: {} });
@@ -201,14 +200,17 @@ function RoomInner({
   sendMessage
 }: RoomInnerProps) {
   const { user } = useAuth();
-  const { activeSpeakers } = useVoice();
+  const { activeSpeakers, setVideoVolume } = useVoice();
   const vpHeight = useVisualViewportHeight();
   const { isOpen, setIsOpen, addLocalSystemMessage, setActiveTab, focusChatInput } = useChat();
 
   const handleToggleAsync = useCallback(() => {
     toggleAsyncMode();
   }, [toggleAsyncMode]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const nativeFullscreen = useIsFullscreen();
+  // iPhone Safari has no element fullscreen; this drives a CSS-only equivalent.
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
+  const isFullscreen = nativeFullscreen || pseudoFullscreen;
   const [controlsVisible, setControlsVisible] = useState(true);
 
   useEffect(() => {
@@ -250,57 +252,58 @@ function RoomInner({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
+  // Orientation locking is a no-op on iOS (Safari has no screen.orientation.lock)
+  // but still works on Android Chrome, so it stays behind a capability check.
+  const lockOrientation = useCallback((mode: 'landscape' | 'portrait' | null) => {
+    const scr = screen as any;
+    if (!scr.orientation) return;
+    if (mode === null) {
+      scr.orientation.unlock?.();
+    } else {
+      scr.orientation.lock?.(mode).catch(() => { });
+    }
+  }, []);
+
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      const isFs = !!document.fullscreenElement;
-      setIsFullscreen(isFs);
-      const scr = screen as any;
+    const sync = () => {
+      const isFs = isFullscreenNow();
+      // Native fullscreen exited on its own (Esc, iOS "Done") — drop the CSS fallback too.
+      if (!isFs) setPseudoFullscreen(false);
       if (isFs) {
         window.history.pushState({ fullscreen: true }, '');
-        if (scr.orientation && scr.orientation.lock) {
-          scr.orientation.lock('landscape').catch(() => { });
-        }
+        lockOrientation('landscape');
       } else {
-        if (isOpen) {
-          if (scr.orientation && scr.orientation.lock) {
-            scr.orientation.lock('portrait').catch(() => { });
-          }
-        } else {
-          if (scr.orientation && scr.orientation.unlock) {
-            scr.orientation.unlock();
-          }
-        }
+        lockOrientation(isOpen ? 'portrait' : null);
       }
     };
 
     const handlePopState = () => {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => { });
-      }
+      exitFullscreen();
+      setPseudoFullscreen(false);
     };
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    const offFullscreen = onFullscreenChange(sync);
     window.addEventListener('popstate', handlePopState);
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      offFullscreen();
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [isOpen]);
+  }, [isOpen, lockOrientation]);
 
   useEffect(() => {
-    const scr = screen as any;
-    if (!document.fullscreenElement) {
-      if (isOpen) {
-        if (scr.orientation && scr.orientation.lock) {
-          scr.orientation.lock('portrait').catch(() => { });
-        }
-      } else {
-        if (scr.orientation && scr.orientation.unlock) {
-          scr.orientation.unlock();
-        }
-      }
+    if (!isFullscreenNow()) lockOrientation(isOpen ? 'portrait' : null);
+  }, [isOpen, lockOrientation]);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    if (isFullscreen) {
+      await exitFullscreen();
+      setPseudoFullscreen(false);
+      return;
     }
-  }, [isOpen]);
+    // No element fullscreen on iPhone Safari — fall back to filling the viewport with CSS.
+    const ok = await requestFullscreen(document.getElementById('room-root'));
+    if (!ok) setPseudoFullscreen(true);
+  }, [isFullscreen]);
 
   useKeyboardShortcut('t', () => {
     setIsOpen(true);
@@ -308,14 +311,17 @@ function RoomInner({
     requestAnimationFrame(() => focusChatInput());
   }, { disabled: isOpen });
 
+  const handleToggleMic = useCallback(() => {
+    updatePartyState({ micMuted: !isMicMuted });
+  }, [updatePartyState, isMicMuted]);
+
   useKeyboardShortcut('m', () => {
-    if (isJoined) {
-      updatePartyState({ micMuted: !isMicMuted });
-    }
+    if (isJoined) handleToggleMic();
   }, { disabled: !isJoined });
 
   return (
     <div
+      id="room-root"
       className="fixed top-0 left-0 w-full bg-ink overflow-hidden text-paper flex flex-col lg:flex-row"
       style={{ height: vpHeight }}
     >
@@ -335,17 +341,21 @@ function RoomInner({
           onStatusChange={setStatus}
           onReportTime={reportLocalTime}
           onReportResolution={reportActiveResolution}
+          onVolumeChange={setVideoVolume}
           showChat={isOpen}
           onToggleChat={() => setIsOpen(!isOpen)}
           isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
           isAsyncMode={isAsyncMode}
           onToggleAsync={handleToggleAsync}
           allowAsyncMode={roomState?.settings?.allowAsyncMode ?? true}
-          userId={user?.id}
           isLockedByAdmin={isLockedByAdmin}
+          isPartyJoined={isJoined}
+          isMicMuted={isMicMuted}
+          onToggleMic={handleToggleMic}
         >
           {({ isSelfLocked, onToggleSelfLock, isServerLocked, activeLockByAdmin }) => (
-            <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative">
+            <div className={`flex justify-between items-center ${BAR_EDGE_X} py-2 sm:py-3 lg:py-4 bg-linear-to-b from-ink/80 to-transparent relative`}>
               <div className="flex-none flex justify-start w-14 sm:w-20 lg:w-24">
                 {!isFullscreen && (
                   <button onClick={handleExit} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors whitespace-nowrap">
@@ -363,31 +373,31 @@ function RoomInner({
 
               <div className="flex-none flex justify-end items-center gap-1.5 sm:gap-3 shrink-0">
                 {isServerLocked ? (
-                  <div 
-                    className={`p-1 sm:p-1.5 flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
+                  <div
+                    className={`${ICON_BTN_PADDING} flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
                     title={activeLockByAdmin ? 'Controls locked by admin' : 'Controls locked while syncing'}
                   >
-                    <Lock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                    <Lock className={ICON_PRIMARY} strokeWidth={1.5} />
                   </div>
                 ) : (
                   <button
                     onClick={onToggleSelfLock}
-                    className={`p-1 sm:p-1.5 flex items-center justify-center transition-colors ${
+                    className={`${ICON_BTN_PADDING} flex items-center justify-center transition-colors ${
                       isSelfLocked ? 'text-blue-400' : 'text-paper/60 hover:text-paper'
                     }`}
                     title={isSelfLocked ? 'Unlock controls' : 'Lock controls'}
                   >
                     {isSelfLocked ? (
-                      <Lock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                      <Lock className={ICON_PRIMARY} strokeWidth={1.5} />
                     ) : (
-                      <Unlock className="w-4 h-4 lg:w-5 lg:h-5" strokeWidth={1.5} />
+                      <Unlock className={ICON_PRIMARY} strokeWidth={1.5} />
                     )}
                   </button>
                 )}
                 {user?.role === 'root' && (
-                  <button onClick={() => setShowAdmin(true)} className="flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors p-1 sm:p-1.5">
+                  <button onClick={() => setShowAdmin(true)} className={`flex items-center text-[11px] sm:text-14 lg:text-base uppercase tracking-[0.08em] hover:text-fog transition-colors ${ICON_BTN_PADDING}`}>
                     <span className="hidden sm:inline">Manage</span>
-                    <Settings2 className="sm:ml-1 lg:ml-2 w-4 h-4 sm:w-4 sm:h-4 lg:w-5 lg:h-5" />
+                    <Settings2 className={`sm:ml-1 lg:ml-2 ${ICON_SECONDARY}`} />
                   </button>
                 )}
               </div>
@@ -419,8 +429,11 @@ function RoomInner({
       />
 
       {user?.role === 'root' && (
-        <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />
+        <Suspense fallback={null}>
+          <AdminOverlay isOpen={showAdmin} onClose={() => setShowAdmin(false)} mediaTitle={roomState?.mediaTitle} />
+        </Suspense>
       )}
+
     </div>
   );
 }

@@ -17,17 +17,11 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # --------------------------------------------------------
-    # Hardware Acceleration (GPU) Configurations
-    # --------------------------------------------------------
-    # Option A: Intel / AMD (VAAPI / QSV)
-    # Uncomment the `devices` block below if your host uses an Intel/AMD GPU
+    # Intel/AMD GPU (VAAPI/QSV): uncomment `devices` block below.
     # devices:
     #   - /dev/dri:/dev/dri
-    #
-    # Option B: NVIDIA (NVENC)
-    # Uncomment the `deploy` block below if your host uses an NVIDIA GPU
-    # and has the nvidia-container-toolkit installed.
+
+    # NVIDIA GPU (NVENC): uncomment `deploy` block below.
     # deploy:
     #   resources:
     #     reservations:

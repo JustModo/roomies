@@ -60,10 +60,10 @@ export default function Register() {
     }
   };
 
-  if (checking) return <div className="min-h-screen bg-void" />;
+  if (checking) return <div className="min-h-dvh bg-void" />;
 
   return (
-    <div className="min-h-screen bg-void flex items-center justify-center p-4">
+    <div className="min-h-dvh bg-void flex items-center justify-center p-4">
       
       <div className="w-full max-w-[360px]">
         {success ? (

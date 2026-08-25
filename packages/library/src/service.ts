@@ -1,9 +1,12 @@
+import fs from 'fs';
 import path from 'path';
 import type { PrismaClient } from '@prisma/client';
 import { MEDIA_ROOT as CONFIG_MEDIA_ROOT } from '@roomies/config';
-import { Library, MediaFile as MediaFileContract, Subtitle, Movie } from '@roomies/contracts';
+import { Library, MediaFile as MediaFileContract, Subtitle, AudioTrack, Movie } from '@roomies/contracts';
 import { scanLibraryFolder } from './scanner';
 import { getMediaDuration } from './ffprobe';
+import { extractEmbeddedSubtitles } from './subtitleExtractor';
+import { probeAudioTracks } from './audioProbe';
 import { runWithConcurrency } from './concurrency';
 import { ScannedEpisode, ScannedMedia } from './types';
 
@@ -16,9 +19,20 @@ const serializeSubtitle = (s: { id: string; mediaFileId: string; path: string; l
   language: s.language,
 });
 
+const serializeAudioTrack = (a: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null; isDefault: boolean }): AudioTrack => ({
+  id: a.id,
+  mediaFileId: a.mediaFileId,
+  streamIndex: a.streamIndex,
+  language: a.language,
+  title: a.title,
+  channels: a.channels,
+  isDefault: a.isDefault,
+});
+
 const serializeMediaFile = (mf: {
   id: string; movieId: string; title: string; path: string; duration: number; number: number | null;
   createdAt: Date; subtitles: { id: string; mediaFileId: string; path: string; language: string | null }[];
+  audioTracks: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null; isDefault: boolean }[];
 }): MediaFileContract => ({
   id: mf.id,
   movieId: mf.movieId,
@@ -28,6 +42,7 @@ const serializeMediaFile = (mf: {
   number: mf.number,
   createdAt: mf.createdAt.toISOString(),
   subtitles: mf.subtitles.map(serializeSubtitle),
+  audioTracks: mf.audioTracks.map(serializeAudioTrack),
 });
 
 const serializeMovie = (movie: {
@@ -43,7 +58,7 @@ const serializeMovie = (movie: {
 });
 
 const libraryInclude = {
-  movies: { include: { mediaFiles: { include: { subtitles: true } } } },
+  movies: { include: { mediaFiles: { include: { subtitles: true, audioTracks: true } } } },
 } as const;
 
 const serializeLibrary = (lib: {
@@ -68,6 +83,17 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
 
   await runWithConcurrency(episodes, async (episode) => {
     let mediaFile = existing.find((mf) => mf.path === episode.path);
+
+    // Check file mtime via stat() to avoid expensive probe calls on unchanged files.
+    let sourceMtimeMs: number;
+    try {
+      sourceMtimeMs = (await fs.promises.stat(episode.path)).mtimeMs;
+    } catch (err) {
+      console.error(`[library] Failed to stat ${episode.path}:`, err);
+      return;
+    }
+    const isNewOrChanged = !mediaFile || mediaFile.sourceMtimeMs !== sourceMtimeMs;
+
     if (!mediaFile) {
       try {
         const duration = await getMediaDuration(episode.path);
@@ -77,6 +103,7 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
             title: episode.title,
             path: episode.path,
             duration,
+            sourceMtimeMs,
             number: episode.number,
           },
         });
@@ -84,29 +111,34 @@ const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: Sca
         console.error(`[library] Failed to process media file ${episode.path}:`, err);
         return;
       }
-    } else if (mediaFile.number !== episode.number || mediaFile.title !== episode.title) {
+    } else if (isNewOrChanged || mediaFile.number !== episode.number || mediaFile.title !== episode.title) {
+      let duration = mediaFile.duration;
+      if (isNewOrChanged) {
+        try {
+          duration = await getMediaDuration(episode.path);
+        } catch (err) {
+          console.error(`[library] Failed to re-probe duration for ${episode.path}:`, err);
+        }
+      }
       mediaFile = await prisma.mediaFile.update({
         where: { id: mediaFile.id },
-        data: { number: episode.number, title: episode.title },
+        data: { number: episode.number, title: episode.title, duration, sourceMtimeMs },
       });
     }
 
-    const existingSubs = await prisma.subtitle.findMany({ where: { mediaFileId: mediaFile.id } });
-    const diskSubPaths = new Set(episode.subtitles.map((s) => s.path));
+    if (!isNewOrChanged) return;
 
-    const staleSubIds = existingSubs.filter((s) => !diskSubPaths.has(s.path)).map((s) => s.id);
-    if (staleSubIds.length > 0) {
-      await prisma.subtitle.deleteMany({ where: { id: { in: staleSubIds } } });
-    }
+    // Asynchronously extract embedded subtitles without blocking scan loop.
+    const mediaFileId = mediaFile.id;
+    const mediaFilePath = mediaFile.path;
+    extractEmbeddedSubtitles(prisma, mediaFileId, mediaFilePath).catch((err) => {
+      console.error(`[library] Embedded subtitle extraction failed for ${mediaFilePath}:`, err);
+    });
 
-    for (const sub of episode.subtitles) {
-      const match = existingSubs.find((s) => s.path === sub.path);
-      if (!match) {
-        await prisma.subtitle.create({ data: { mediaFileId: mediaFile.id, path: sub.path, language: sub.language } });
-      } else if (match.language !== sub.language) {
-        await prisma.subtitle.update({ where: { id: match.id }, data: { language: sub.language } });
-      }
-    }
+    // Asynchronously probe audio tracks without blocking scan loop.
+    probeAudioTracks(prisma, mediaFileId, mediaFilePath).catch((err) => {
+      console.error(`[library] Audio track probing failed for ${mediaFilePath}:`, err);
+    });
   });
 };
 

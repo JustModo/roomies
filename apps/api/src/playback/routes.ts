@@ -29,4 +29,7 @@ export const playbackRoutes = async (app: FastifyInstance) => {
 
   // NOTE: Ensure FFmpeg is running before redirecting variant requests to Caddy.
   app.get('/hls/:mediaId/:sessionId/:resolution/stream.m3u8', PlaybackController.getVariantStream);
+
+  // Alternate-audio-track rendition route for multi-audio media files.
+  app.get('/hls/:mediaId/:sessionId/audio/:trackId/stream.m3u8', PlaybackController.getAudioStream);
 };

@@ -1,5 +1,6 @@
 import React from 'react';
 import { BufferedRange } from '../types';
+import { BAR_EDGE_X } from '../styleTokens';
 
 interface SeekBarProps {
   isLocked: boolean;
@@ -8,7 +9,19 @@ interface SeekBarProps {
   totalDuration: number;
   isDragging: boolean;
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  formatTime: (seconds: number) => string;
 }
+
+// Small viewfinder-style corner mark — purely decorative HUD framing.
+const CornerTick: React.FC<{ side: 'left' | 'right' }> = ({ side }) => (
+  <div
+    className={`absolute top-0 ${side === 'left' ? 'left-0' : 'right-0'} w-2 h-2 pointer-events-none`}
+    aria-hidden="true"
+  >
+    <div className={`absolute top-0 ${side === 'left' ? 'left-0' : 'right-0'} w-2 h-px bg-ash/40`} />
+    <div className={`absolute top-0 ${side === 'left' ? 'left-0' : 'right-0'} w-px h-2 bg-ash/40`} />
+  </div>
+);
 
 export const SeekBar = React.forwardRef<HTMLDivElement, SeekBarProps>(({
   isLocked,
@@ -16,7 +29,8 @@ export const SeekBar = React.forwardRef<HTMLDivElement, SeekBarProps>(({
   progressPercent,
   totalDuration,
   isDragging,
-  onPointerDown
+  onPointerDown,
+  formatTime
 }, ref) => {
   const [hoverPercent, setHoverPercent] = React.useState<number | null>(null);
 
@@ -32,37 +46,31 @@ export const SeekBar = React.forwardRef<HTMLDivElement, SeekBarProps>(({
     setHoverPercent(null);
   };
 
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds) || seconds < 0) return '0:00';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
   // When dragging, use progressPercent as the tooltip position. Otherwise use hover.
   const tooltipPercent = isDragging ? progressPercent / 100 : hoverPercent;
   const showTooltip = tooltipPercent !== null;
 
   return (
-    <div 
-      className={`w-full py-3 sm:py-4 px-2 sm:px-4 lg:px-6 relative touch-none select-none ${isLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer group'}`} 
-      onPointerDown={isLocked ? undefined : onPointerDown}
-      onPointerMove={isLocked ? undefined : handlePointerMove}
-      onPointerLeave={isLocked ? undefined : handlePointerLeave}
-    >
-      <div ref={ref} className="w-full h-[4px] group-hover:h-[6px] transition-all duration-100 bg-ash/40 relative flex items-center rounded-full">
-        
+    <div className={`w-full py-3 sm:py-4 ${BAR_EDGE_X} relative select-none ${isLocked ? 'opacity-50' : ''}`}>
+      <CornerTick side="left" />
+      <CornerTick side="right" />
+
+      <div
+        ref={ref}
+        className={`w-full h-[4px] hover:h-[6px] transition-all duration-100 bg-ash/40 relative flex items-center touch-none ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+        onPointerDown={isLocked ? undefined : onPointerDown}
+        onPointerMove={isLocked ? undefined : handlePointerMove}
+        onPointerLeave={isLocked ? undefined : handlePointerLeave}
+      >
         {/* Tooltip */}
-        <div 
+        <div
           className={`absolute bottom-full mb-3 text-center pointer-events-none transition-opacity duration-150 ${showTooltip ? 'opacity-100' : 'opacity-0'}`}
-          style={{ 
+          style={{
             left: `${(tooltipPercent || 0) * 100}%`,
             transform: 'translateX(-50%)'
           }}
         >
-          <div className="bg-ink/60 backdrop-blur-md border border-ash/20 text-paper text-[10px] sm:text-[11px] font-mono font-medium py-1 px-2.5 rounded shadow-xl whitespace-nowrap tracking-wide">
+          <div className="bg-ink/60 backdrop-blur-md border border-ash/20 text-paper text-[10px] sm:text-[11px] font-mono font-medium py-1 px-2.5 whitespace-nowrap tracking-wide">
             {formatTime((tooltipPercent || 0) * totalDuration)}
           </div>
         </div>
@@ -71,7 +79,7 @@ export const SeekBar = React.forwardRef<HTMLDivElement, SeekBarProps>(({
         {bufferedRanges.map((range, i) => (
           <div
             key={i}
-            className="h-full bg-paper/30 absolute top-0 rounded-full"
+            className="h-full bg-paper/30 absolute top-0"
             style={{
               left: `${totalDuration > 0 ? (range.start / totalDuration) * 100 : 0}%`,
               width: `${totalDuration > 0 ? ((range.end - range.start) / totalDuration) * 100 : 0}%`
@@ -80,10 +88,10 @@ export const SeekBar = React.forwardRef<HTMLDivElement, SeekBarProps>(({
         ))}
 
         {/* Played Progress */}
-        <div className="h-full bg-blue-500 absolute top-0 left-0 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" style={{ width: `${progressPercent}%` }} />
+        <div className="h-full bg-blue-500 absolute top-0 left-0" style={{ width: `${progressPercent}%` }} />
 
         {/* Scrubber handle */}
-        <div className={`w-[12px] h-[12px] bg-white rounded-full absolute ml-[-6px] shadow transition-transform ${isDragging || showTooltip ? 'scale-100' : 'scale-0'}`} style={{ left: `${progressPercent}%` }} />
+        <div className={`w-[12px] h-[12px] bg-white absolute ml-[-6px] transition-transform ${isDragging || showTooltip ? 'scale-100' : 'scale-0'}`} style={{ left: `${progressPercent}%` }} />
       </div>
     </div>
   );

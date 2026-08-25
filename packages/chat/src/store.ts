@@ -7,9 +7,7 @@ export interface ChatMessage {
 
 import { CHAT_CONFIG } from './config';
 
-// Single-node, in-memory replacement for the old Redis OM chat schema. Chat
-// is explicitly ephemeral (per tasks/ARCHITECTURE.md) — a capped ring buffer
-// is all that's needed; nothing here needs to survive a restart.
+// In-memory ephemeral ring buffer for chat messages.
 let messages: ChatMessage[] = [];
 
 export const chatStore = {

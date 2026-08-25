@@ -49,11 +49,17 @@ import {
   ServerErrorSchema
 } from './ErrorEvents';
 
+import {
+  ServerAuthKickedSchema,
+  ServerAuthUnauthorizedSchema
+} from './AuthEvents';
+
 export * from './RoomEvents';
 export * from './PlaybackEvents';
 export * from './SyncEvents';
 export * from './ChatEvents';
 export * from './ErrorEvents';
+export * from './AuthEvents';
 
 export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientRoomJoinSchema,
@@ -95,6 +101,9 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerEmojiReactionSchema,
 
   ServerErrorSchema,
+
+  ServerAuthKickedSchema,
+  ServerAuthUnauthorizedSchema,
 ]);
 
 export type IncomingSocketMessage = z.infer<typeof IncomingSocketMessageSchema>;

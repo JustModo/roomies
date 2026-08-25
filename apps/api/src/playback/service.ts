@@ -1,16 +1,27 @@
-import fs from 'fs';
-import path from 'path';
 import { FastifyInstance } from 'fastify';
 import { SocketContext } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { prisma } from '../database/sqlite';
-import { TranscodeSessionManager, RESOLUTION_PRESETS, HLS_BASE_URL, CACHE_DIR, Resolution, getTranscodeSettings, SEGMENT_DURATION } from '@roomies/transcoding';
+import {
+  TranscodeSessionManager,
+  RESOLUTION_PRESETS,
+  Resolution,
+  getTranscodeSettings,
+  AUDIO_BITRATE,
+  AudioTrackDescriptor,
+} from '@roomies/transcoding';
 import { coordinator } from './coordinator';
 import { SessionScope } from './types';
+import {
+  ensurePlaybackSession,
+  serveHlsPlaylist,
+  buildMediaChangedPayload,
+  getMasterPlaylistUrl,
+} from './helpers';
 
-export const getMasterPlaylistUrl = (mediaFileId: string, sessionId: string = 'sync') => `/api/playback/hls/${mediaFileId}/${sessionId}/master.m3u8`;
+export { getMasterPlaylistUrl } from './urls';
 
 type PlayPayload = Extract<IncomingSocketMessage, { event: 'playback.play' }>['payload'];
 type PausePayload = Extract<IncomingSocketMessage, { event: 'playback.pause' }>['payload'];
@@ -21,7 +32,7 @@ export class PlaybackService {
   static async changeMedia(mediaFileId: string, server: FastifyInstance) {
     const mediaFile = await prisma.mediaFile.findUnique({
       where: { id: mediaFileId },
-      include: { subtitles: true },
+      include: { subtitles: true, audioTracks: { orderBy: { streamIndex: 'asc' } } },
     });
 
     if (!mediaFile) {
@@ -29,28 +40,34 @@ export class PlaybackService {
     }
 
     const subtitles = mediaFile.subtitles.map((s) => ({ id: s.id, language: s.language }));
+    const audioTrackDescriptors: AudioTrackDescriptor[] = mediaFile.audioTracks.map((a) => ({ id: a.id, streamIndex: a.streamIndex }));
+    const audioTracks = mediaFile.audioTracks.map((a) => ({ id: a.id, language: a.language, title: a.title, channels: a.channels }));
 
-    const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path);
+    const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path, audioTrackDescriptors);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
 
-    // NOTE: Pre-warm all variants in parallel to ensure immediate availability when requested.
+    // One worker creation covers every configured resolution together.
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
-    const resolutions: Resolution[] = ['360p', '720p', '1080p'];
-    Promise.allSettled(
-      resolutions.map(res =>
-        session.ensureVariantReady(res, 0, ffmpegPreset, hwAccelMode)
-      )
-    ).catch((err) => {
-      console.error(`[playback] Failed to pre-warm variants for ${mediaFileId}:`, err);
+    session.ensureVariantReady(session.policy.variants[0], 0, ffmpegPreset, hwAccelMode).catch((err) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error(`[playback] Failed to pre-warm session for ${mediaFileId}:`, error.message);
+      session.reportError(session.policy.variants[0], error);
     });
 
-    roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles);
+    roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles, audioTracks);
     roomStore.updatePlayback({ state: 'buffering', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
 
     SocketEmitter.broadcastToRoom(server, {
       event: 'media.changed',
-      payload: { mediaFileId, title: mediaFile.title, hlsUrl, duration: mediaFile.duration, subtitles },
+      payload: buildMediaChangedPayload({
+        mediaFileId,
+        title: mediaFile.title,
+        duration: mediaFile.duration,
+        sessionId: 'sync',
+        subtitles,
+        audioTracks,
+      }),
     });
 
     SocketEmitter.broadcastToRoom(server, {
@@ -58,18 +75,25 @@ export class PlaybackService {
       payload: { room: roomStore.getState() },
     });
 
-    return { hlsUrl, mediaFileId, title: mediaFile.title, subtitles };
+    return { hlsUrl, mediaFileId, title: mediaFile.title, subtitles, audioTracks };
   }
 
   static async stopMedia(server: FastifyInstance) {
     TranscodeSessionManager.stopAll();
-    roomStore.updateMedia('', '', '', 0, 0, []);
+    roomStore.updateMedia('', '', '', 0, 0, [], []);
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
 
     SocketEmitter.broadcastToRoom(server, {
       event: 'media.changed',
-      payload: { mediaFileId: '', title: '', hlsUrl: '', duration: 0, subtitles: [] },
+      payload: buildMediaChangedPayload({
+        mediaFileId: '',
+        title: '',
+        duration: 0,
+        sessionId: 'sync',
+        subtitles: [],
+        audioTracks: [],
+      }),
     });
 
     SocketEmitter.broadcastToRoom(server, {
@@ -89,54 +113,96 @@ export class PlaybackService {
       state: state.playback.state,
       hlsUrl: session ? getMasterPlaylistUrl(session.mediaFileId) : undefined,
       subtitles: state.subtitles,
+      audioTracks: state.audioTracks,
     };
   }
 
-  static generateMasterPlaylist(offset?: number): string {
-    const lines = ['#EXTM3U'];
-    const resolutions: Resolution[] = ['1080p', '720p', '360p'];
+  static async generateMasterPlaylist(
+    mediaId: string,
+    offset?: number,
+    sessionId: string = 'sync',
+  ): Promise<string> {
+    const mediaFile = await prisma.mediaFile.findUnique({
+      where: { id: mediaId },
+      include: { audioTracks: { orderBy: { streamIndex: 'asc' } } },
+    });
+    if (!mediaFile) {
+      throw new Error('Media file not found');
+    }
+    const audioTracks = mediaFile.audioTracks;
+    const hasSeparateAudio = audioTracks.length > 1;
 
-    for (const res of resolutions) {
+    const lines = ['#EXTM3U'];
+
+    if (hasSeparateAudio) {
+      audioTracks.forEach((track, i) => {
+        const label = track.title || track.language || `Track ${i + 1}`;
+        const url = offset !== undefined ? `audio/${track.id}/stream.m3u8?offset=${offset}` : `audio/${track.id}/stream.m3u8`;
+        const attrs = [
+          'TYPE=AUDIO',
+          'GROUP-ID="audio"',
+          `NAME="${label}"`,
+          ...(track.language ? [`LANGUAGE="${track.language}"`] : []),
+          'AUTOSELECT=YES',
+          `DEFAULT=${track.isDefault ? 'YES' : 'NO'}`,
+          `URI="${url}"`,
+        ];
+        lines.push(`#EXT-X-MEDIA:${attrs.join(',')}`);
+      });
+    }
+
+    // Advertise only the rungs the worker will actually encode. A source shorter than a
+    // rung that would enlarge it is pruned by variantsForSource, and listing it anyway makes
+    // resolveAvailableResolution serve the next rung down under its URL — two levels that
+    // are byte-identical, which hls.js ABR then oscillates between, flushing the audio
+    // buffer on every switch. Highest first.
+    const session = await ensurePlaybackSession(sessionId, mediaId);
+    const variants = [...await session.availableVariants()].reverse();
+
+    const sharedAudioKbps = parseInt(AUDIO_BITRATE, 10);
+
+    for (const { resolution: res, width, height } of variants) {
       const preset = RESOLUTION_PRESETS[res];
-      const bandwidth = parseInt(preset.videoBitrate) * 1000 + parseInt(preset.audioBitrate) * 1000;
+      const audioKbps = hasSeparateAudio ? sharedAudioKbps : parseInt(preset.audioBitrate, 10);
+      const bandwidth = parseInt(preset.videoBitrate, 10) * 1000 + audioKbps * 1000;
       const url = offset !== undefined ? `${res}/stream.m3u8?offset=${offset}` : `${res}/stream.m3u8`;
+      const audioAttr = hasSeparateAudio ? ',AUDIO="audio"' : '';
+      // The encoded frame, not the rung's box — they differ for any non-16:9 source.
       lines.push(
-        `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${res}"`,
+        `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height},NAME="${res}"${audioAttr}`,
         url
       );
     }
     return lines.join('\n') + '\n';
   }
 
+  /** Resolve playlist start offset: prefer query; async must never fall back to room sync offset. */
+  private static resolvePlaylistOffset(sessionId: string, reqOffset?: number): number {
+    if (reqOffset !== undefined) return reqOffset;
+    if (sessionId === 'async') return 0;
+    return roomStore.getState().transcodeOffset || 0;
+  }
+
   static async getVariantPlaylist(mediaId: string, sessionId: string, resolution: Resolution, reqOffset?: number): Promise<string> {
-    let session = TranscodeSessionManager.getSession(sessionId);
-    if (!session) {
-      const mediaFile = await prisma.mediaFile.findUnique({ where: { id: mediaId } });
-      if (!mediaFile) throw new Error('Media not found for session creation');
-      session = TranscodeSessionManager.startSession(sessionId, mediaId, mediaFile.path);
-    }
-    if (session.mediaFileId !== mediaId) {
-      throw new Error('Session media mismatch');
-    }
-    
-    // NOTE: Align variant startup position with requested offset or room transcode offset.
-    const originalPosition = reqOffset !== undefined ? reqOffset : (roomStore.getState().transcodeOffset || 0);
+    const session = await ensurePlaybackSession(sessionId, mediaId);
+    const originalPosition = PlaybackService.resolvePlaylistOffset(sessionId, reqOffset);
 
     const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
     await session.ensureVariantReady(resolution, originalPosition, ffmpegPreset, hwAccelMode);
-    
+
     const variantDir = session.getVariantOutputDir(resolution, originalPosition);
-    const playlistPath = path.join(variantDir, 'stream.m3u8');
-    
-    let content = await fs.promises.readFile(playlistPath, 'utf8');
-    
-    // NOTE: Rewrite segment URIs to point to Caddy absolute paths
-    const relativeDir = path.relative(CACHE_DIR, variantDir);
-    const baseUrl = `${HLS_BASE_URL}/${relativeDir}/`;
-    
-    content = content.replace(/^(?!#)(.+)$/gm, `${baseUrl}$1`);
-    
-    return content;
+    return serveHlsPlaylist(variantDir, 'stream.m3u8');
+  }
+
+  static async getAudioPlaylist(mediaId: string, sessionId: string, trackId: string, reqOffset?: number): Promise<string> {
+    const session = await ensurePlaybackSession(sessionId, mediaId);
+    const originalPosition = PlaybackService.resolvePlaylistOffset(sessionId, reqOffset);
+
+    const { ffmpegPreset, hwAccelMode } = getTranscodeSettings();
+    await session.ensureAudioTrackReady(trackId, originalPosition, ffmpegPreset, hwAccelMode);
+
+    const audioDir = session.getAudioOutputDir(trackId, originalPosition);
+    return serveHlsPlaylist(audioDir, 'playlist.m3u8');
   }
 
   static async handlePlay(payload: PlayPayload, ctx: SocketContext) {
@@ -167,95 +233,86 @@ export class PlaybackService {
 
   /**
    * Unified seek handler for both room (sync) and user (async) scopes.
-   *
-   * The coordinator makes the coverage/alignment decision identically for
-   * both scopes. The only difference is how the result is communicated:
-   * - room: broadcast to all clients
-   * - user: send only to the requesting client
+   * Coverage/alignment lives in the coordinator; applySeekResult owns store + notify.
    */
   static async handleSeek(payload: SeekPayload, ctx: SocketContext) {
     const state = roomStore.getState();
+    if (!state.mediaId) return;
+
     const scope: SessionScope = payload.scope === 'user'
       ? { type: 'user', userId: ctx.userId }
       : { type: 'room' };
 
-    if (!state.mediaId) return;
+    const result = await coordinator.resolveSeek(
+      scope,
+      payload.position,
+      state.mediaId,
+      payload.forceNewOffset,
+    );
 
-    if (scope.type === 'user') {
-      await PlaybackService.handleUserSeek(payload, ctx, state);
-    } else {
-      await PlaybackService.handleRoomSeek(payload, ctx, state);
+    await PlaybackService.applySeekResult(result, scope, payload, ctx, state);
+  }
+
+  /** Apply seek result: room broadcasts + buffering; user unicasts only on needsReinit. */
+  private static async applySeekResult(
+    result: Awaited<ReturnType<typeof coordinator.resolveSeek>>,
+    scope: SessionScope,
+    payload: SeekPayload,
+    ctx: SocketContext,
+    state: ReturnType<typeof roomStore.getState>,
+  ) {
+    const { effectiveOffset, needsReinit } = result;
+
+    if (scope.type === 'room') {
+      const currentState = state.playback;
+      const nextIntendedState = currentState.state === 'playing' || currentState.intendedState === 'playing' ? 'playing' : 'paused';
+
+      roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
+      roomStore.updateTranscodeOffset(effectiveOffset);
+      roomStore.resetAllMembers();
+
+      SocketEmitter.broadcastToRoom(ctx.app, {
+        event: 'media.changed',
+        payload: buildMediaChangedPayload({
+          mediaFileId: state.mediaId!,
+          title: state.mediaTitle || 'Unknown Media',
+          duration: state.duration,
+          sessionScope: 'room',
+          sessionId: 'sync',
+          transcodeOffset: effectiveOffset,
+          subtitles: state.subtitles,
+          audioTracks: state.audioTracks,
+        }),
+      });
+
+      SocketEmitter.broadcastToRoom(ctx.app, {
+        event: 'playback.state',
+        payload: {
+          ...roomStore.getState().playback,
+          username: ctx.username,
+          action: 'seek',
+        }
+      });
+      return;
     }
-  }
 
-  // ── Room-scoped seek (sync) ──────────────────────────────────────────
-
-  private static async handleRoomSeek(payload: SeekPayload, ctx: SocketContext, state: ReturnType<typeof roomStore.getState>) {
-    const currentState = state.playback;
-    const nextIntendedState = currentState.state === 'playing' || currentState.intendedState === 'playing' ? 'playing' : 'paused';
-
-    const { effectiveOffset } = await coordinator.resolveSeek(
-      { type: 'room' },
-      payload.position,
-      state.mediaId,
-      payload.forceNewOffset,
-    );
-
-    roomStore.updatePlayback({ state: 'buffering', intendedState: nextIntendedState, anchorPosition: payload.position, anchorTime: Date.now() });
-    roomStore.updateTranscodeOffset(effectiveOffset);
-    roomStore.resetAllMembers();
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'media.changed',
-      payload: {
-        mediaFileId: state.mediaId,
-        title: state.mediaTitle || 'Unknown Media',
-        hlsUrl: getMasterPlaylistUrl(state.mediaId),
-        duration: state.duration,
-        transcodeOffset: effectiveOffset,
-        sessionScope: 'room',
-        subtitles: state.subtitles,
-      }
-    });
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'playback.state',
-      payload: {
-        ...roomStore.getState().playback,
-        username: ctx.username,
-        action: 'seek',
-      }
-    });
-  }
-
-  // ── User-scoped seek (async) ─────────────────────────────────────────
-
-  private static async handleUserSeek(payload: SeekPayload, ctx: SocketContext, state: ReturnType<typeof roomStore.getState>) {
-    const { effectiveOffset, needsReinit } = await coordinator.resolveSeek(
-      { type: 'user', userId: ctx.userId },
-      payload.position,
-      state.mediaId,
-      payload.forceNewOffset,
-    );
-
-    // Persist the user's async offset so cache GC can track it.
     roomStore.updateMember(ctx.userId, {
       asyncSession: { transcodeOffset: effectiveOffset },
     });
 
-    // Only notify the client when the offset actually changed.
     if (needsReinit) {
       SocketEmitter.sendToClient(ctx.socket, {
         event: 'media.changed',
-        payload: {
-          mediaFileId: state.mediaId,
+        payload: buildMediaChangedPayload({
+          mediaFileId: state.mediaId!,
           title: state.mediaTitle || 'Unknown Media',
-          hlsUrl: getMasterPlaylistUrl(state.mediaId, 'async'),
           duration: state.duration,
-          transcodeOffset: effectiveOffset,
           sessionScope: 'user',
+          sessionId: 'async',
+          transcodeOffset: effectiveOffset,
           subtitles: state.subtitles,
-        }
+          audioTracks: state.audioTracks,
+        }),
       });
     }
   }

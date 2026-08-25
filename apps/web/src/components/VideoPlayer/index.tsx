@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 import { VideoPlayerProps, BufferedRange } from './types';
+import { absolutePlaybackTime } from './hlsOffset';
 import { useHlsPlayer } from './hooks/useHlsPlayer';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -10,6 +11,7 @@ import { SeekBar } from './components/SeekBar';
 import { VideoControls } from './components/VideoControls';
 import { SubtitleOverlay } from './components/SubtitleOverlay';
 import { FloatingEmoji } from './components/FloatingEmoji';
+import { EmojiReactions } from './components/EmojiReactions';
 import { useSubtitles, displaySubtitleLabel } from './hooks/useSubtitles';
 import { useChat } from '../../contexts/ChatContext';
 
@@ -29,14 +31,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onStatusChange,
   onReportTime,
   onReportResolution,
+  onVolumeChange,
   showChat = false,
   onToggleChat,
   isFullscreen = false,
+  onToggleFullscreen,
   isAsyncMode = false,
   onToggleAsync,
   allowAsyncMode = true,
-  userId,
   isLockedByAdmin = false,
+  isPartyJoined = false,
+  isMicMuted = true,
+  onToggleMic,
   children,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -48,6 +54,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
   const [isSelfLocked, setIsSelfLocked] = useState(false);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  // iOS refuses play() outside a user gesture; we surface a tap target instead.
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   // Floating emoji state
   const [floatingEmojis, setFloatingEmojis] = useState<Array<{ id: string; emoji: string; username: string }>>([]);
@@ -60,9 +69,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) {
       videoRef.current.volume = volume;
     }
-  }, [volume]);
+    onVolumeChange?.(volume);
+  }, [volume, onVolumeChange]);
 
   const activeOffsetRef = useRef<number>(0);
+  const pendingReinitRef = useRef<boolean>(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const progressBarRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -94,6 +105,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setDragProgress(0);
     }
   }, [mediaInfo]);
+
+  // Self-lock is per-media; clear it whenever the active media changes (including to none).
+  const lastLockedMediaIdRef = useRef<string | undefined>(mediaInfo?.mediaFileId);
+  useEffect(() => {
+    if (lastLockedMediaIdRef.current !== mediaInfo?.mediaFileId) {
+      lastLockedMediaIdRef.current = mediaInfo?.mediaFileId;
+      setIsSelfLocked(false);
+    }
+  }, [mediaInfo?.mediaFileId]);
 
   // Listen for emoji reactions from other users
   useEffect(() => {
@@ -142,6 +162,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLElement && e.target.isContentEditable) return;
       showControls();
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -154,14 +175,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // ── HLS Player ────────────────────────────────────────────────────────────
 
-  const triggerQualitySeek = useCallback(() => {
-    if (videoRef.current) {
-      const currentPlayhead = videoRef.current.currentTime + activeOffsetRef.current;
-      onSeek(currentPlayhead, true);
-    }
-  }, [onSeek]);
-
-  const { levels, currentLevel, handleQualityChange, activeResolution } = useHlsPlayer({
+  const { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange } = useHlsPlayer({
     videoRef,
     mediaInfo,
     seekKey,
@@ -170,9 +184,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     reportStatus,
     setIsPlaying,
     isAsyncMode,
-    userId,
     activeOffsetRef,
-    triggerQualitySeek,
+    pendingReinitRef,
+    onReportResolution,
   });
 
   useEffect(() => {
@@ -186,7 +200,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const {
     activeSubtitleId,
     setActiveSubtitleId,
-    activeCueHtml,
+    activeCues,
     subtitleOffsetSec,
     setSubtitleOffsetSec,
     subtitleFontScale,
@@ -216,7 +230,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setBufferedRanges,
     onReportTime,
     activeOffsetRef,
+    pendingReinitRef,
     onEnded: handleEnded,
+    onAutoplayBlocked: setAutoplayBlocked,
   });
 
   // ── Controls ───────────────────────────────────────────────────────────────
@@ -234,11 +250,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (isLocked) return;
     if (!videoRef.current) return;
     const transOffset = mediaInfo?.transcodeOffset || 0;
-    const currentAbsolute = videoRef.current.currentTime + transOffset;
-    const newPos = Math.max(0, currentAbsolute + offset);
-    videoRef.current.currentTime = Math.max(0, newPos - transOffset);
+    const currentAbsolute = absolutePlaybackTime(videoRef.current.currentTime, transOffset);
+    const newPos = Math.max(0, Math.min(currentAbsolute + offset, mediaInfo?.duration || duration));
     onSeek(newPos);
-  }, [mediaInfo?.transcodeOffset, onSeek, isLocked]);
+  }, [mediaInfo?.transcodeOffset, mediaInfo?.duration, duration, onSeek, isLocked]);
 
   useKeyboardShortcuts({ handlePlayPause, handleSeekOffset });
 
@@ -246,12 +261,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     videoRef,
     containerRef,
     isLocked,
-    isPlaying,
     playbackRate: roomPlaybackState?.playbackRate || 1,
     volume,
     setVolume,
-    onPlay,
-    onPause,
+    handlePlayPause,
     onSeek,
     onSetRate,
     idle,
@@ -261,14 +274,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     mediaDuration: mediaInfo?.duration || duration,
     transcodeOffset: mediaInfo?.transcodeOffset || 0,
   });
-
-  const cyclePlaybackRate = () => {
-    if (isLocked) return;
-    const rates = [0.5, 1, 1.25, 1.5, 2];
-    const currentRate = roomPlaybackState?.playbackRate || 1;
-    const next = rates[(rates.indexOf(currentRate) + 1) % rates.length];
-    onSetRate(next);
-  };
 
   // ── Scrubbing (seek bar drag) ──────────────────────────────────────────────
 
@@ -309,10 +314,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const totalDuration = mediaInfo?.duration || duration;
       const newPos = pos * totalDuration;
       onSeek(newPos);
-      if (videoRef.current) {
-        const transOffset = activeOffsetRef.current;
-        videoRef.current.currentTime = Math.max(0, newPos - transOffset);
-      }
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -340,7 +341,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const totalDuration = mediaInfo?.duration || duration;
   const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
-  const uiVisible = !idle || !isPlaying || isDragging;
+  const uiVisible = !idle || !isPlaying || isDragging || settingsMenuOpen;
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('player-controls-toggle', { detail: { visible: uiVisible } }));
@@ -349,15 +350,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none`}
+      className={`relative w-full h-full bg-ink overflow-hidden text-paper flex flex-col justify-center select-none touch-manipulation`}
+      style={{ WebkitTouchCallout: 'none' }}
       onMouseMove={showControls}
     >
       <video
         ref={videoRef}
+        playsInline
         className="w-full h-full object-contain bg-ink"
         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='%23000000'/%3E%3C/svg%3E"
         muted={volume === 0}
       />
+
+      {autoplayBlocked && (
+        <button
+          onClick={() => {
+            videoRef.current?.play().then(
+              () => setAutoplayBlocked(false),
+              () => { /* still blocked — leave the prompt up */ },
+            );
+          }}
+          className="absolute inset-0 z-40 flex items-center justify-center bg-ink/70 text-paper"
+        >
+          <span className="text-16 uppercase tracking-[0.12em] border border-paper/40 px-6 py-3">
+            Tap to play
+          </span>
+        </button>
+      )}
 
       {/* Floating emoji reactions overlay */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -367,7 +386,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* Custom subtitle overlay */}
-      <SubtitleOverlay activeCueHtml={activeCueHtml} fontScale={subtitleFontScale} />
+      <SubtitleOverlay activeCues={activeCues} fontScale={subtitleFontScale} />
 
       <VideoOverlay
         mediaInfo={mediaInfo}
@@ -389,8 +408,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           : children}
       </div>
 
+      <EmojiReactions visible={uiVisible} />
+
       {/* Bottom Controls */}
-      <div className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div
+        className={`absolute bottom-0 left-0 w-full z-50 transition-opacity duration-200 bg-gradient-to-t from-ink/90 via-ink/60 to-transparent flex flex-col no-gestures ${uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         <SeekBar
           ref={progressBarRef}
           isLocked={isLocked}
@@ -399,6 +423,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           totalDuration={totalDuration}
           isDragging={isDragging}
           onPointerDown={handlePointerDown}
+          formatTime={formatTime}
         />
 
         <VideoControls
@@ -411,13 +436,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           formatTime={formatTime}
           handlePlayPause={handlePlayPause}
           handleSeekOffset={handleSeekOffset}
-          cyclePlaybackRate={cyclePlaybackRate}
+          playbackRate={roomPlaybackState?.playbackRate || 1}
+          onSetRate={onSetRate}
           levels={levels}
           currentLevel={currentLevel}
           handleQualityChange={handleQualityChange}
           showChat={showChat}
           onToggleChat={onToggleChat}
           isFullscreen={isFullscreen}
+          onToggleFullscreen={onToggleFullscreen}
           isAsyncMode={isAsyncMode}
           onToggleAsync={onToggleAsync}
           allowAsyncMode={allowAsyncMode}
@@ -429,6 +456,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSubtitleOffsetSec={setSubtitleOffsetSec}
           subtitleFontScale={subtitleFontScale}
           setSubtitleFontScale={setSubtitleFontScale}
+          audioTracks={audioTracks}
+          currentAudioTrack={currentAudioTrack}
+          handleAudioTrackChange={handleAudioTrackChange}
+          uiVisible={uiVisible}
+          onSettingsMenuChange={setSettingsMenuOpen}
+          isPartyJoined={isPartyJoined}
+          isMicMuted={isMicMuted}
+          onToggleMic={onToggleMic}
         />
       </div>
     </div>

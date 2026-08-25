@@ -16,17 +16,7 @@ export type ChunkCallback = (chunk: Uint8Array) => void;
 /** AudioContext.setSinkId is still experimental and missing from some lib.dom versions. */
 type SinkCapableContext = AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
 
-/**
- * AudioRelay — server-relay voice chat engine.
- *
- * Local:  mic → AudioManager (RNNoise) → AudioWorklet → FrameBuffer →
- *         voice gate → OpusEncoder (libopus-wasm) → binary onChunk()
- *
- * Remote: binary Opus → OpusDecoder (libopus-wasm) → AudioBufferSourceNode
- *         (scheduled per peer via GainNode for volume/mute)
- *
- * No WebRTC. No ICE. No SDP. The server is the relay.
- */
+/** AudioRelay — server-relay voice chat engine. */
 export class AudioRelay {
     private readonly config: VoiceConfig;
     private readonly preprocessor: AudioPreprocessor;
@@ -42,6 +32,14 @@ export class AudioRelay {
     private desiredSinkId: string | undefined;
     private analyserNode: AnalyserNode | null = null;
     private vadInterval: number | ReturnType<typeof setInterval> | null = null;
+    /** All peer outputs route through this so a single control scales everyone at once. */
+    private masterGainNode: GainNode | null = null;
+    /** Auto-ducks the master bus relative to the video's volume. */
+    private duckGainNode: GainNode | null = null;
+    private desiredMasterVolume = 100;
+    private desiredDuckLevel = 1;
+    /** Voice bus gain tracks video volume scaled by this fraction, so voices stay under the video's level. */
+    // private static readonly DUCK_RATIO = 0.7;
 
     /** Called with each encoded Opus chunk that should be sent to the server. */
     public onChunk?: ChunkCallback;
@@ -73,11 +71,7 @@ export class AudioRelay {
         }
     }
 
-    /**
-     * Sets the preferred audio output device. Applies immediately to the live
-     * AudioContext (if any) and to any AudioContext created afterwards.
-     * No-ops silently on browsers that don't support output selection.
-     */
+    /** Sets the preferred audio output device. */
     public async setOutputDevice(deviceId?: string): Promise<void> {
         this.desiredSinkId = deviceId;
         if (this.audioCtx) {
@@ -85,22 +79,25 @@ export class AudioRelay {
         }
     }
 
-    /**
-     * Acquires the mic, builds the RNNoise pipeline, initialises the
-     * Opus encoder, and begins streaming 20ms frames. Safe to call
-     * multiple times — no-ops if already active.
-     */
+    /** Acquires microphone, initialises Opus encoder, and starts streaming frames. */
     public async join(deviceId?: string): Promise<AcquireResult> {
         if (this.encoder) return { usedFallback: false };
 
-        const acquireResult = await this.audioManager.join(deviceId);
+        this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+        await this.applyDesiredSinkId(this.audioCtx);
+
+        let acquireResult: AcquireResult;
+        try {
+            acquireResult = await this.audioManager.join(deviceId, this.audioCtx);
+        } catch (e) {
+            await this.audioCtx.close().catch(() => {});
+            this.audioCtx = null;
+            throw e;
+        }
 
         try {
             const stream = this.audioManager.stream;
             if (!stream) throw new Error('[AudioRelay] No microphone stream available.');
-
-            this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
-            await this.applyDesiredSinkId(this.audioCtx);
 
             this.encoder = await createEncoder({
                 channels: this.config.channels,
@@ -148,8 +145,7 @@ export class AudioRelay {
 
             return acquireResult;
         } catch (e) {
-            // A failure here must not leave the mic captured (browser mic
-            // indicator staying on) or a half-built AudioContext dangling.
+            // Teardown resources on error so mic isn't left captured.
             if (this.captureSource) {
                 this.captureSource.disconnect();
                 this.captureSource = null;
@@ -180,14 +176,10 @@ export class AudioRelay {
         }
     }
 
-    /**
-     * Switches the active microphone while joined, without dropping the
-     * encoder/connection to peers — only the capture source is rewired.
-     * Falls back to the system default device if the requested one is
-     * unavailable. Safe to call before joining (just re-acquires for next join).
-     */
+    /** Switches active microphone without dropping the encoder connection. */
     public async switchMic(deviceId?: string): Promise<AcquireResult> {
-        const result = await this.audioManager.switchInput(deviceId);
+        if (!this.audioCtx) throw new Error('[AudioRelay] switchMic called before join.');
+        const result = await this.audioManager.switchInput(deviceId, this.audioCtx);
 
         if (this.encoder && this.audioCtx && this.workletNode) {
             const stream = this.audioManager.stream;
@@ -216,10 +208,7 @@ export class AudioRelay {
         this.audioManager.setMuted(muted);
     }
 
-    /**
-     * Schedules an incoming encoded audio chunk from a remote peer.
-     * Lazily creates a PeerPlayer (with its own decoder) for each new userId.
-     */
+    /** Schedules an incoming encoded audio chunk from a remote peer. */
     public scheduleChunk(userId: string, packet: Uint8Array): void {
         // Ensure we have an AudioContext even for receive-only (non-joined) users
         if (!this.audioCtx) {
@@ -230,17 +219,60 @@ export class AudioRelay {
             this.audioCtx.resume().catch(() => {});
         }
 
+        const output = this.ensureOutputChain(this.audioCtx);
+
         let peer = this.peers.get(userId);
         if (!peer) {
-            peer = new PeerPlayer(this.audioCtx, this.config);
+            peer = new PeerPlayer(this.audioCtx, this.config, output);
             this.peers.set(userId, peer);
         }
         peer.scheduleChunk(packet);
     }
 
-    /** Sets the playback volume (0–100) for a specific peer. */
+    /** Sets the playback volume (0–200) for a specific peer. */
     public setVolume(userId: string, volume: number): void {
         this.peers.get(userId)?.setVolume(volume);
+    }
+
+    /** Creates (once per AudioContext) the shared master/duck gain chain all peers route through. */
+    private ensureOutputChain(ctx: AudioContext): GainNode {
+        if (!this.masterGainNode || !this.duckGainNode) {
+            this.masterGainNode = ctx.createGain();
+            this.duckGainNode = ctx.createGain();
+            this.masterGainNode.gain.value = Math.max(0, Math.min(1, this.desiredMasterVolume / 100));
+            this.duckGainNode.gain.value = this.desiredDuckLevel;
+            this.masterGainNode.connect(this.duckGainNode);
+            this.duckGainNode.connect(ctx.destination);
+        }
+        return this.masterGainNode;
+    }
+
+    /** Sets the master voice volume (0–100) applied on top of every individual peer's volume. */
+    public setMasterVolume(volume: number): void {
+        this.desiredMasterVolume = volume;
+        if (this.masterGainNode && this.audioCtx) {
+            this.masterGainNode.gain.setTargetAtTime(
+                Math.max(0, Math.min(1, volume / 100)),
+                this.audioCtx.currentTime,
+                this.config.playback.gainRampSeconds
+            );
+        }
+    }
+
+    /**
+     * Ducks the voice bus to track the video's volume (0–1), scaled by DUCK_RATIO so it stays under it.
+     * Disabled: tracking video volume down to near-zero made voice audibly cut out. Voice now stays
+     * at a fixed level regardless of video volume — only the master/peer volume controls apply.
+     */
+    public setDuckLevel(_videoVolume: number): void {
+        this.desiredDuckLevel = 1;
+        if (this.duckGainNode && this.audioCtx) {
+            this.duckGainNode.gain.setTargetAtTime(
+                this.desiredDuckLevel,
+                this.audioCtx.currentTime,
+                this.config.playback.gainRampSeconds
+            );
+        }
     }
 
     /** Locally silences or restores a specific peer's audio output. */
@@ -328,6 +360,16 @@ export class AudioRelay {
         if (this.analyserNode) {
             this.analyserNode.disconnect();
             this.analyserNode = null;
+        }
+
+        if (this.masterGainNode) {
+            this.masterGainNode.disconnect();
+            this.masterGainNode = null;
+        }
+
+        if (this.duckGainNode) {
+            this.duckGainNode.disconnect();
+            this.duckGainNode = null;
         }
 
         if (this.encoder) {

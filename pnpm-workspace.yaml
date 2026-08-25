@@ -1,6 +1,9 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build
 allowBuilds:
   '@prisma/engines': true
   bcrypt: true

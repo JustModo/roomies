@@ -5,7 +5,7 @@ services:
       - "5123:5123"
     volumes:
       - ./infra/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
-      - ./media:/media:ro
-      - ./cache:/cache
+      - ${ROOMIES_MEDIA_DIR:-./media}:/media:ro
+      - ${ROOMIES_CACHE_DIR:-./cache}:/cache
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -3,7 +3,7 @@ import { IncomingSocketMessage } from '@roomies/contracts';
 import { roomStore } from '../room/store';
 import { SocketEmitter } from '../websocket/emitter';
 import { coordinator } from '../playback/coordinator';
-import { getMasterPlaylistUrl } from '../playback/service';
+import { buildMediaChangedPayload } from '../playback/helpers';
 import { SYNC_CONFIG } from '../config';
 
 type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'sync.heartbeat' }>['payload'];
@@ -65,30 +65,53 @@ export class SyncService {
     }
 
     const updatedMember = roomStore.getState().members.find(m => m.userId === ctx.userId);
-    if (updatedMember && updatedMember.status === 'async') {
-      this.handleAsyncHeartbeat(payload, ctx, updatedMember);
-    } else {
-      this.handleSyncHeartbeat(payload, ctx, roomStore.getState());
+    if (payload.position !== undefined) {
+      if (updatedMember && updatedMember.status === 'async') {
+        this.handleAsyncHeartbeat({ ...payload, position: payload.position }, ctx, updatedMember);
+      } else {
+        this.handleSyncHeartbeat({ ...payload, position: payload.position }, ctx, roomStore.getState());
+      }
     }
   }
 
   private static handleAsyncHeartbeat(
-    payload: HeartbeatPayload,
+    payload: HeartbeatPayload & { position: number },
     ctx: SocketContext,
-    member: ReturnType<typeof roomStore.getState>['members'][0]
+    _member: ReturnType<typeof roomStore.getState>['members'][0]
   ) {
     roomStore.updateMember(ctx.userId, { 
       position: payload.position,
       activeResolution: payload.resolution 
     });
-    coordinator.updateAsyncPlayhead(ctx.userId, payload.position, payload.resolution);
+    const swappedOffset = coordinator.updateAsyncPlayhead(ctx.userId, payload.position, payload.resolution);
+
+    // Client HLS must reinit when the server playhead jumps to another covering offset.
+    if (swappedOffset !== null) {
+      const state = roomStore.getState();
+      if (state.mediaId) {
+        SocketEmitter.sendToClient(ctx.socket, {
+          event: 'media.changed',
+          payload: buildMediaChangedPayload({
+            mediaFileId: state.mediaId,
+            title: state.mediaTitle || 'Unknown Media',
+            duration: state.duration,
+            transcodeOffset: swappedOffset,
+            sessionScope: 'user',
+            sessionId: 'async',
+            subtitles: state.subtitles,
+            audioTracks: state.audioTracks,
+          }),
+        });
+      }
+    }
   }
 
   private static handleSyncHeartbeat(
-    payload: HeartbeatPayload,
+    payload: HeartbeatPayload & { position: number },
     ctx: SocketContext,
     state: ReturnType<typeof roomStore.getState>
   ) {
+
     const { playback } = state;
     const expectedPosition = this.calculateExpectedPosition(playback);
     const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
@@ -107,7 +130,7 @@ export class SyncService {
     }
 
     // NOTE: Cooldown check for hard seeks to prevent feedback loops.
-    const lastSeekTime = (ctx.socket as any).lastSeekTime || 0;
+    const lastSeekTime = ctx.socket.lastSeekTime || 0;
     const now = Date.now();
     const isSeekingCooldown = (now - lastSeekTime) < 8000;
 
@@ -137,7 +160,8 @@ export class SyncService {
   }
 
   private static applyHardCorrection(ctx: SocketContext, expectedPosition: number, driftMs: number, now: number) {
-    (ctx.socket as any).lastSeekTime = now;
+    ctx.socket.lastSeekTime = now;
+
     console.warn(`[sync] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
     SocketEmitter.sendToClient(ctx.socket, {
       event: 'sync.correct',
@@ -148,7 +172,8 @@ export class SyncService {
     });
   }
 
-  private static applySoftCorrection(ctx: SocketContext, payload: HeartbeatPayload, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number, driftMs: number) {
+  private static applySoftCorrection(ctx: SocketContext, payload: HeartbeatPayload & { position: number }, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number, driftMs: number) {
+
     const isCorrecting = payload.playbackRate !== playback.playbackRate;
     if (!isCorrecting) {
       const isBehind = payload.position < expectedPosition;
@@ -247,15 +272,16 @@ export class SyncService {
     // Send the user-scoped media info back to start their HLS player
     SocketEmitter.sendToClient(ctx.socket, {
       event: 'media.changed',
-      payload: {
+      payload: buildMediaChangedPayload({
         mediaFileId: state.mediaId!,
         title: state.mediaTitle || 'Unknown Media',
-        hlsUrl: getMasterPlaylistUrl(state.mediaId!, 'async'),
         duration: state.duration,
         transcodeOffset: effectiveOffset,
         sessionScope: 'user',
+        sessionId: 'async',
         subtitles: state.subtitles,
-      }
+        audioTracks: state.audioTracks,
+      }),
     });
   }
 
@@ -274,15 +300,16 @@ export class SyncService {
     // Send the room-scoped media info back to reset their HLS player
     SocketEmitter.sendToClient(ctx.socket, {
       event: 'media.changed',
-      payload: {
+      payload: buildMediaChangedPayload({
         mediaFileId: state.mediaId!,
         title: state.mediaTitle || 'Unknown Media',
-        hlsUrl: getMasterPlaylistUrl(state.mediaId!, 'sync'),
         duration: state.duration,
         transcodeOffset: state.transcodeOffset,
         sessionScope: 'room',
+        sessionId: 'sync',
         subtitles: state.subtitles,
-      }
+        audioTracks: state.audioTracks,
+      }),
     });
   }
 

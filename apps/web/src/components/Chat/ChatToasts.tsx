@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useChat } from '../../contexts/ChatContext';
 import { SystemIcon } from './SystemIcon';
 import { getUsernameColor } from './utils';
+import { parseMentions } from './mentionUtils';
+import { useIsFullscreen } from '../../hooks/useIsFullscreen';
 
 /**
  * ChatToasts — minimal floating message overlay on the video player.
@@ -35,21 +37,8 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
-/** Returns true when the browser is in fullscreen mode. */
-function useIsFullscreen(): boolean {
-  const [isFs, setIsFs] = useState(() => !!document.fullscreenElement);
-
-  useEffect(() => {
-    const update = () => setIsFs(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', update);
-    return () => document.removeEventListener('fullscreenchange', update);
-  }, []);
-
-  return isFs;
-}
-
 export const ChatToasts: React.FC = () => {
-  const { isOpen, setIsOpen, toasts, activeTab } = useChat();
+  const { isOpen, setIsOpen, toasts, activeTab, knownUsernames = [] } = useChat();
   const isMobile = useIsMobile();
   const isFullscreen = useIsFullscreen();
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -75,12 +64,6 @@ export const ChatToasts: React.FC = () => {
   const visible = toasts.filter((t) => activeToasts.includes(t) || exitingToasts.includes(t));
 
   // Determine whether the chat panel is actually visible to the user right now.
-  //
-  // Fullscreen: the sidebar is entirely off-screen regardless of state → always show overlay.
-  //
-  // Mobile: the sidebar is always rendered. Hide the overlay when the chat tab is shown.
-  //
-  // Desktop: sidebar is behind an isOpen gate → hide the overlay only when open on chat tab.
   const chatPanelVisible =
     isFullscreen
       ? false
@@ -89,8 +72,6 @@ export const ChatToasts: React.FC = () => {
         : isOpen && activeTab === 'chat';
 
   if (chatPanelVisible || visible.length === 0) return null;
-
-
 
   return (
     <div
@@ -107,8 +88,6 @@ export const ChatToasts: React.FC = () => {
           !prevToast.isSystem &&
           !toast.isSystem;
 
-        // Multi-layer text shadow — subtitle-style halo makes text readable
-        // over any video content without any background at all.
         const halo: React.CSSProperties = {
           textShadow: '0 0 3px rgba(0,0,0,1), 0 0 6px rgba(0,0,0,0.9), 1px 1px 0 rgba(0,0,0,0.9), -1px -1px 0 rgba(0,0,0,0.9)',
         };
@@ -163,10 +142,26 @@ export const ChatToasts: React.FC = () => {
                   {toast.username}
                 </span>
                 <span
-                  className="text-paper/60 text-[11px] sm:text-[13px] lg:text-[20px] leading-snug"
+                  className="text-paper/60 text-[11px] sm:text-[13px] lg:text-[20px] leading-snug whitespace-pre-wrap line-clamp-3 wrap-break-word"
                   style={halo}
                 >
-                  {toast.body}
+                  {parseMentions(toast.body, knownUsernames).map((token, idx) => {
+                    if (token.type === 'text') {
+                      return <React.Fragment key={idx}>{token.content}</React.Fragment>;
+                    }
+                    return (
+                      <span
+                        key={idx}
+                        className="font-bold uppercase tracking-wider text-[9px] sm:text-[10px] lg:text-[14px] inline opacity-70"
+                        style={{
+                          color: getUsernameColor(token.username),
+                          ...halo,
+                        }}
+                      >
+                        @{token.username}
+                      </span>
+                    );
+                  })}
                 </span>
               </div>
             )}
@@ -176,3 +171,4 @@ export const ChatToasts: React.FC = () => {
     </div>
   );
 };
+
