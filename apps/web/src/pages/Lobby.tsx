@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { LogOut } from 'lucide-react';
 import { fetchApi } from '../api/client';
-import { setHasUserInteracted } from './Room';
+import { setHasUserInteracted } from '../userInteraction';
 import { ActivePlaybackResponse } from '@roomies/contracts';
 
 export default function Lobby() {

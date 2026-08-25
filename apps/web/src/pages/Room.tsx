@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2, Lock, Unlock, Mic, MicOff } from 'lucide-react';
 import { useRoomSync } from '../hooks/useRoomSync';
+import { hasUserInteracted } from '../userInteraction';
 
 const AdminOverlay = lazy(() => import('../components/AdminOverlay').then(m => ({ default: m.AdminOverlay })));
 
@@ -48,11 +49,6 @@ function useVisualViewportHeight(): string {
 
   return height;
 }
-
-export let hasUserInteracted = false;
-export const setHasUserInteracted = (val: boolean) => {
-  hasUserInteracted = val;
-};
 
 export default function Room() {
   const navigate = useNavigate();
