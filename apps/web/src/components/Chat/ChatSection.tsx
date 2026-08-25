@@ -4,6 +4,7 @@ import { useChat } from '../../contexts/ChatContext';
 import { useMobileView } from '../../hooks/useMobileView';
 import { ChatMessage } from './ChatMessage';
 import { FloatingReactionButton } from './FloatingReactionButton';
+import { ChatEmojiButton } from './ChatEmojiButton';
 import { MentionMenu, MentionMember } from './MentionMenu';
 import { RichChatInput, RichChatInputHandle } from './RichChatInput';
 
@@ -23,6 +24,7 @@ export const ChatSection: React.FC = () => {
   }, [registerChatInputRef]);
 
   const initialScrollDoneRef = useRef(false);
+  const caretOffsetRef = useRef(0);
 
   // Mention autocomplete state
   const [isMentionOpen, setIsMentionOpen] = useState(false);
@@ -162,6 +164,7 @@ export const ChatSection: React.FC = () => {
     if (!newMessage.trim()) return;
     sendMessage(newMessage.replace(/^\n+|\n+$/g, ''));
     setNewMessage('');
+    caretOffsetRef.current = 0;
     setIsMentionOpen(false);
     richInputRef.current?.clear();
     requestAnimationFrame(() => richInputRef.current?.focus());
@@ -170,6 +173,10 @@ export const ChatSection: React.FC = () => {
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     doSend();
+  };
+
+  const insertEmoji = (emoji: string) => {
+    richInputRef.current?.insertText(emoji, caretOffsetRef.current);
   };
 
   return (
@@ -218,6 +225,7 @@ export const ChatSection: React.FC = () => {
                 : false;
 
               setNewMessage(val);
+              caretOffsetRef.current = cursorOffset;
               checkMentionTrigger(val, cursorOffset);
 
               if (wasAtBottom && container) {
@@ -255,6 +263,7 @@ export const ChatSection: React.FC = () => {
               setTimeout(() => setIsMentionOpen(false), 150);
             }}
           />
+          <ChatEmojiButton onEmojiSelect={insertEmoji} />
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}

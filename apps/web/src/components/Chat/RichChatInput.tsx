@@ -4,6 +4,7 @@ import { getUsernameColor } from './utils';
 export interface RichChatInputHandle {
   focus: () => void;
   insertMention: (username: string, mentionStartIndex: number, queryLength: number) => void;
+  insertText: (text: string, atOffset: number) => void;
   clear: () => void;
 }
 
@@ -180,6 +181,32 @@ export const RichChatInput = forwardRef<RichChatInputHandle, RichChatInputProps>
 
       // Same Range-based read as handleInput — innerText here would reintroduce
       // the trailing-space divergence the caret offsets depend on.
+      onChange(getPlainTextAndCaretOffset(el).text, newCaretPos);
+    },
+    insertText: (text: string, atOffset: number) => {
+      const el = editableRef.current;
+      if (!el) return;
+
+      const range = getRangeByOffsets(el, atOffset, atOffset);
+      let newCaretPos = atOffset + text.length;
+
+      if (range) {
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+      } else {
+        // Fallback if range fails (e.g. stale offset past the current content)
+        const { text: current } = getPlainTextAndCaretOffset(el);
+        const before = current.slice(0, atOffset);
+        const after = current.slice(atOffset);
+        el.textContent = before + text + after;
+        newCaretPos = before.length + text.length;
+      }
+
+      requestAnimationFrame(() => {
+        el.focus();
+        setCaretPosition(el, newCaretPos);
+      });
+
       onChange(getPlainTextAndCaretOffset(el).text, newCaretPos);
     },
   }));
