@@ -1,35 +1,6 @@
-import { createApp } from './app';
-import { PORT } from '@roomies/config';
-
 export { createApp } from './app';
-export { createAppContext } from './context';
 export type { CreateAppOptions } from './app';
 export type { AppContext } from './context';
-export { getPrisma, resetPrismaClient } from './database/sqlite';
-export { roomStore } from './room/store';
-export { SYNC_CONFIG } from './config';
-
-const start = async () => {
-  try {
-    const app = await createApp();
-    await app.listen({ port: PORT, host: '0.0.0.0' });
-
-    console.log(`[system] Server listening at http://localhost:${PORT}`);
-
-    const shutdown = async (signal: string) => {
-      console.log(`[system] Received ${signal}, starting graceful shutdown...`);
-      await app.close();
-      process.exit(0);
-    };
-
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-  } catch (err) {
-    console.error('[system] Server failed to start:', err);
-    process.exit(1);
-  }
-};
-
-if (process.argv[1] && (process.argv[1].endsWith('index.ts') || process.argv[1].endsWith('index.js'))) {
-  start();
-}
+export { createPrismaClient } from './database/sqlite';
+export { RoomStore } from './room/store';
+export { SYNC_CONFIG } from './sync/config';

@@ -1,12 +1,16 @@
-import { FastifyInstance } from 'fastify';
-import { UsersController } from './controller';
-import { verifyJwt } from '../auth/middleware';
+import { FastifyPluginAsync } from 'fastify';
+import { AuthGuard } from '../auth/middleware';
+import { UserRoute, UsersController } from './controller';
 
-export const userRoutes = async (app: FastifyInstance) => {
-  app.addHook('preHandler', verifyJwt);
+export const userRoutes =
+  (controller: UsersController, guard: AuthGuard): FastifyPluginAsync =>
+  async (app) => {
+    const rootOnly = { preHandler: guard.requireRole('root') };
 
-  app.get('/me', UsersController.getMe);
-  app.get('/', UsersController.getUsers);
-  app.delete('/:id', UsersController.deleteUser);
-  app.post('/guest', UsersController.createGuest);
-};
+    app.addHook('preHandler', guard.verifyJwt);
+
+    app.get('/me', controller.getMe);
+    app.get('/', rootOnly, controller.getUsers);
+    app.delete<UserRoute>('/:id', rootOnly, controller.deleteUser);
+    app.post('/guest', rootOnly, controller.createGuest);
+  };

@@ -1,4 +1,6 @@
-import { WebSocket } from "@fastify/websocket";
+import { WebSocket } from '@fastify/websocket';
+import { FastifyBaseLogger } from 'fastify';
+import { VoiceServerControlMessage } from './config';
 
 export interface VoiceClient {
   userId: string;
@@ -6,46 +8,33 @@ export interface VoiceClient {
   sessionId: number;
 }
 
+/** Tracks voice sockets and the joined voice room, keyed by userId. */
 export class VoiceManager {
   private clients = new Map<string, VoiceClient>();
   private connections = new Map<string, Set<WebSocket>>();
   private nextSessionId = 1;
+
+  constructor(private readonly log: FastifyBaseLogger) {}
 
   /**
    * Registers a new connection for userId, evicting any previous connection
    * still registered for the same user (e.g. a stale/duplicate-tab socket)
    * so there is only ever one live owner of a userId's session at a time.
    */
-  public joinRoom(
-    userId: string,
-    socket: WebSocket,
-  ): number {
+  joinRoom(userId: string, socket: WebSocket): number {
     const existing = this.clients.get(userId);
     if (existing && existing.socket !== socket) {
-      if (existing.socket.readyState === 1 /* OPEN */) {
-        existing.socket.send(
-          JSON.stringify({ event: "error", payload: "Session replaced by a new connection" }),
-        );
-      }
+      sendControl(existing.socket, { event: 'error', payload: 'Session replaced by a new connection' });
       existing.socket.close();
     }
 
-    const inUse = new Set<number>();
-    for (const client of this.clients.values()) {
-      if (client.userId !== userId) inUse.add(client.sessionId);
-    }
+    const inUse = new Set([...this.clients.values()].filter((c) => c.userId !== userId).map((c) => c.sessionId));
     while (inUse.has(this.nextSessionId)) this.advanceSessionId();
     const sessionId = this.nextSessionId;
     this.advanceSessionId();
 
-    const client: VoiceClient = { userId, socket, sessionId };
-    this.clients.set(userId, client);
-    console.log("[voice] client joined room", {
-      userId,
-      sessionId,
-      totalClients: this.clients.size,
-    });
-
+    this.clients.set(userId, { userId, socket, sessionId });
+    this.log.info({ userId, sessionId, totalClients: this.clients.size }, 'Client joined voice room');
     return sessionId;
   }
 
@@ -55,60 +44,61 @@ export class VoiceManager {
    * callers can avoid broadcasting `peer_left` for a stale connection that
    * has already been superseded by a newer one for the same userId.
    */
-  public leaveRoom(userId: string, socket: WebSocket): boolean {
+  leaveRoom(userId: string, socket: WebSocket): boolean {
     const existing = this.clients.get(userId);
     if (!existing || existing.socket !== socket) return false;
 
     this.clients.delete(userId);
-    console.log("[voice] client left room", {
-      userId,
-      totalClients: this.clients.size,
-    });
+    this.log.info({ userId, totalClients: this.clients.size }, 'Client left voice room');
     return true;
   }
 
-  public trackConnection(userId: string, socket: WebSocket) {
+  trackConnection(userId: string, socket: WebSocket): void {
     const sockets = this.connections.get(userId) ?? new Set<WebSocket>();
     sockets.add(socket);
     this.connections.set(userId, sockets);
   }
 
-  public untrackConnection(userId: string, socket: WebSocket) {
+  untrackConnection(userId: string, socket: WebSocket): void {
     const sockets = this.connections.get(userId);
     if (!sockets) return;
     sockets.delete(socket);
     if (sockets.size === 0) this.connections.delete(userId);
   }
 
-  public kickUser(userId: string) {
+  kickUser(userId: string): void {
     for (const socket of this.connections.get(userId) ?? []) {
-      if (socket.readyState === 1 /* OPEN */) {
-        socket.send(JSON.stringify({ event: "error", payload: "Unauthorized" }));
-      }
+      sendControl(socket, { event: 'error', payload: 'Unauthorized' });
       socket.close();
     }
   }
 
-  // Keep it within 16-bit unsigned range (1 - 65535)
-  private advanceSessionId() {
-    this.nextSessionId = this.nextSessionId >= 65535 ? 1 : this.nextSessionId + 1;
-  }
-
-  public getRoomClients(): IterableIterator<VoiceClient> {
-    return this.clients.values();
-  }
-
-  public getClientSessionId(userId: string): number | undefined {
+  getClientSessionId(userId: string): number | undefined {
     return this.clients.get(userId)?.sessionId;
   }
 
-  public broadcastBinary(senderId: string, packet: Buffer) {
-    for (const [userId, client] of this.clients.entries()) {
-      if (userId !== senderId && client.socket.readyState === 1 /* OPEN */) {
-        client.socket.send(packet);
-      }
+  sessionMap(): Record<string, number> {
+    return Object.fromEntries([...this.clients.values()].map((c) => [c.userId, c.sessionId]));
+  }
+
+  broadcastControl(message: VoiceServerControlMessage, exceptUserId?: string): void {
+    for (const client of this.clients.values()) {
+      if (client.userId !== exceptUserId) sendControl(client.socket, message);
     }
+  }
+
+  broadcastBinary(senderId: string, packet: Buffer): void {
+    for (const client of this.clients.values()) {
+      if (client.userId !== senderId && client.socket.readyState === client.socket.OPEN) client.socket.send(packet);
+    }
+  }
+
+  // Keep it within 16-bit unsigned range (1 - 65535)
+  private advanceSessionId(): void {
+    this.nextSessionId = this.nextSessionId >= 65535 ? 1 : this.nextSessionId + 1;
   }
 }
 
-export const voiceManager = new VoiceManager();
+export const sendControl = (socket: WebSocket, message: VoiceServerControlMessage): void => {
+  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
+};

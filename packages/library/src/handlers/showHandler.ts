@@ -3,11 +3,7 @@ import type { ScannedEpisode, ScannedMedia } from '../types';
 import { parseEpisodeFilename } from '../parser';
 
 /** Processes a directory identified as a TV Show. */
-export const processShow = (
-  folderPath: string,
-  folderName: string,
-  videoFiles: string[]
-): ScannedMedia | null => {
+export const processShow = (folderPath: string, folderName: string, videoFiles: string[]): ScannedMedia | null => {
   if (videoFiles.length === 0) return null;
 
   const initialEpisodes = videoFiles.map((videoPath) => {

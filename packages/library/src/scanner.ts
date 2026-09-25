@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { Dirent } from 'fs';
+import type { Logger } from '@roomies/config';
 import { VIDEO_EXTENSIONS } from './config';
 import type { ScannedMedia } from './types';
 import { detectMediaType } from './detectors/mediaDetector';
@@ -31,7 +32,7 @@ const filterByExtension = (paths: string[], extensions: string[]): string[] =>
   paths.filter((p) => extensions.includes(path.extname(p).toLowerCase()));
 
 /** Scans immediate subfolders of `rootPath` — each one is a title (movie or show). */
-export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMedia[]> => {
+export const scanLibraryFolder = async (rootPath: string, log?: Logger): Promise<ScannedMedia[]> => {
   const mediaList: ScannedMedia[] = [];
   const rootEntries = await listDir(rootPath);
 
@@ -44,15 +45,13 @@ export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMedia[
     const videoFiles = filterByExtension(titleFiles, VIDEO_EXTENSIONS);
 
     if (videoFiles.length === 0) {
-      console.warn(`[library] Skipping ${titleFolder}: no video files found`);
+      log?.warn({ folder: titleFolder }, 'Skipping folder with no video files');
       continue;
     }
 
     const countableVideos = videoFiles.filter((p) => !isSampleOrTrailer(p));
     const type = detectMediaType(entry.name, countableVideos.length > 0 ? countableVideos : videoFiles);
-    const scanned = type === 'movie'
-      ? processMovie(titleFolder, entry.name, videoFiles)
-      : processShow(titleFolder, entry.name, videoFiles);
+    const scanned = type === 'movie' ? processMovie(titleFolder, entry.name, videoFiles) : processShow(titleFolder, entry.name, videoFiles);
 
     if (scanned) {
       mediaList.push(scanned);

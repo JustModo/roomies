@@ -1,12 +1,4 @@
-import path from 'path';
-import os from 'os';
 import { Resolution, ResolutionConfig } from '../types';
-import {
-  FFMPEG_PATH as CONFIG_FFMPEG_PATH,
-  CACHE_DIR as CONFIG_CACHE_DIR,
-  VIDEO_CODEC as CONFIG_VIDEO_CODEC,
-  MAX_CONCURRENT_VARIANTS as CONFIG_MAX_CONCURRENT_VARIANTS,
-} from '@roomies/config';
 
 /** Encoding presets for each supported resolution. */
 export const RESOLUTION_PRESETS: Record<Resolution, ResolutionConfig> = {
@@ -70,15 +62,6 @@ export const AUDIO_BITRATE = '160k';
 /** Upper bound for the source-aware audio bitrate floor (matches the top rung's preset). */
 export const AUDIO_BITRATE_CEILING = 192000;
 
-/** Upper bound on concurrent FFmpeg processes across all sessions. */
-export const MAX_CONCURRENT_VARIANTS = CONFIG_MAX_CONCURRENT_VARIANTS ?? Math.max(4, os.cpus().length * 2);
-
-export const FFMPEG_PATH = CONFIG_FFMPEG_PATH;
-
-export const CACHE_DIR = CONFIG_CACHE_DIR;
-
 export const HLS_BASE_URL = '/hls';
-
-export const VIDEO_CODEC = CONFIG_VIDEO_CODEC;
 
 export const RENDER_NODE = '/dev/dri/renderD128';

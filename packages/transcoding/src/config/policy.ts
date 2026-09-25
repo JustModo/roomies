@@ -1,6 +1,6 @@
 /** Mode policies for sync vs async playback sessions. */
 import type { Resolution, ResolutionConfig } from '../types';
-import { SUPPORTED_RESOLUTIONS, RESOLUTION_PRESETS } from './config';
+import { SUPPORTED_RESOLUTIONS, RESOLUTION_PRESETS } from './constants';
 
 export interface PlaybackPolicy {
   sessionId: 'sync' | 'async';
@@ -35,11 +35,7 @@ export function policyForSessionId(sessionId: string): PlaybackPolicy {
  * every frame for a 2.35:1 rip), which the player then letterboxes a second time whenever its
  * container is not exactly 16:9. Encoding the real frame lets `object-contain` letterbox once.
  */
-export function scaledResolution(
-  preset: ResolutionConfig,
-  sourceWidth: number,
-  sourceHeight: number,
-): { width: number; height: number } {
+export function scaledResolution(preset: ResolutionConfig, sourceWidth: number, sourceHeight: number): { width: number; height: number } {
   if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
     return { width: preset.width, height: preset.height };
   }
@@ -57,12 +53,8 @@ export function scaledResolution(
  * native rung and caps the film at 1280x544. By scale, the 1080p rung is exactly 1.0 (native,
  * no resampling) and is kept. An unknown source size scales to 0 here, so nothing is pruned.
  */
-export function variantsForSource(
-  variants: Resolution[],
-  sourceWidth: number,
-  sourceHeight: number,
-): Resolution[] {
-  const fitting = variants.filter(res => {
+export function variantsForSource(variants: Resolution[], sourceWidth: number, sourceHeight: number): Resolution[] {
+  const fitting = variants.filter((res) => {
     const preset = RESOLUTION_PRESETS[res];
     return Math.min(preset.width / sourceWidth, preset.height / sourceHeight) <= 1;
   });

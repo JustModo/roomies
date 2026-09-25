@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { roomStore } from '@roomies/server';
+import type { RoomStore } from '@roomies/server';
 import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 
 describe('HLS playback routes', () => {
   let env: TestEnvironmentContext;
+  let roomStore: RoomStore;
   let hls: string;
 
   const get = (path: string, headers: Record<string, string> = { Authorization: `Bearer ${env.admin.token}` }) =>
@@ -11,14 +12,21 @@ describe('HLS playback routes', () => {
 
   beforeAll(async () => {
     env = await setupTestEnvironment();
+    roomStore = env.server.app.ctx.roomStore;
     hls = `${env.server.baseUrl}/api/playback/hls/${env.media.mediaFile.id}`;
   });
 
   beforeEach(() => {
     roomStore.resetStore();
-    roomStore.updateMedia(env.media.mediaFile.id, 'Mock Movie', '', 600, 0, [], [
-      { id: 'track-1', language: 'en', title: null, channels: 2 },
-    ]);
+    roomStore.updateMedia(
+      env.media.mediaFile.id,
+      'Mock Movie',
+      '',
+      600,
+      0,
+      [],
+      [{ id: 'track-1', language: 'en', title: null, channels: 2 }],
+    );
   });
 
   afterAll(async () => {

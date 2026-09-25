@@ -1,6 +1,6 @@
 import fs from 'fs';
-import { LOOK_AHEAD_SEGMENTS } from '../config/config';
-import { TranscodeCache } from './cache';
+import { LOOK_AHEAD_SEGMENTS } from '../config/constants';
+import { readSegmentStats } from './cache';
 
 export interface SegmentReadyTarget {
   /** Directory whose .ts segments are watched. */
@@ -32,7 +32,7 @@ export function startSegmentReadyWatcher(options: SegmentReadyWatcherOptions): {
   let pollInterval: NodeJS.Timeout | null = null;
 
   const checkTarget = (target: SegmentReadyTarget) => {
-    const stats = TranscodeCache.getVariantCacheStats(target.dir, startPosition);
+    const stats = readSegmentStats(target.dir, startPosition);
     target.onStats?.(stats);
     if (target.isReady()) return;
     if (stats.segmentCount >= LOOK_AHEAD_SEGMENTS || (!isRunning() && stats.segmentCount > 0)) {

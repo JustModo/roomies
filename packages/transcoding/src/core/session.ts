@@ -1,18 +1,18 @@
 import path from 'path';
-import { FfmpegPreset, HwAccelMode } from '../config/settings';
-import { Resolution, AudioTrackDescriptor } from '../types';
+import { READY_TIMEOUT_MS, PLAYHEAD_STALE_MS, RESOLUTION_PRESETS, SEGMENT_DURATION, SUPPORTED_RESOLUTIONS } from '../config/constants';
+import { PlaybackPolicy, policyForSessionId, scaledResolution, variantsForSource } from '../config/policy';
+import { SourceVideoInfo, getSourceVideoInfo } from '../ffmpeg/ffprobe';
+import { ensureDirectory, removeDirectory } from '../fs/cache';
+import { AudioTrackDescriptor, Resolution, TranscodeErrorCallback } from '../types';
+import { TranscodeDeps } from './deps';
 import { TranscodeWorker } from './worker';
-import { MAX_CONCURRENT_VARIANTS, SEGMENT_DURATION, SUPPORTED_RESOLUTIONS, PLAYHEAD_STALE_MS, RESOLUTION_PRESETS, READY_TIMEOUT_MS } from '../config/config';
-import { getSourceVideoInfo, SourceVideoInfo } from '../ffmpeg/ffprobe';
-import { TranscodeCache } from '../fs/cache';
-import { policyForSessionId, PlaybackPolicy, variantsForSource, scaledResolution } from '../config/policy';
 
-/** Aligns seek position to nearest segment boundary. */
-export function getAlignedPosition(position: number): number {
-  return Math.max(
-    0,
-    Math.floor(position / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION,
-  );
+export interface SessionSpec {
+  sessionId: string;
+  mediaFileId: string;
+  inputPath: string;
+  outputDir: string;
+  audioTracks?: AudioTrackDescriptor[];
 }
 
 export interface PlayheadState {
@@ -21,14 +21,22 @@ export interface PlayheadState {
   lastSeenAt: number;
 }
 
+/** A freshly created offset group is never collected before this age, so a seek can land on it. */
+const GROUP_MIN_AGE_MS = 15000;
+
+/** Aligns seek position to nearest segment boundary. */
+export function getAlignedPosition(position: number): number {
+  return Math.max(0, Math.floor(position / SEGMENT_DURATION) * SEGMENT_DURATION - SEGMENT_DURATION);
+}
+
 /** Manages all transcoding workers for a single media file, grouped by transcode offset. */
 export class TranscodeSession {
-  public readonly sessionId: string;
-  public readonly mediaFileId: string;
-  public readonly inputPath: string;
-  public readonly outputBaseDir: string;
-  public readonly policy: PlaybackPolicy;
-  public readonly audioTracks: AudioTrackDescriptor[];
+  readonly sessionId: string;
+  readonly mediaFileId: string;
+  readonly inputPath: string;
+  readonly outputBaseDir: string;
+  readonly policy: PlaybackPolicy;
+  readonly audioTracks: AudioTrackDescriptor[];
 
   // Map of offset -> the shared worker covering every configured resolution at that offset.
   private variantGroups = new Map<number, TranscodeWorker>();
@@ -36,36 +44,28 @@ export class TranscodeSession {
   private groupCreatedAt = new Map<number, number>();
   private gcTimers = new Map<number, NodeJS.Timeout>();
   private playheads = new Map<string, PlayheadState>();
-  private onErrorCallback: ((resolution: Resolution, error: Error) => void) | null = null;
+  private onErrorCallback: TranscodeErrorCallback | null = null;
   private videoInfoPromise: Promise<SourceVideoInfo> | null = null;
-  private staleSweepTimer: NodeJS.Timeout;
   private reportedErrors = new WeakSet<Error>();
+  private readonly staleSweepTimer: NodeJS.Timeout;
 
-  constructor(sessionId: string, mediaFileId: string, inputPath: string, outputBaseDir: string, audioTracks: AudioTrackDescriptor[] = []) {
-    this.sessionId = sessionId;
-    this.mediaFileId = mediaFileId;
-    this.inputPath = inputPath;
-    this.outputBaseDir = outputBaseDir;
-    this.policy = policyForSessionId(sessionId);
-    this.audioTracks = audioTracks;
+  constructor(
+    private readonly deps: TranscodeDeps,
+    spec: SessionSpec,
+  ) {
+    this.sessionId = spec.sessionId;
+    this.mediaFileId = spec.mediaFileId;
+    this.inputPath = spec.inputPath;
+    this.outputBaseDir = spec.outputDir;
+    this.audioTracks = spec.audioTracks ?? [];
+    this.policy = policyForSessionId(spec.sessionId);
 
-    TranscodeCache.ensureDirectory(this.outputBaseDir);
-
-    // Sweep stale playheads that missed removePlayhead call.
+    ensureDirectory(this.outputBaseDir);
+    // Sweep stale playheads that missed a removePlayhead call.
     this.staleSweepTimer = setInterval(() => this.sweepStalePlayheads(), PLAYHEAD_STALE_MS);
   }
 
-  private sweepStalePlayheads(): void {
-    const now = Date.now();
-    for (const [id, state] of this.playheads) {
-      if (now - state.lastSeenAt > PLAYHEAD_STALE_MS) {
-        console.log(`[transcode] Playhead ${id} went stale, removing`);
-        this.removePlayhead(id);
-      }
-    }
-  }
-
-  onError(callback: (resolution: Resolution, error: Error) => void): void {
+  onError(callback: TranscodeErrorCallback): void {
     this.onErrorCallback = callback;
   }
 
@@ -73,14 +73,7 @@ export class TranscodeSession {
   reportError(resolution: Resolution, error: Error): void {
     if (this.reportedErrors.has(error)) return;
     this.reportedErrors.add(error);
-    if (this.onErrorCallback) this.onErrorCallback(resolution, error);
-  }
-
-  private getVideoInfo(): Promise<SourceVideoInfo> {
-    if (!this.videoInfoPromise) {
-      this.videoInfoPromise = getSourceVideoInfo(this.inputPath);
-    }
-    return this.videoInfoPromise;
+    this.onErrorCallback?.(resolution, error);
   }
 
   /** The rungs this session's workers will actually encode, after pruning any that would
@@ -90,20 +83,158 @@ export class TranscodeSession {
    *  between two levels that are the same stream, flushing the buffer on every switch. */
   async availableVariants(): Promise<{ resolution: Resolution; width: number; height: number }[]> {
     const { width, height } = await this.getVideoInfo();
-    return variantsForSource(this.policy.variants, width, height).map(resolution => ({
+    return variantsForSource(this.policy.variants, width, height).map((resolution) => ({
       resolution,
       ...scaledResolution(RESOLUTION_PRESETS[resolution], width, height),
     }));
   }
 
+  async ensureVariantReady(resolution: Resolution, offset = 0): Promise<void> {
+    const worker = await this.getOrCreateWorker(offset);
+    const available = this.resolveAvailableResolution(worker, resolution);
+    if (worker.isLegReady(available)) return;
+    return this.waitFor(worker, 'ready', available, offset);
+  }
+
+  /** Ensures an audio track's HLS output is ready. */
+  async ensureAudioTrackReady(trackId: string, offset = 0): Promise<void> {
+    await this.ensureVariantReady(this.policy.variants[0], offset);
+    const worker = this.requireWorker(offset);
+    if (worker.isAudioLegReady(trackId)) return;
+    return this.waitFor(worker, 'audio-ready', trackId, offset);
+  }
+
+  getVariantOutputDir(resolution: Resolution, offset: number): string {
+    const worker = this.requireWorker(offset);
+    return worker.legOutputDir(this.resolveAvailableResolution(worker, resolution));
+  }
+
+  getAudioOutputDir(trackId: string, offset = 0): string {
+    return this.requireWorker(offset).audioLegOutputDir(trackId);
+  }
+
+  /** Records a viewer's position; returns the new offset when it moved onto a different covering group. */
+  updatePlayhead(id: string, position: number): number | null {
+    const now = Date.now();
+    const state = this.playheads.get(id);
+    const coveringOffsets = [...this.variantGroups.keys()].filter((offset) => this.isPositionCovered(position, offset));
+    const maxOffset = Math.max(-1, ...coveringOffsets);
+
+    if (!state) {
+      this.playheads.set(id, { position, currentOffset: maxOffset, lastSeenAt: now });
+    } else {
+      state.position = position;
+      state.lastSeenAt = now;
+    }
+    if (maxOffset === -1) return null;
+
+    let swappedToOffset: number | null = state ? null : maxOffset;
+    if (state && state.currentOffset !== maxOffset) {
+      const oldOffset = state.currentOffset;
+      this.deps.log.info({ playhead: id, from: oldOffset, to: maxOffset }, 'Playhead shifted offset');
+      state.currentOffset = maxOffset;
+      swappedToOffset = maxOffset;
+      this.cleanupOffsetIfEmpty(oldOffset);
+    }
+
+    this.updateVariantCache(maxOffset);
+    return swappedToOffset;
+  }
+
+  removePlayhead(id: string): void {
+    const state = this.playheads.get(id);
+    if (!state) return;
+    this.playheads.delete(id);
+    this.cleanupOffsetIfEmpty(state.currentOffset);
+  }
+
+  getPlayheadOffset(playheadId: string): number | undefined {
+    const offset = this.playheads.get(playheadId)?.currentOffset;
+    return offset !== undefined && offset >= 0 ? offset : undefined;
+  }
+
+  isPositionCovered(position: number, offset: number): boolean {
+    const worker = this.variantGroups.get(offset);
+    if (!worker) return false;
+
+    return worker.resolutions.some((res) => {
+      const maxCoveredTime = worker.legMaxCoveredTime(res);
+      return maxCoveredTime > worker.startPosition && position >= worker.startPosition && position <= maxCoveredTime;
+    });
+  }
+
+  getCoveringOffset(position: number): number | null {
+    return [...this.variantGroups.keys()].find((offset) => this.isPositionCovered(position, offset)) ?? null;
+  }
+
+  /** Reuses currentOffset if it covers the position, otherwise starts (and prewarms) a group at the aligned offset. */
+  async seek(position: number, currentOffset: number, resolutionsToPrewarm: Resolution[] = this.policy.variants): Promise<number> {
+    if (this.isPositionCovered(position, currentOffset)) {
+      this.deps.log.info({ position, offset: currentOffset }, 'Seek covered by current offset, reusing cache');
+      return currentOffset;
+    }
+
+    const alignedPosition = getAlignedPosition(position);
+    this.deps.log.info({ position, offset: currentOffset, alignedPosition }, 'Seek not covered, starting new variants');
+
+    const results = await Promise.allSettled(resolutionsToPrewarm.map((res) => this.ensureVariantReady(res, alignedPosition)));
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') return;
+      const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+      this.deps.log.error({ err: error, resolution: resolutionsToPrewarm[i], offset: alignedPosition }, 'Prewarm failed');
+      this.reportError(resolutionsToPrewarm[i], error);
+    });
+
+    return alignedPosition;
+  }
+
+  async stopGroup(offset: number): Promise<void> {
+    const worker = this.variantGroups.get(offset);
+    if (!worker) return;
+
+    // Remove group immediately so new requests spawn a fresh worker.
+    this.forgetGroup(offset);
+    clearTimeout(this.gcTimers.get(offset));
+    this.gcTimers.delete(offset);
+
+    this.deps.log.info({ sessionId: this.sessionId, offset }, 'Stopping worker');
+    await worker.stop();
+
+    // Clean offset directory if no new group was created in the meantime.
+    if (!this.variantGroups.has(offset)) removeDirectory(this.groupDir(offset), this.deps.log);
+  }
+
+  async stop(): Promise<void> {
+    clearInterval(this.staleSweepTimer);
+    await Promise.all([...this.variantGroups.keys()].map((offset) => this.stopGroup(offset)));
+    removeDirectory(this.outputBaseDir, this.deps.log);
+  }
+
+  private getVideoInfo(): Promise<SourceVideoInfo> {
+    this.videoInfoPromise ??= getSourceVideoInfo(this.deps.options.ffprobePath, this.inputPath);
+    return this.videoInfoPromise;
+  }
+
+  private requireWorker(offset: number): TranscodeWorker {
+    const worker = this.variantGroups.get(offset);
+    if (!worker) throw new Error(`Worker not found for offset ${offset}`);
+    return worker;
+  }
+
+  private groupDir(offset: number): string {
+    return path.join(this.outputBaseDir, offset.toString());
+  }
+
+  private forgetGroup(offset: number): void {
+    this.variantGroups.delete(offset);
+    this.groupCreatedAt.delete(offset);
+  }
+
   /** Resolves a requested resolution to the nearest available worker resolution rung. */
   private resolveAvailableResolution(worker: TranscodeWorker, resolution: Resolution): Resolution {
     if (worker.resolutions.includes(resolution)) return resolution;
-    const idx = SUPPORTED_RESOLUTIONS.indexOf(resolution);
-    for (let i = idx - 1; i >= 0; i--) {
-      if (worker.resolutions.includes(SUPPORTED_RESOLUTIONS[i])) return SUPPORTED_RESOLUTIONS[i];
-    }
-    return worker.resolutions[0];
+    const lower = SUPPORTED_RESOLUTIONS.slice(0, SUPPORTED_RESOLUTIONS.indexOf(resolution)).reverse();
+    return lower.find((res) => worker.resolutions.includes(res)) ?? worker.resolutions[0];
   }
 
   private waitFor(worker: TranscodeWorker, event: 'ready' | 'audio-ready', key: string, offset: number): Promise<void> {
@@ -138,81 +269,56 @@ export class TranscodeSession {
     });
   }
 
-  async ensureVariantReady(
-    resolution: Resolution,
-    offset: number = 0,
-    preset: FfmpegPreset = 'veryfast',
-    hwAccelMode: HwAccelMode = 'auto'
-  ): Promise<void> {
-    const worker = await this.getOrCreateWorker(offset, preset, hwAccelMode);
-    const available = this.resolveAvailableResolution(worker, resolution);
-    if (worker.isLegReady(available)) return;
-    return this.waitFor(worker, 'ready', available, offset);
-  }
-
   /** Memoized worker creation per offset to prevent concurrent spawn races. */
-  private getOrCreateWorker(
-    offset: number,
-    preset: FfmpegPreset,
-    hwAccelMode: HwAccelMode
-  ): Promise<TranscodeWorker> {
+  private getOrCreateWorker(offset: number): Promise<TranscodeWorker> {
     const existing = this.variantGroups.get(offset);
     if (existing) return Promise.resolve(existing);
 
     let creation = this.creatingGroups.get(offset);
     if (!creation) {
-      creation = this.createWorker(offset, preset, hwAccelMode).finally(() => {
-        this.creatingGroups.delete(offset);
-      });
+      creation = this.createWorker(offset).finally(() => this.creatingGroups.delete(offset));
       this.creatingGroups.set(offset, creation);
     }
     return creation;
   }
 
-  private async createWorker(
-    offset: number,
-    preset: FfmpegPreset,
-    hwAccelMode: HwAccelMode
-  ): Promise<TranscodeWorker> {
-    const { fps: sourceFps, width: sourceWidth, height: sourceHeight, audioBitrate } = await this.getVideoInfo();
+  private async createWorker(offset: number): Promise<TranscodeWorker> {
+    const { fps, width, height, audioBitrate } = await this.getVideoInfo();
 
-    if (TranscodeWorker.liveProcessCount >= MAX_CONCURRENT_VARIANTS) {
-      console.error(`[transcode] Refusing to spawn worker at offset ${offset}: MAX_CONCURRENT_VARIANTS (${MAX_CONCURRENT_VARIANTS}) reached`);
+    const { slots, log } = this.deps;
+    if (slots.isFull) {
+      log.error({ offset, max: slots.max }, 'Refusing to spawn worker: concurrent worker cap reached');
       throw new Error('Maximum concurrent transcode workers reached');
     }
 
-    const variants = variantsForSource(this.policy.variants, sourceWidth, sourceHeight);
-
-    const groupDir = path.join(this.outputBaseDir, offset.toString());
+    const variants = variantsForSource(this.policy.variants, width, height);
+    const groupDir = this.groupDir(offset);
     const legSuffix = `ss-${offset}-${Math.random().toString(36).substring(2, 8)}`;
-    const legDirs = new Map<Resolution, string>(
-      variants.map(res => [res, path.join(groupDir, res, legSuffix)])
-    );
-    const audioLegDirs = new Map<string, string>(
-      this.audioTracks.map(t => [t.id, path.join(groupDir, 'audio', t.id, legSuffix)])
-    );
+    const worker = new TranscodeWorker(this.deps, {
+      sessionId: this.sessionId,
+      resolutions: variants,
+      legDirs: new Map(variants.map((res) => [res, path.join(groupDir, res, legSuffix)])),
+      audioTracks: this.audioTracks,
+      audioLegDirs: new Map(this.audioTracks.map((t) => [t.id, path.join(groupDir, 'audio', t.id, legSuffix)])),
+    });
 
-    const worker = new TranscodeWorker(variants, legDirs, this.sessionId, this.audioTracks, audioLegDirs);
-
-    worker.on('ready', (res: Resolution) => console.log(`[transcode] [session ${this.sessionId}] Variant ${res}@${offset} ready`));
+    const context = { sessionId: this.sessionId, offset };
+    worker.on('ready', (resolution: Resolution) => log.info({ ...context, resolution }, 'Variant ready'));
     worker.on('error', (err: Error) => {
-      console.error(`[transcode] [session ${this.sessionId}] Worker @${offset} error:`, err.message, err.cause ?? '');
+      log.error({ ...context, err, cause: err.cause }, 'Worker error');
       // Drop dead worker so subsequent requests spawn a fresh worker.
-      if (this.variantGroups.get(offset) === worker) {
-        this.variantGroups.delete(offset);
-        this.groupCreatedAt.delete(offset);
-      }
-      if (!this.variantGroups.has(offset)) TranscodeCache.cleanDirectory(groupDir);
+      if (this.variantGroups.get(offset) === worker) this.forgetGroup(offset);
+      if (!this.variantGroups.has(offset)) removeDirectory(groupDir, log);
       this.reportError(worker.resolutions[0], err);
     });
     worker.on('exit', (code: number | null) => {
-      if (code === 0) console.log(`[transcode] [session ${this.sessionId}] Worker @${offset} completed`);
+      if (code === 0) log.info(context, 'Worker completed');
     });
 
     try {
-      worker.start(this.inputPath, offset, preset, hwAccelMode, sourceFps, audioBitrate);
+      worker.start({ inputPath: this.inputPath, startPosition: offset, sourceFps: fps, sourceAudioBitrate: audioBitrate });
     } catch (err) {
-      TranscodeCache.cleanDirectory(groupDir);
+      removeDirectory(groupDir, log);
       throw err;
     }
     this.variantGroups.set(offset, worker);
@@ -220,233 +326,56 @@ export class TranscodeSession {
     return worker;
   }
 
-  updatePlayhead(id: string, position: number): number | null {
+  private sweepStalePlayheads(): void {
     const now = Date.now();
-    const state = this.playheads.get(id);
-    let currentOffset = state?.currentOffset ?? -1;
-
-    let maxOffset = -1;
-    for (const offset of this.variantGroups.keys()) {
-      if (this.isPositionCovered(position, offset)) {
-        if (offset > maxOffset) {
-          maxOffset = offset;
-        }
+    for (const [id, state] of this.playheads) {
+      if (now - state.lastSeenAt > PLAYHEAD_STALE_MS) {
+        this.deps.log.info({ playhead: id }, 'Playhead went stale, removing');
+        this.removePlayhead(id);
       }
-    }
-
-    if (maxOffset === -1) {
-      if (state) {
-        state.position = position;
-        state.lastSeenAt = now;
-      } else {
-        this.playheads.set(id, { position, currentOffset: -1, lastSeenAt: now });
-      }
-      return null;
-    }
-
-    let swappedToOffset: number | null = null;
-    if (state) {
-      if (state.currentOffset !== maxOffset) {
-        const oldOffset = state.currentOffset;
-        console.log(`[transcode] Playhead ${id} shifted from offset ${oldOffset} to new offset ${maxOffset}`);
-        state.currentOffset = maxOffset;
-        swappedToOffset = maxOffset;
-        this.cleanupOffsetIfEmpty(oldOffset);
-      }
-      state.position = position;
-      state.lastSeenAt = now;
-    } else {
-      this.playheads.set(id, { position, currentOffset: maxOffset, lastSeenAt: now });
-      swappedToOffset = maxOffset;
-    }
-
-    this.updateVariantCache(maxOffset);
-    return swappedToOffset;
-  }
-
-  removePlayhead(id: string): void {
-    const state = this.playheads.get(id);
-    if (state) {
-      const oldOffset = state.currentOffset;
-      this.playheads.delete(id);
-      this.cleanupOffsetIfEmpty(oldOffset);
     }
   }
 
-  private cleanupOffsetIfEmpty(offset: number) {
+  private cleanupOffsetIfEmpty(offset: number): void {
     if (offset === -1 || !this.variantGroups.has(offset)) return;
 
-    let hasPlayheads = false;
-    for (const ph of this.playheads.values()) {
-      if (ph.currentOffset === offset) {
-        hasPlayheads = true;
-        break;
-      }
+    const hasPlayheads = [...this.playheads.values()].some((ph) => ph.currentOffset === offset);
+    if (hasPlayheads) {
+      this.updateVariantCache(offset);
+      return;
     }
 
-    if (!hasPlayheads) {
-      const createdAt = this.groupCreatedAt.get(offset) || 0;
-      const age = Date.now() - createdAt;
+    const createdAt = this.groupCreatedAt.get(offset) || 0;
+    const age = Date.now() - createdAt;
+    if (age < GROUP_MIN_AGE_MS) {
+      clearTimeout(this.gcTimers.get(offset));
+      this.gcTimers.set(
+        offset,
+        setTimeout(
+          () => {
+            this.gcTimers.delete(offset);
+            this.cleanupOffsetIfEmpty(offset);
+          },
+          GROUP_MIN_AGE_MS - age + 100,
+        ),
+      );
+      return;
+    }
 
-      if (age < 15000) {
-        clearTimeout(this.gcTimers.get(offset));
-        this.gcTimers.set(offset, setTimeout(() => {
-          this.gcTimers.delete(offset);
-          this.cleanupOffsetIfEmpty(offset);
-        }, 15000 - age + 100));
+    if (this.policy.keepLatestEmptyOffset) {
+      const isLatest = [...this.variantGroups.keys()].every((o) => (this.groupCreatedAt.get(o) || 0) <= createdAt);
+      if (isLatest) {
+        this.deps.log.info({ sessionId: this.sessionId, offset }, 'Keeping latest offset group active');
         return;
       }
-
-      if (this.policy.keepLatestEmptyOffset) {
-        const isLatest = Array.from(this.variantGroups.keys())
-          .every((o) => (this.groupCreatedAt.get(o) || 0) <= createdAt);
-        if (isLatest) {
-          console.log(`[transcode] Keeping latest offset group ${offset} active for ${this.sessionId} session`);
-          return;
-        }
-      }
-      console.log(`[transcode] Garbage collecting unused offset group ${offset}`);
-      this.stopGroup(offset);
-    } else {
-      this.updateVariantCache(offset);
     }
+    this.deps.log.info({ sessionId: this.sessionId, offset }, 'Garbage collecting unused offset group');
+    this.stopGroup(offset);
   }
 
-  private updateVariantCache(offset: number) {
+  private updateVariantCache(offset: number): void {
     const worker = this.variantGroups.get(offset);
-    if (!worker) return;
-
-    let maxPlayheadInGroup = -1;
-    for (const ph of this.playheads.values()) {
-      if (ph.currentOffset === offset && ph.position > maxPlayheadInGroup) {
-        maxPlayheadInGroup = ph.position;
-      }
-    }
-
-    if (maxPlayheadInGroup === -1) return;
-
-    worker.manageCache(maxPlayheadInGroup);
-  }
-
-  async stopGroup(offset: number): Promise<void> {
-    const worker = this.variantGroups.get(offset);
-    if (!worker) return;
-
-    // Remove group immediately so new requests spawn a fresh worker.
-    this.variantGroups.delete(offset);
-    this.groupCreatedAt.delete(offset);
-    clearTimeout(this.gcTimers.get(offset));
-    this.gcTimers.delete(offset);
-
-    console.log(`[transcode] Stopping worker for offset ${offset}`);
-    await worker.stop();
-
-    // Clean offset directory if no new group was created in the meantime.
-    if (!this.variantGroups.has(offset)) {
-      const groupDir = path.join(this.outputBaseDir, offset.toString());
-      TranscodeCache.cleanDirectory(groupDir);
-    }
-  }
-
-  async stop(): Promise<void> {
-    clearInterval(this.staleSweepTimer);
-
-    const promises: Promise<void>[] = [];
-    for (const offset of this.variantGroups.keys()) {
-      promises.push(this.stopGroup(offset));
-    }
-    await Promise.all(promises);
-
-    TranscodeCache.cleanDirectory(this.outputBaseDir);
-  }
-
-  isPositionCovered(newPosition: number, offset: number): boolean {
-    const worker = this.variantGroups.get(offset);
-    if (!worker) return false;
-
-    for (const res of worker.resolutions) {
-      const maxCoveredTime = worker.legMaxCoveredTime(res);
-      if (maxCoveredTime > worker.startPosition && newPosition >= worker.startPosition && newPosition <= maxCoveredTime) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  getCoveringOffset(position: number): number | null {
-    for (const offset of this.variantGroups.keys()) {
-      if (this.isPositionCovered(position, offset)) {
-        return offset;
-      }
-    }
-    return null;
-  }
-
-  async seek(
-    newPosition: number,
-    currentOffset: number,
-    preset: FfmpegPreset = 'veryfast',
-    hwAccelMode: HwAccelMode = 'auto',
-    resolutionsToPrewarm: Resolution[] = this.policy.variants
-  ): Promise<number> {
-    const isCovered = this.isPositionCovered(newPosition, currentOffset);
-
-    if (isCovered) {
-      console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s is covered by offset ${currentOffset}, reusing cache`);
-      return currentOffset;
-    }
-
-    console.log(`[transcode] Seek to ${newPosition.toFixed(1)}s not covered by offset ${currentOffset}, starting new variants`);
-
-    const alignedPosition = getAlignedPosition(newPosition);
-
-    if (resolutionsToPrewarm.length > 0) {
-      const results = await Promise.allSettled(
-        resolutionsToPrewarm.map(res => this.ensureVariantReady(res, alignedPosition, preset, hwAccelMode))
-      );
-      results.forEach((result, i) => {
-        if (result.status === 'rejected') {
-          const resolution = resolutionsToPrewarm[i];
-          const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
-          console.error(`[transcode] Prewarm failed for ${resolution} at offset ${alignedPosition}:`, error.message);
-          this.reportError(resolution, error);
-        }
-      });
-    }
-
-    return alignedPosition;
-  }
-
-  getVariantOutputDir(resolution: Resolution, offset: number): string {
-    const worker = this.variantGroups.get(offset);
-    if (!worker) {
-      throw new Error(`Variant not found for resolution ${resolution} at offset ${offset}`);
-    }
-    return worker.legOutputDir(this.resolveAvailableResolution(worker, resolution));
-  }
-
-  /** Ensures an audio track's HLS output is ready. */
-  async ensureAudioTrackReady(
-    trackId: string,
-    offset: number = 0,
-    preset: FfmpegPreset = 'veryfast',
-    hwAccelMode: HwAccelMode = 'auto'
-  ): Promise<void> {
-    await this.ensureVariantReady(this.policy.variants[0], offset, preset, hwAccelMode);
-    const worker = this.variantGroups.get(offset);
-    if (!worker) throw new Error(`Worker not found for offset ${offset}`);
-    if (worker.isAudioLegReady(trackId)) return;
-    return this.waitFor(worker, 'audio-ready', trackId, offset);
-  }
-
-  getAudioOutputDir(trackId: string, offset: number = 0): string {
-    const worker = this.variantGroups.get(offset);
-    if (!worker) throw new Error(`Worker not found for offset ${offset}`);
-    return worker.audioLegOutputDir(trackId);
-  }
-
-  getPlayheadOffset(playheadId: string): number | undefined {
-    const offset = this.playheads.get(playheadId)?.currentOffset;
-    return offset !== undefined && offset >= 0 ? offset : undefined;
+    const positions = [...this.playheads.values()].filter((ph) => ph.currentOffset === offset).map((ph) => ph.position);
+    if (worker && positions.length > 0) worker.manageCache(Math.max(...positions));
   }
 }

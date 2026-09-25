@@ -72,5 +72,5 @@ start('api', 'pnpm', [
   '@roomies/server',
   'exec',
   'tsx',
-  'src/index.ts',
+  'src/main.ts',
 ]);

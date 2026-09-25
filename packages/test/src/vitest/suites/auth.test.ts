@@ -10,7 +10,7 @@ describe('Authentication & Authorization (RBAC)', () => {
 
   beforeAll(async () => {
     db = await createTestDatabase();
-    server = await createTestServer();
+    server = await createTestServer(db.prisma);
   });
 
   afterAll(async () => {

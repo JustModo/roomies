@@ -3,17 +3,30 @@ import { z } from 'zod';
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 
 export const LoginSchema = z.object({
-  username: z.string().min(1).transform((v) => v.trim().toLowerCase()),
+  username: z
+    .string()
+    .min(1)
+    .transform((v) => v.trim().toLowerCase()),
   password: z.string().min(6),
 });
 
 export const SetupRootSchema = z.object({
-  username: z.string().min(3).max(10).regex(USERNAME_REGEX, 'Username may only contain letters, numbers, and underscores').transform((v) => v.trim().toLowerCase()),
+  username: z
+    .string()
+    .min(3)
+    .max(10)
+    .regex(USERNAME_REGEX, 'Username may only contain letters, numbers, and underscores')
+    .transform((v) => v.trim().toLowerCase()),
   password: z.string().min(6),
 });
 
 export const CreateGuestSchema = z.object({
-  username: z.string().min(3).max(10).regex(USERNAME_REGEX, 'Username may only contain letters, numbers, and underscores').transform((v) => v.trim().toLowerCase()),
+  username: z
+    .string()
+    .min(3)
+    .max(10)
+    .regex(USERNAME_REGEX, 'Username may only contain letters, numbers, and underscores')
+    .transform((v) => v.trim().toLowerCase()),
   password: z.string().min(6),
 });
 
@@ -27,7 +40,7 @@ export const AuthResponseSchema = z.object({
     id: z.string(),
     username: z.string(),
     role: z.string(),
-  })
+  }),
 });
 
 export type AuthResponse = z.infer<typeof AuthResponseSchema>;
@@ -133,4 +146,3 @@ export interface JWTPayload {
   role: string;
   sessionId: string;
 }
-

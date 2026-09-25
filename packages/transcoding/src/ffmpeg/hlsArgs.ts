@@ -1,9 +1,4 @@
-import {
-  SEGMENT_DURATION,
-  HLS_LIST_SIZE,
-  AUDIO_BITRATE,
-  AUDIO_BITRATE_CEILING,
-} from '../config/config';
+import { SEGMENT_DURATION, HLS_LIST_SIZE, AUDIO_BITRATE, AUDIO_BITRATE_CEILING } from '../config/constants';
 
 /** Picks an AAC bitrate for a rung. Stream-copying the source instead is not an option here:
  *  `-c:a copy` cannot be accurately input-seeked, so at any transcode offset > 0 the copied
@@ -30,19 +25,30 @@ export const AUDIO_TIMESTAMP_FIX = ['-af', 'aresample=async=1'];
 /** Common per-output HLS flags used by both single-variant and grouped encodes. */
 export function buildHlsMuxArgs(segmentPattern: string): string[] {
   return [
-    '-threads', '0',
-    '-avoid_negative_ts', 'make_zero',
-    '-f', 'hls',
+    '-threads',
+    '0',
+    '-avoid_negative_ts',
+    'make_zero',
+    '-f',
+    'hls',
     // mpegts defaults to a 0.7s muxdelay/0.5s muxpreload offset, which makes audio PTS
     // jump backwards ~40ms at nearly every segment cut (audible glitch every segment).
-    '-muxdelay', '0',
-    '-muxpreload', '0',
-    '-hls_time', String(SEGMENT_DURATION),
-    '-hls_list_size', String(HLS_LIST_SIZE),
-    '-hls_segment_type', 'mpegts',
-    '-hls_flags', 'independent_segments+temp_file',
-    '-hls_segment_filename', segmentPattern,
-    '-hls_allow_cache', '1',
+    '-muxdelay',
+    '0',
+    '-muxpreload',
+    '0',
+    '-hls_time',
+    String(SEGMENT_DURATION),
+    '-hls_list_size',
+    String(HLS_LIST_SIZE),
+    '-hls_segment_type',
+    'mpegts',
+    '-hls_flags',
+    'independent_segments+temp_file',
+    '-hls_segment_filename',
+    segmentPattern,
+    '-hls_allow_cache',
+    '1',
   ];
 }
 
@@ -62,10 +68,5 @@ export function appendAudioTrackHlsOutput(
   segmentPattern: string,
   sourceBitrate?: number,
 ): void {
-  args.push(
-    '-map', `0:${streamIndex}`,
-    ...buildSeparateAudioEncodeArgs(sourceBitrate),
-    ...buildHlsMuxArgs(segmentPattern),
-    playlistPath,
-  );
+  args.push('-map', `0:${streamIndex}`, ...buildSeparateAudioEncodeArgs(sourceBitrate), ...buildHlsMuxArgs(segmentPattern), playlistPath);
 }

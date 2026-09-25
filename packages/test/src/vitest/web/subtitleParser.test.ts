@@ -41,9 +41,14 @@ describe('Web subtitle parser', () => {
   });
 
   it('parses an SRT file with a BOM and CRLF line endings', () => {
-    const cues = parseSubtitleContent('﻿1\r\n00:00:01,000 --> 00:00:02,500\r\nHello &amp; bye\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nSecond\r\n');
+    const cues = parseSubtitleContent(
+      '﻿1\r\n00:00:01,000 --> 00:00:02,500\r\nHello &amp; bye\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nSecond\r\n',
+    );
 
-    expect(cues.map((c) => [c.startTime, c.endTime])).toEqual([[1, 2.5], [3, 4]]);
+    expect(cues.map((c) => [c.startTime, c.endTime])).toEqual([
+      [1, 2.5],
+      [3, 4],
+    ]);
     expect(cues[0].lines[0].spans[0].text).toBe('Hello & bye');
   });
 

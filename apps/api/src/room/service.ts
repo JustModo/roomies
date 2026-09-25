@@ -1,157 +1,82 @@
-import { SocketContext } from '../websocket/router';
-import { IncomingSocketMessage } from '@roomies/contracts';
-import { roomStore } from './store';
-import { SocketEmitter } from '../websocket/emitter';
-import { coordinator } from '../playback/coordinator';
-import { prisma } from '../database/sqlite';
-import { buildMediaChangedPayload } from '../playback/helpers';
+import { PlaybackCoordinator } from '../playback/coordinator';
+import { mediaChangedFor } from '../playback/helpers';
 import { SyncService } from '../sync/service';
+import { SocketHub } from '../websocket/hub';
+import { SocketContext, SocketPayload } from '../websocket/router';
+import { RoomStore } from './store';
 
-type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
-type RoomLeavePayload = Extract<IncomingSocketMessage, { event: 'room.leave' }>['payload'];
-type SetControlLockPayload = Extract<IncomingSocketMessage, { event: 'room.set_control_lock' }>['payload'];
-type UpdateRoomSettingsPayload = Extract<IncomingSocketMessage, { event: 'room.update_settings' }>['payload'];
-
+/** Room membership and admin-only room settings. */
 export class RoomService {
-  static async handleJoin(payload: RoomJoinPayload, ctx: SocketContext) {
-    roomStore.addMember({
-      userId: ctx.userId,
-      username: ctx.username,
-      status: 'buffering',
-      position: 0,
-      pingQuality: 0,
-      controlsLocked: false,
-      party: {
-        isJoined: false,
-        micMuted: true,
-        videoMuted: true
-      }
-    }, ctx.socketId);
+  constructor(
+    private readonly roomStore: RoomStore,
+    private readonly hub: SocketHub,
+    private readonly coordinator: PlaybackCoordinator,
+    private readonly sync: SyncService,
+  ) {}
 
-    SyncService.reconcileRoomBufferingState(ctx);
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'room.state',
-      payload: { room: roomStore.getState() }
-    });
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'user.joined',
-      payload: {
+  async handleJoin(_payload: SocketPayload<'room.join'>, ctx: SocketContext) {
+    this.roomStore.addMember(
+      {
         userId: ctx.userId,
         username: ctx.username,
-      }
-    });
+        status: 'buffering',
+        position: 0,
+        pingQuality: 0,
+        controlsLocked: false,
+        party: { isJoined: false, micMuted: true, videoMuted: true },
+      },
+      ctx.socketId,
+    );
+
+    this.sync.reconcileRoomBufferingState();
+    this.broadcastRoomState();
+    this.hub.broadcast({ event: 'user.joined', payload: { userId: ctx.userId, username: ctx.username } });
   }
 
-  static async handleSetControlLock(payload: SetControlLockPayload, ctx: SocketContext) {
-    if (ctx.role !== 'root') {
-      console.warn(`[room] Unauthorized control lock attempt by ${ctx.userId}`);
-      return;
-    }
-
-    roomStore.setControlLock(payload.userId, payload.locked);
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'room.state',
-      payload: { room: roomStore.getState() }
-    });
-  }
-
-  static async handleUpdateSettings(payload: UpdateRoomSettingsPayload, ctx: SocketContext) {
-    if (ctx.role !== 'root') {
-      console.warn(`[room] Unauthorized room settings update attempt by ${ctx.userId}`);
-      return;
-    }
-
-
-    roomStore.updateSettings(payload.settings);
-
-    // If allowAsyncMode was set to false, force all currently async users back to room sync
-    if (payload.settings.allowAsyncMode === false) {
-      const state = roomStore.getState();
-      const asyncMembers = state.members.filter(m => m.status === 'async');
-      for (const member of asyncMembers) {
-        coordinator.removeAsyncPlayhead(member.userId);
-        roomStore.updateMember(member.userId, {
-          status: 'ready',
-          asyncSession: undefined
-        });
-
-        // Reset their player back to the room-scoped HLS stream — without this,
-        // the client keeps pointing at the now-torn-down async transcode session
-        // and buffers forever.
-        SocketEmitter.sendToUser(ctx.app, member.userId, {
-          event: 'media.changed',
-          payload: buildMediaChangedPayload({
-            mediaFileId: state.mediaId,
-            title: state.mediaTitle || 'Unknown Media',
-            duration: state.duration,
-            transcodeOffset: state.transcodeOffset,
-            sessionScope: 'room',
-            sessionId: 'sync',
-            subtitles: state.subtitles,
-            audioTracks: state.audioTracks,
-          })
-        });
-
-        SocketEmitter.broadcastToRoom(ctx.app, {
-          event: 'user.status_changed',
-          payload: { userId: member.userId, status: 'ready' }
-        });
-      }
-
-      if (asyncMembers.length > 0) {
-        SyncService.reconcileRoomBufferingState(ctx);
-      }
-    }
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'room.state',
-      payload: { room: roomStore.getState() }
-    });
-  }
-
-  static async handleLeave(payload: RoomLeavePayload, ctx: SocketContext) {
-    let state = roomStore.getState();
-    const member = state.members.find(m => m.userId === ctx.userId);
-    const wasAsync = member?.status === 'async';
-
-    const wasRemoved = roomStore.removeMember(ctx.userId, ctx.socketId);
-    if (!wasRemoved) return;
+  async handleLeave(_payload: SocketPayload<'room.leave'>, ctx: SocketContext) {
+    const wasAsync = this.roomStore.getMember(ctx.userId)?.status === 'async';
+    if (!this.roomStore.removeMember(ctx.userId, ctx.socketId)) return;
 
     if (wasAsync) {
-      coordinator.removeAsyncPlayhead(ctx.userId);
+      this.coordinator.removeAsyncPlayhead(ctx.userId);
     } else {
-      coordinator.removeSyncPlayhead(ctx.userId);
+      this.coordinator.removeSyncPlayhead(ctx.userId);
     }
 
-    state = roomStore.getState();
-    const activeMembers = state.members.filter(m => m.status !== 'async');
-    const anyoneBuffering = state.members.some(m => m.status === 'buffering');
+    // NOTE: Pauses an emptied room, or resumes it if the departing member was the only one buffering.
+    this.sync.reconcileRoomBufferingState();
+    this.hub.broadcast({ event: 'user.left', payload: { userId: ctx.userId, username: ctx.username } });
+  }
 
-    // NOTE: Pause playback if the room is now empty of active sync members.
-    if (activeMembers.length === 0 && (state.playback.state === 'playing' || state.playback.intendedState === 'playing')) {
-      roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'playback.state',
-        payload: roomStore.getState().playback
-      });
-    } else if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering') && activeMembers.length > 0) {
-      // NOTE: Resume playback if the departing member was the only one buffering.
-      roomStore.updatePlayback({ state: state.playback.intendedState, anchorTime: Date.now() });
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'playback.state',
-        payload: roomStore.getState().playback
-      });
-    }
+  async handleSetControlLock(payload: SocketPayload<'room.set_control_lock'>) {
+    this.roomStore.setControlLock(payload.userId, payload.locked);
+    this.broadcastRoomState();
+  }
 
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'user.left',
-      payload: {
-        userId: ctx.userId,
-        username: ctx.username,
+  async handleUpdateSettings(payload: SocketPayload<'room.update_settings'>) {
+    this.roomStore.updateSettings(payload.settings);
+
+    // Disabling async mode forces every async member back to room sync.
+    if (payload.settings.allowAsyncMode === false) {
+      const state = this.roomStore.getState();
+      const asyncMembers = state.members.filter((m) => m.status === 'async');
+      for (const member of asyncMembers) {
+        this.coordinator.removeAsyncPlayhead(member.userId);
+        this.roomStore.updateMember(member.userId, { status: 'ready', asyncSession: undefined });
+
+        // Reset their player back to the room-scoped HLS stream — without this, the client keeps
+        // pointing at the now-torn-down async transcode session and buffers forever.
+        this.hub.sendToUser(member.userId, { event: 'media.changed', payload: mediaChangedFor(state, 'room', state.transcodeOffset) });
+        this.hub.broadcast({ event: 'user.status_changed', payload: { userId: member.userId, status: 'ready' } });
       }
-    });
+
+      if (asyncMembers.length > 0) this.sync.reconcileRoomBufferingState();
+    }
+
+    this.broadcastRoomState();
+  }
+
+  private broadcastRoomState(): void {
+    this.hub.broadcast({ event: 'room.state', payload: { room: this.roomStore.getState() } });
   }
 }

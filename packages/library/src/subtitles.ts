@@ -12,7 +12,7 @@ const toMs = (h: string | undefined, m: string, s: string, ms: string): number =
   const minutes = parseInt(m, 10);
   const seconds = parseInt(s, 10);
   const milliseconds = parseMsToken(ms);
-  return (((hours * 60 + minutes) * 60 + seconds) * 1000) + milliseconds;
+  return ((hours * 60 + minutes) * 60 + seconds) * 1000 + milliseconds;
 };
 
 const fromMs = (value: number): string => {
@@ -78,8 +78,10 @@ export function parseAssDialogueTag(text: string): ParsedAssTag {
   }
 
   // Clean override tag blocks for raw text
-  const cleanText = text.replace(/\{[^}]*\}/g, '').replace(/\\N/g, '\n').trim();
+  const cleanText = text
+    .replace(/\{[^}]*\}/g, '')
+    .replace(/\\N/g, '\n')
+    .trim();
 
   return { alignment, primaryColor, isBold, isItalic, position, cleanText };
 }
-

@@ -25,7 +25,9 @@ export const ServerRoomStateSchema = z.object({
       duration: z.number().optional(),
       transcodeOffset: z.number().optional(),
       subtitles: z.array(z.object({ id: z.string(), language: z.string().nullable() })).optional(),
-      audioTracks: z.array(z.object({ id: z.string(), language: z.string().nullable(), title: z.string().nullable(), channels: z.number().nullable() })).optional(),
+      audioTracks: z
+        .array(z.object({ id: z.string(), language: z.string().nullable(), title: z.string().nullable(), channels: z.number().nullable() }))
+        .optional(),
       playback: z.object({
         state: z.enum(['waiting', 'playing', 'paused', 'buffering']),
         intendedState: z.enum(['playing', 'paused']),
@@ -33,22 +35,24 @@ export const ServerRoomStateSchema = z.object({
         anchorTime: z.number(),
         playbackRate: z.number(),
       }),
-      members: z.array(z.object({
-        userId: z.string(),
-        username: z.string(),
-        status: z.enum(['ready', 'buffering', 'async']),
-        position: z.number(),
-        activeResolution: z.enum(['360p', '720p', '1080p']).optional(),
-        asyncSession: z.object({ transcodeOffset: z.number() }).optional(),
-        controlsLocked: z.boolean(),
-        party: z.object({
-          isJoined: z.boolean(),
-          micMuted: z.boolean(),
-          videoMuted: z.boolean(),
+      members: z.array(
+        z.object({
+          userId: z.string(),
+          username: z.string(),
+          status: z.enum(['ready', 'buffering', 'async']),
+          position: z.number(),
+          activeResolution: z.enum(['360p', '720p', '1080p']).optional(),
+          asyncSession: z.object({ transcodeOffset: z.number() }).optional(),
+          controlsLocked: z.boolean(),
+          party: z.object({
+            isJoined: z.boolean(),
+            micMuted: z.boolean(),
+            videoMuted: z.boolean(),
+          }),
+          pingQuality: z.number(),
         }),
-        pingQuality: z.number(),
-      })),
-    })
+      ),
+    }),
   }),
 });
 

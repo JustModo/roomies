@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import type { PrismaClient } from '@prisma/client';
-import { getPrisma, resetPrismaClient } from '@roomies/server';
+import { createPrismaClient } from '@roomies/server';
 
 export interface TestDatabaseOptions {
   skipPush?: boolean;
@@ -21,9 +21,6 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
   const dbPath = path.join(tmpDir, 'test.db');
   const databaseUrl = `file://${dbPath}`;
 
-  process.env.DATABASE_URL = databaseUrl;
-  await resetPrismaClient();
-
   if (!options.skipPush) {
     let rootDir = process.cwd();
     while (rootDir !== '/' && !fs.existsSync(path.join(rootDir, 'pnpm-workspace.yaml'))) {
@@ -34,14 +31,8 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
     const localPrismaJs = path.join(apiDir, 'node_modules', 'prisma', 'build', 'index.js');
     const rootPrismaJs = path.join(rootDir, 'node_modules', 'prisma', 'build', 'index.js');
 
-    let prismaCmd = '';
-    if (fs.existsSync(localPrismaJs)) {
-      prismaCmd = `"${process.execPath}" "${localPrismaJs}"`;
-    } else if (fs.existsSync(rootPrismaJs)) {
-      prismaCmd = `"${process.execPath}" "${rootPrismaJs}"`;
-    } else {
-      prismaCmd = 'pnpm exec prisma';
-    }
+    const prismaJs = [localPrismaJs, rootPrismaJs].find((p) => fs.existsSync(p));
+    const prismaCmd = prismaJs ? `"${process.execPath}" "${prismaJs}"` : 'pnpm exec prisma';
 
     try {
       execSync(`${prismaCmd} migrate deploy`, {
@@ -55,11 +46,11 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
     } catch (err: any) {
       const errMsg = err.stderr?.toString() || err.message;
       console.error('[testDb push error]:', errMsg);
-      throw new Error(`Failed to push Prisma schema to test DB: ${errMsg}`);
+      throw new Error(`Failed to push Prisma schema to test DB: ${errMsg}`, { cause: err });
     }
   }
 
-  const prisma = getPrisma();
+  const prisma = createPrismaClient(databaseUrl);
   try {
     await prisma.$connect();
   } catch (err) {
@@ -67,9 +58,7 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
   }
 
   const cleanup = async () => {
-    try {
-      await resetPrismaClient();
-    } catch {}
+    await prisma.$disconnect().catch(() => {});
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}

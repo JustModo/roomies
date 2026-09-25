@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
-import { roomStore } from '@roomies/server';
+import type { RoomStore } from '@roomies/server';
 import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
 
 describe('Room events: party, emoji limit and member socket ownership', () => {
   let env: TestEnvironmentContext;
+  let roomStore: RoomStore;
 
-  const connectedSockets = () => (env.server.app as any).room.size as number;
+  const connectedSockets = () => env.server.app.ctx.hub.size;
 
   const joined = async (token: string) => {
     const client = await createTestWsClient(`${env.server.wsUrl}/ws`, token);
@@ -17,6 +18,7 @@ describe('Room events: party, emoji limit and member socket ownership', () => {
 
   beforeAll(async () => {
     env = await setupTestEnvironment();
+    roomStore = env.server.app.ctx.roomStore;
   });
 
   beforeEach(() => {
@@ -27,7 +29,7 @@ describe('Room events: party, emoji limit and member socket ownership', () => {
     await env.cleanup();
   });
 
-  it('broadcasts party updates merged with the member\'s previous party state', async () => {
+  it("broadcasts party updates merged with the member's previous party state", async () => {
     const admin = await joined(env.admin.token);
     const guest = await joined(env.guest.token);
 

@@ -14,8 +14,7 @@ function findMovieMediaFileId(library: any): { mediaFileId: string; title: strin
   for (const lib of libraries) {
     for (const movie of lib.movies ?? []) {
       const files = movie.mediaFiles ?? [];
-      const match =
-        files.find((file: any) => String(file.path ?? '').includes(MOVIE_FILENAME)) ?? files[0];
+      const match = files.find((file: any) => String(file.path ?? '').includes(MOVIE_FILENAME)) ?? files[0];
       if (match?.id) {
         return { mediaFileId: match.id, title: movie.name ?? 'Movie' };
       }
@@ -45,10 +44,7 @@ export async function getLibraries(request: APIRequestContext, adminToken: strin
   return res.json();
 }
 
-export async function ensureMovieMedia(
-  request: APIRequestContext,
-  adminToken: string,
-): Promise<{ mediaFileId: string; title: string }> {
+export async function ensureMovieMedia(request: APIRequestContext, adminToken: string): Promise<{ mediaFileId: string; title: string }> {
   let libraries = await getLibraries(request, adminToken);
   let found = findMovieMediaFileId(libraries);
 
@@ -59,21 +55,13 @@ export async function ensureMovieMedia(
   }
 
   if (!found) {
-    throw new Error(
-      `Could not find ${MOVIE_FILENAME} in library. Ensure MEDIA_ROOT points at packages/test/.e2e/media`,
-    );
+    throw new Error(`Could not find ${MOVIE_FILENAME} in library. Ensure MEDIA_ROOT points at packages/test/.e2e/media`);
   }
   return found;
 }
 
-export async function startMedia(
-  request: APIRequestContext,
-  adminToken: string,
-  mediaFileId?: string,
-): Promise<StartedMedia> {
-  const media = mediaFileId
-    ? { mediaFileId, title: 'Movie' }
-    : await ensureMovieMedia(request, adminToken);
+export async function startMedia(request: APIRequestContext, adminToken: string, mediaFileId?: string): Promise<StartedMedia> {
+  const media = mediaFileId ? { mediaFileId, title: 'Movie' } : await ensureMovieMedia(request, adminToken);
 
   const res = await request.post(`${API_BASE}/api/playback/change-media`, {
     headers: await authHeaders(adminToken),

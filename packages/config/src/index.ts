@@ -1,22 +1,3 @@
-import { NODE_ENV } from './dev';
-import { loadConfig } from './loader';
-
-export { NODE_ENV };
+export { loadConfig } from './loader';
 export type { Config } from './schema';
-
-export const config = loadConfig();
-
-export const CORS_ORIGIN = config.CORS_ORIGIN;
-export const FFMPEG_PRESET = config.FFMPEG_PRESET;
-export const HWACCEL_MODE = config.HWACCEL_MODE;
-export const MAX_CONCURRENT_VARIANTS = config.MAX_CONCURRENT_VARIANTS;
-export const PORT = config.PORT;
-export const MEDIA_ROOT = config.MEDIA_ROOT;
-export const CACHE_DIR = config.CACHE_DIR;
-export const SUBTITLE_DATA_DIR = config.SUBTITLE_DATA_DIR;
-export const DATABASE_URL = config.DATABASE_URL;
-export const FFMPEG_PATH = config.FFMPEG_PATH;
-export const FFPROBE_PATH = config.FFPROBE_PATH;
-export const TZ = config.TZ;
-
-export const VIDEO_CODEC = config.FFMPEG_VIDEO_CODEC;
+export type { Logger } from './logger';

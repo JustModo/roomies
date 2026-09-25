@@ -1,24 +1,30 @@
 import fs from 'fs';
 import path from 'path';
-import type { PrismaClient } from '@prisma/client';
-import { MEDIA_ROOT as CONFIG_MEDIA_ROOT, SUBTITLE_DATA_DIR } from '@roomies/config';
-import { Library, MediaFile as MediaFileContract, Subtitle, AudioTrack, Movie } from '@roomies/contracts';
+import type { Prisma, PrismaClient } from '@prisma/client';
+import type { Logger } from '@roomies/config';
+import { AudioTrack, Library, MediaFile, Movie, Subtitle } from '@roomies/contracts';
+import { ConcurrencyLimiter, runWithConcurrency } from './concurrency';
+import { LibraryOptions, PROBE_CONCURRENCY, SCAN_CONCURRENCY } from './config';
+import { MediaProbe } from './probe';
 import { scanLibraryFolder } from './scanner';
-import { getMediaDuration } from './ffprobe';
-import { extractEmbeddedSubtitles, importSidecarSubtitles } from './subtitleExtractor';
-import { probeAudioTracks } from './audioProbe';
-import { runWithConcurrency, withProbeLimit } from './concurrency';
+import { TrackIndexer } from './trackIndexer';
 import { ScannedEpisode, ScannedMedia } from './types';
 
-const MEDIA_ROOT = CONFIG_MEDIA_ROOT;
+const libraryInclude = {
+  movies: { include: { mediaFiles: { include: { subtitles: true, audioTracks: true } } } },
+} as const;
 
-const serializeSubtitle = (s: { id: string; mediaFileId: string; path: string; language: string | null }): Subtitle => ({
+type LibraryRow = Prisma.LibraryGetPayload<{ include: typeof libraryInclude }>;
+type MovieRow = LibraryRow['movies'][number];
+type MediaFileRow = MovieRow['mediaFiles'][number];
+
+const serializeSubtitle = (s: MediaFileRow['subtitles'][number]): Subtitle => ({
   id: s.id,
   mediaFileId: s.mediaFileId,
   language: s.language,
 });
 
-const serializeAudioTrack = (a: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null; isDefault: boolean }): AudioTrack => ({
+const serializeAudioTrack = (a: MediaFileRow['audioTracks'][number]): AudioTrack => ({
   id: a.id,
   mediaFileId: a.mediaFileId,
   streamIndex: a.streamIndex,
@@ -28,11 +34,7 @@ const serializeAudioTrack = (a: { id: string; mediaFileId: string; streamIndex: 
   isDefault: a.isDefault,
 });
 
-const serializeMediaFile = (mf: {
-  id: string; movieId: string; title: string; path: string; duration: number; number: number | null;
-  createdAt: Date; subtitles: { id: string; mediaFileId: string; path: string; language: string | null }[];
-  audioTracks: { id: string; mediaFileId: string; streamIndex: number; language: string | null; title: string | null; channels: number | null; isDefault: boolean }[];
-}): MediaFileContract => ({
+const serializeMediaFile = (mf: MediaFileRow): MediaFile => ({
   id: mf.id,
   movieId: mf.movieId,
   title: mf.title,
@@ -43,209 +45,184 @@ const serializeMediaFile = (mf: {
   audioTracks: mf.audioTracks.map(serializeAudioTrack),
 });
 
-const serializeMovie = (movie: {
-  id: string; libraryId: string; type: string; name: string; path: string;
-  mediaFiles: Parameters<typeof serializeMediaFile>[0][];
-}): Movie => ({
+const serializeMovie = (movie: MovieRow): Movie => ({
   id: movie.id,
   libraryId: movie.libraryId,
-  type: movie.type as 'movie' | 'show',
+  type: movie.type as Movie['type'],
   name: movie.name,
   mediaFiles: movie.mediaFiles.map(serializeMediaFile),
 });
 
-const libraryInclude = {
-  movies: { include: { mediaFiles: { include: { subtitles: true, audioTracks: true } } } },
-} as const;
-
-const serializeLibrary = (lib: {
-  id: string; name: string; path: string;
-  movies: Parameters<typeof serializeMovie>[0][];
-}): Library => ({
+const serializeLibrary = (lib: LibraryRow): Library => ({
   id: lib.id,
   name: lib.name,
   movies: lib.movies.map(serializeMovie),
 });
 
-/** Syncs one movie's media-file + subtitle rows against disk. */
-const syncEpisodes = async (prisma: PrismaClient, movieId: string, episodes: ScannedEpisode[]) => {
-  const existing = await prisma.mediaFile.findMany({ where: { movieId } });
-  const diskPaths = new Set(episodes.map((e) => e.path));
+/** Keeps the Library/Movie/MediaFile tables in sync with the media root on disk. */
+export class LibraryService {
+  private readonly probe: MediaProbe;
+  private readonly tracks: TrackIndexer;
+  private readonly probeLimiter = new ConcurrencyLimiter(PROBE_CONCURRENCY);
+  private inFlightScan: Promise<Library> | null = null;
 
-  const staleIds = existing.filter((mf) => !diskPaths.has(mf.path)).map((mf) => mf.id);
-  if (staleIds.length > 0) {
-    await prisma.mediaFile.deleteMany({ where: { id: { in: staleIds } } });
-    await Promise.all(
-      staleIds.map((id) => fs.promises.rm(path.join(SUBTITLE_DATA_DIR, id), { recursive: true, force: true }).catch(() => {}))
-    );
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly options: LibraryOptions,
+    private readonly log: Logger,
+  ) {
+    this.probe = new MediaProbe(options.ffprobePath);
+    this.tracks = new TrackIndexer(prisma, this.probe, options, log);
   }
 
-  await runWithConcurrency(episodes, async (episode) => {
-    let mediaFile = existing.find((mf) => mf.path === episode.path);
+  async getLibraries(): Promise<Library[]> {
+    const libraries = await this.prisma.library.findMany({ include: libraryInclude });
+    return libraries.map(serializeLibrary);
+  }
 
-    // Check file mtime via stat() to avoid expensive probe calls on unchanged files.
-    let sourceMtimeMs: number;
-    try {
-      sourceMtimeMs = (await fs.promises.stat(episode.path)).mtimeMs;
-    } catch (err) {
-      console.error(`[library] Failed to stat ${episode.path}:`, err);
-      return;
+  /** Concurrent callers share one scan instead of racing each other over the same rows. */
+  scan(): Promise<Library> {
+    this.inFlightScan ??= this.runScan().finally(() => {
+      this.inFlightScan = null;
+    });
+    return this.inFlightScan;
+  }
+
+  private async runScan(): Promise<Library> {
+    const { mediaRoot } = this.options;
+
+    let library = await this.prisma.library.findFirst();
+    if (!library) {
+      library = await this.prisma.library.create({ data: { name: 'Library', path: mediaRoot } });
+    } else if (library.path !== mediaRoot) {
+      await this.migrateRoot(library.id, library.path, mediaRoot);
     }
-    const isNewOrChanged = !mediaFile || mediaFile.sourceMtimeMs !== sourceMtimeMs;
 
-    if (!mediaFile) {
+    await this.syncMovies(library.id, await scanLibraryFolder(mediaRoot, this.log));
+
+    const updated = await this.prisma.library.findUniqueOrThrow({ where: { id: library.id }, include: libraryInclude });
+    return serializeLibrary(updated);
+  }
+
+  /** Rewrites stored paths when MEDIA_ROOT moved, so existing rows (and their ids) survive. */
+  private async migrateRoot(libraryId: string, oldRoot: string, newRoot: string): Promise<void> {
+    this.log.info({ from: oldRoot, to: newRoot }, 'Media root changed, migrating library paths');
+    await this.prisma.library.update({ where: { id: libraryId }, data: { path: newRoot } });
+
+    const isUnderOldRoot = (p: string) => p === oldRoot || p.startsWith(oldRoot + path.sep);
+    const rewrite = (p: string) => path.resolve(newRoot, path.relative(oldRoot, p));
+
+    const movies = await this.prisma.movie.findMany({ where: { libraryId } });
+    for (const m of movies.filter((row) => isUnderOldRoot(row.path))) {
+      await this.prisma.movie.update({ where: { id: m.id }, data: { path: rewrite(m.path) } });
+    }
+
+    const mediaFiles = await this.prisma.mediaFile.findMany({ where: { movie: { libraryId } } });
+    for (const mf of mediaFiles.filter((row) => isUnderOldRoot(row.path))) {
+      await this.prisma.mediaFile.update({ where: { id: mf.id }, data: { path: rewrite(mf.path) } });
+    }
+
+    const subtitles = await this.prisma.subtitle.findMany({ where: { mediaFile: { movie: { libraryId } } } });
+    for (const s of subtitles.filter((row) => isUnderOldRoot(row.path))) {
+      await this.prisma.subtitle.update({ where: { id: s.id }, data: { path: rewrite(s.path) } });
+    }
+
+    this.log.info({ movies: movies.length, mediaFiles: mediaFiles.length }, 'Migrated library paths');
+  }
+
+  /** Syncs a library's movie rows (and their episodes) against disk. */
+  private async syncMovies(libraryId: string, scannedMovies: ScannedMedia[]): Promise<void> {
+    const existing = await this.prisma.movie.findMany({ where: { libraryId } });
+    const diskPaths = new Set(scannedMovies.map((m) => m.path));
+
+    const staleIds = existing.filter((m) => !diskPaths.has(m.path)).map((m) => m.id);
+    if (staleIds.length > 0) {
+      await this.prisma.movie.deleteMany({ where: { id: { in: staleIds } } });
+      this.log.info({ count: staleIds.length }, 'Pruned missing movies from database');
+    }
+
+    for (const scanned of scannedMovies) {
+      const data = { type: scanned.type, name: scanned.name };
+      let movie = existing.find((m) => m.path === scanned.path);
+      if (!movie) {
+        movie = await this.prisma.movie.create({ data: { libraryId, path: scanned.path, ...data } });
+      } else if (movie.type !== scanned.type || movie.name !== scanned.name) {
+        movie = await this.prisma.movie.update({ where: { id: movie.id }, data });
+      }
+      await this.syncEpisodes(movie.id, scanned.episodes);
+    }
+  }
+
+  /** Syncs one movie's media-file rows against disk, re-probing only new or changed files. */
+  private async syncEpisodes(movieId: string, episodes: ScannedEpisode[]): Promise<void> {
+    const existing = await this.prisma.mediaFile.findMany({ where: { movieId } });
+    const diskPaths = new Set(episodes.map((e) => e.path));
+
+    const staleIds = existing.filter((mf) => !diskPaths.has(mf.path)).map((mf) => mf.id);
+    if (staleIds.length > 0) {
+      await this.prisma.mediaFile.deleteMany({ where: { id: { in: staleIds } } });
+      await Promise.all(
+        staleIds.map((id) => fs.promises.rm(path.join(this.options.subtitleDataDir, id), { recursive: true, force: true }).catch(() => {})),
+      );
+    }
+
+    await runWithConcurrency(episodes, SCAN_CONCURRENCY, async (episode) => {
+      let mediaFile = existing.find((mf) => mf.path === episode.path);
+
+      // Check file mtime via stat() to avoid expensive probe calls on unchanged files.
+      let sourceMtimeMs: number;
       try {
-        const duration = await getMediaDuration(episode.path);
-        mediaFile = await prisma.mediaFile.create({
-          data: {
-            movieId,
-            title: episode.title,
-            path: episode.path,
-            duration,
-            sourceMtimeMs,
-            number: episode.number,
-          },
-        });
+        sourceMtimeMs = (await fs.promises.stat(episode.path)).mtimeMs;
       } catch (err) {
-        console.error(`[library] Failed to process media file ${episode.path}:`, err);
+        this.log.error({ err, path: episode.path }, 'Failed to stat media file');
         return;
       }
-    } else if (isNewOrChanged || mediaFile.number !== episode.number || mediaFile.title !== episode.title) {
-      let duration = mediaFile.duration;
-      if (isNewOrChanged) {
+      const isNewOrChanged = !mediaFile || mediaFile.sourceMtimeMs !== sourceMtimeMs;
+
+      if (!mediaFile) {
         try {
-          duration = await getMediaDuration(episode.path);
+          const duration = await this.probe.duration(episode.path);
+          mediaFile = await this.prisma.mediaFile.create({
+            data: { movieId, title: episode.title, path: episode.path, duration, sourceMtimeMs, number: episode.number },
+          });
         } catch (err) {
-          console.error(`[library] Failed to re-probe duration for ${episode.path}:`, err);
+          this.log.error({ err, path: episode.path }, 'Failed to process media file');
+          return;
         }
+      } else if (isNewOrChanged || mediaFile.number !== episode.number || mediaFile.title !== episode.title) {
+        let duration = mediaFile.duration;
+        if (isNewOrChanged) {
+          duration = await this.probe.duration(episode.path).catch((err) => {
+            this.log.error({ err, path: episode.path }, 'Failed to re-probe duration');
+            return duration;
+          });
+        }
+        mediaFile = await this.prisma.mediaFile.update({
+          where: { id: mediaFile.id },
+          data: { number: episode.number, title: episode.title, duration, sourceMtimeMs },
+        });
       }
-      mediaFile = await prisma.mediaFile.update({
-        where: { id: mediaFile.id },
-        data: { number: episode.number, title: episode.title, duration, sourceMtimeMs },
-      });
-    }
 
-    if (!isNewOrChanged) return;
-
-    // Asynchronously extract subtitles without blocking scan loop.
-    const mediaFileId = mediaFile.id;
-    const mediaFilePath = mediaFile.path;
-    withProbeLimit(() => extractEmbeddedSubtitles(prisma, mediaFileId, mediaFilePath)).catch((err) => {
-      console.error(`[library] Embedded subtitle extraction failed for ${mediaFilePath}:`, err);
+      if (isNewOrChanged) this.indexTracksInBackground(mediaFile.id, mediaFile.path);
     });
-    withProbeLimit(() => importSidecarSubtitles(prisma, mediaFileId, mediaFilePath)).catch((err) => {
-      console.error(`[library] Sidecar subtitle import failed for ${mediaFilePath}:`, err);
-    });
-
-    // Asynchronously probe audio tracks without blocking scan loop.
-    withProbeLimit(() => probeAudioTracks(prisma, mediaFileId, mediaFilePath)).catch(async (err) => {
-      console.error(`[library] Audio track probing failed for ${mediaFilePath}:`, err);
-      await prisma.mediaFile.update({ where: { id: mediaFileId }, data: { sourceMtimeMs: 0 } }).catch(() => {});
-    });
-  });
-};
-
-/** Syncs a library's movie rows (and their episodes) against disk. */
-const syncMovies = async (prisma: PrismaClient, libraryId: string, scannedMovies: ScannedMedia[]) => {
-  const existing = await prisma.movie.findMany({ where: { libraryId } });
-  const diskPaths = new Set(scannedMovies.map((m) => m.path));
-
-  const staleIds = existing.filter((m) => !diskPaths.has(m.path)).map((m) => m.id);
-  if (staleIds.length > 0) {
-    await prisma.movie.deleteMany({ where: { id: { in: staleIds } } });
-    console.log(`[library] Pruned ${staleIds.length} missing movies from database.`);
   }
 
-  for (const scannedMovie of scannedMovies) {
-    let movie = existing.find((m) => m.path === scannedMovie.path);
-    if (!movie) {
-      movie = await prisma.movie.create({
-        data: {
-          libraryId,
-          type: scannedMovie.type,
-          name: scannedMovie.name,
-          path: scannedMovie.path,
-        },
+  /** Probes subtitles and audio tracks without blocking the scan loop; failures are logged. */
+  private indexTracksInBackground(mediaFileId: string, videoPath: string): void {
+    const run = (task: () => Promise<void>, failure: string, onFailure?: () => Promise<unknown>) => {
+      this.probeLimiter.run(task).catch(async (err) => {
+        this.log.error({ err, path: videoPath }, failure);
+        await onFailure?.().catch(() => {});
       });
-    } else if (
-      movie.type !== scannedMovie.type ||
-      movie.name !== scannedMovie.name
-    ) {
-      movie = await prisma.movie.update({
-        where: { id: movie.id },
-        data: { type: scannedMovie.type, name: scannedMovie.name },
-      });
-    }
-    await syncEpisodes(prisma, movie.id, scannedMovie.episodes);
+    };
+
+    run(() => this.tracks.extractEmbeddedSubtitles(mediaFileId, videoPath), 'Embedded subtitle extraction failed');
+    run(() => this.tracks.importSidecarSubtitles(mediaFileId, videoPath), 'Sidecar subtitle import failed');
+    // A failed audio probe resets the mtime so the next scan retries the file.
+    run(
+      () => this.tracks.syncAudioTracks(mediaFileId, videoPath),
+      'Audio track probing failed',
+      () => this.prisma.mediaFile.update({ where: { id: mediaFileId }, data: { sourceMtimeMs: 0 } }),
+    );
   }
-};
-
-let inFlightScan: Promise<Library> | null = null;
-
-const runScan = async (prisma: PrismaClient): Promise<Library> => {
-  const safeRootPath = MEDIA_ROOT;
-
-  let library = await prisma.library.findFirst();
-  if (!library) {
-    library = await prisma.library.create({ data: { name: 'Library', path: safeRootPath } });
-  } else if (library.path !== safeRootPath) {
-    const oldLibraryPath = library.path;
-    console.log(`[library] Environment path change detected. Migrating library path from ${oldLibraryPath} to ${safeRootPath}`);
-
-    library = await prisma.library.update({ where: { id: library.id }, data: { path: safeRootPath } });
-
-    const isUnderOldRoot = (p: string) => p === oldLibraryPath || p.startsWith(oldLibraryPath + path.sep);
-    const rewrite = (p: string) => path.resolve(safeRootPath, path.relative(oldLibraryPath, p));
-
-    const movies = await prisma.movie.findMany({ where: { libraryId: library.id } });
-    for (const m of movies) {
-      if (!isUnderOldRoot(m.path)) continue;
-      await prisma.movie.update({
-        where: { id: m.id },
-        data: { path: rewrite(m.path) },
-      });
-    }
-
-    const mediaFiles = await prisma.mediaFile.findMany({ where: { movie: { libraryId: library.id } } });
-    for (const mf of mediaFiles) {
-      if (!isUnderOldRoot(mf.path)) continue;
-      await prisma.mediaFile.update({ where: { id: mf.id }, data: { path: rewrite(mf.path) } });
-    }
-
-    const subtitles = await prisma.subtitle.findMany({
-      where: { mediaFile: { movie: { libraryId: library.id } } },
-    });
-    for (const s of subtitles) {
-      if (!isUnderOldRoot(s.path)) continue;
-      await prisma.subtitle.update({ where: { id: s.id }, data: { path: rewrite(s.path) } });
-    }
-
-    console.log(`[library] Migrated ${movies.length} movies, ${mediaFiles.length} media files.`);
-  }
-
-  const scannedMovies = await scanLibraryFolder(safeRootPath);
-  await syncMovies(prisma, library.id, scannedMovies);
-
-  const updatedLibrary = await prisma.library.findUniqueOrThrow({
-    where: { id: library.id },
-    include: libraryInclude,
-  });
-
-  return serializeLibrary(updatedLibrary);
-};
-
-export const LibraryService = {
-  async getLibraries(prisma: PrismaClient): Promise<Library[]> {
-    const libs = await prisma.library.findMany({ include: libraryInclude });
-    return libs.map(serializeLibrary);
-  },
-
-  async scanLibrary(prisma: PrismaClient): Promise<Library> {
-    if (!inFlightScan) {
-      inFlightScan = runScan(prisma).finally(() => {
-        inFlightScan = null;
-      });
-    }
-    return inFlightScan;
-  },
-};
+}

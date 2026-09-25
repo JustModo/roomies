@@ -1,10 +1,5 @@
 import { Page, expect, Locator } from '@playwright/test';
-import {
-  getVideoState,
-  waitForPaused,
-  waitForPlaybackUnlocked,
-  waitForPlaying,
-} from '../helpers/syncAssert';
+import { getVideoState, waitForPaused, waitForPlaybackUnlocked, waitForPlaying } from '../helpers/syncAssert';
 
 export class PlayerPOM {
   constructor(private page: Page) {}
@@ -60,18 +55,27 @@ export class PlayerPOM {
 
   async toggleViaSpace() {
     await this.ensureUnlocked();
-    await this.page.locator('body').click({ position: { x: 10, y: 10 } }).catch(() => undefined);
+    await this.page
+      .locator('body')
+      .click({ position: { x: 10, y: 10 } })
+      .catch(() => undefined);
     await this.page.keyboard.press('Space');
   }
 
   async toggleViaK() {
     await this.ensureUnlocked();
-    await this.page.locator('body').click({ position: { x: 10, y: 10 } }).catch(() => undefined);
+    await this.page
+      .locator('body')
+      .click({ position: { x: 10, y: 10 } })
+      .catch(() => undefined);
     await this.page.keyboard.press('KeyK');
   }
 
   async pressWhileLocked(key: string) {
-    await this.page.locator('body').click({ position: { x: 10, y: 10 } }).catch(() => undefined);
+    await this.page
+      .locator('body')
+      .click({ position: { x: 10, y: 10 } })
+      .catch(() => undefined);
     await this.page.keyboard.press(key);
   }
 

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
-import { roomStore, SYNC_CONFIG } from '@roomies/server';
+import { SYNC_CONFIG, type RoomStore } from '@roomies/server';
 import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient, TestWsClient } from '../helpers/wsClient';
 
 describe('Sync drift correction & heartbeat status', () => {
   let env: TestEnvironmentContext;
+  let roomStore: RoomStore;
   let client: TestWsClient;
 
   const setPlayback = (state: 'playing' | 'paused') =>
@@ -14,6 +15,7 @@ describe('Sync drift correction & heartbeat status', () => {
 
   beforeAll(async () => {
     env = await setupTestEnvironment();
+    roomStore = env.server.app.ctx.roomStore;
   });
 
   beforeEach(async () => {

@@ -9,10 +9,16 @@ export const ConfigSchema = z.object({
   TZ: z.string().default('UTC'),
   CORS_ORIGIN: z
     .string()
-    .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean))
+    .transform((value) =>
+      value
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    )
     .pipe(z.array(z.url()).min(1)),
 
   // Internal / hardcoded settings (not exposed in roomies.conf)
+  NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   MEDIA_ROOT: z.string(),
   CACHE_DIR: z.string(),
@@ -22,4 +28,4 @@ export const ConfigSchema = z.object({
   FFPROBE_PATH: z.string(),
 });
 
-export type Config = z.infer<typeof ConfigSchema>;
+export type Config = Readonly<z.infer<typeof ConfigSchema>>;

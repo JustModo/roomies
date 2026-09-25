@@ -1,7 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { FFPROBE_PATH } from '@roomies/config';
-import { PROBE_TIMEOUT_MS } from '../config/config';
+import { PROBE_TIMEOUT_MS } from '../config/constants';
 
 const execFileAsync = promisify(execFile);
 
@@ -37,19 +36,26 @@ const parseFrameRate = (value: string): number => {
 /** Probes the first video stream's frame rate (GOP sizing) and height (resolution-ladder
  *  pruning) plus the default audio track's bit rate (encode-bitrate floor) in a single
  *  ffprobe call, with a timeout so a stuck probe can't hang the caller. */
-export const getSourceVideoInfo = async (filePath: string): Promise<SourceVideoInfo> => {
+export const getSourceVideoInfo = async (ffprobePath: string, filePath: string): Promise<SourceVideoInfo> => {
   try {
-    const { stdout } = await execFileAsync(FFPROBE_PATH, [
-      '-v', 'error',
-      '-show_entries', 'stream=codec_type,bit_rate,r_frame_rate,width,height:stream_disposition=default',
-      '-of', 'json',
-      filePath,
-    ], { timeout: PROBE_TIMEOUT_MS });
+    const { stdout } = await execFileAsync(
+      ffprobePath,
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'stream=codec_type,bit_rate,r_frame_rate,width,height:stream_disposition=default',
+        '-of',
+        'json',
+        filePath,
+      ],
+      { timeout: PROBE_TIMEOUT_MS },
+    );
 
     const streams: ProbeStream[] = JSON.parse(stdout).streams ?? [];
-    const video = streams.find(s => s.codec_type === 'video');
-    const audioStreams = streams.filter(s => s.codec_type === 'audio');
-    const audio = audioStreams.find(s => s.disposition?.default === 1) ?? audioStreams[0];
+    const video = streams.find((s) => s.codec_type === 'video');
+    const audioStreams = streams.filter((s) => s.codec_type === 'audio');
+    const audio = audioStreams.find((s) => s.disposition?.default === 1) ?? audioStreams[0];
 
     const fps = parseFrameRate(video?.r_frame_rate ?? '');
     const width = Number(video?.width);

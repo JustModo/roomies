@@ -5,9 +5,9 @@ import type { AcquireResult } from './audio/AudioManager';
 import { AudioPreprocessor } from './audio/AudioPreprocessor';
 import { FrameBuffer } from './audio/FrameBuffer';
 import { PeerPlayer } from './audio/PeerPlayer';
+import { rmsLevel } from './audio/level';
 import { DEFAULT_VOICE_CONFIG } from './config';
 import type { VoiceConfig } from './config';
-// @ts-ignore - Vite URL import for AudioWorklet asset.
 import pcmCaptureWorkletUrl from './worklets/pcmCaptureWorklet.js?url';
 
 /** Called when the local encoder has a chunk ready to send. */
@@ -16,361 +16,302 @@ export type ChunkCallback = (chunk: Uint8Array) => void;
 /** AudioContext.setSinkId is still experimental and missing from some lib.dom versions. */
 type SinkCapableContext = AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
 
+/** RMS level above which a user counts as speaking. */
+const SPEAKING_THRESHOLD = 0.001;
+const VAD_INTERVAL_MS = 100;
+
+const sameMembers = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((s) => b.has(s));
+
 /** AudioRelay — server-relay voice chat engine. */
 export class AudioRelay {
-    private readonly config: VoiceConfig;
-    private readonly preprocessor: AudioPreprocessor;
-    private readonly audioManager: AudioManager;
-    private encoder: OpusEncoderHandle | null = null;
-    private audioCtx: AudioContext | null = null;
-    private captureSource: MediaStreamAudioSourceNode | null = null;
-    private workletNode: AudioWorkletNode | null = null;
-    private captureSink: GainNode | null = null;
-    private frameBuffer: FrameBuffer | null = null;
-    private peers = new Map<string, PeerPlayer>();
-    private peerSettings = new Map<string, { volume?: number; muted?: boolean }>();
-    private selfMuted = false;
-    private desiredSinkId: string | undefined;
-    private analyserNode: AnalyserNode | null = null;
-    private vadInterval: number | ReturnType<typeof setInterval> | null = null;
-    /** All peer outputs route through this so a single control scales everyone at once. */
-    private masterGainNode: GainNode | null = null;
-    private desiredMasterVolume = 100;
-    private sendSeq = 0;
+  private readonly config: VoiceConfig;
+  private readonly preprocessor: AudioPreprocessor;
+  private readonly audioManager: AudioManager;
+  private encoder: OpusEncoderHandle | null = null;
+  private audioCtx: AudioContext | null = null;
+  private captureSource: MediaStreamAudioSourceNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
+  private captureSink: GainNode | null = null;
+  private frameBuffer: FrameBuffer | null = null;
+  private peers = new Map<string, PeerPlayer>();
+  private peerSettings = new Map<string, { volume?: number; muted?: boolean }>();
+  private selfMuted = false;
+  private desiredSinkId: string | undefined;
+  private analyserNode: AnalyserNode | null = null;
+  private vadInterval: ReturnType<typeof setInterval> | null = null;
+  /** All peer outputs route through this so a single control scales everyone at once. */
+  private masterGainNode: GainNode | null = null;
+  private desiredMasterVolume = 100;
+  private sendSeq = 0;
 
-    /** Called with each encoded Opus chunk that should be sent to the server. */
-    public onChunk?: ChunkCallback;
-    /** Called when the active input device ends unexpectedly (e.g. unplugged). */
-    public onInputDeviceEnded?: () => void;
-    /** Called when the set of currently speaking users changes. Local user is 'local'. */
-    public onActiveSpeakersChanged?: (activeSpeakers: Set<string>) => void;
+  /** Called with each encoded Opus chunk that should be sent to the server. */
+  public onChunk?: ChunkCallback;
+  /** Called when the active input device ends unexpectedly (e.g. unplugged). */
+  public onInputDeviceEnded?: () => void;
+  /** Called when the set of currently speaking users changes. Local user is 'local'. */
+  public onActiveSpeakersChanged?: (activeSpeakers: Set<string>) => void;
 
-    constructor(config: VoiceConfig = DEFAULT_VOICE_CONFIG) {
-        this.config = config;
-        this.audioManager = new AudioManager(config);
-        this.audioManager.onTrackEnded = () => this.onInputDeviceEnded?.();
-        this.preprocessor = new AudioPreprocessor(config.preprocessor.dcBlockerR);
+  constructor(config: VoiceConfig = DEFAULT_VOICE_CONFIG) {
+    this.config = config;
+    this.audioManager = new AudioManager(config);
+    this.audioManager.onTrackEnded = () => this.onInputDeviceEnded?.();
+    this.preprocessor = new AudioPreprocessor(config.preprocessor.dcBlockerR);
+  }
+
+  /** Whether the currently supported browser can redirect audio output to a chosen device. */
+  public static get outputSelectionSupported(): boolean {
+    return typeof window !== 'undefined' && typeof (AudioContext.prototype as SinkCapableContext).setSinkId === 'function';
+  }
+
+  private async applyDesiredSinkId(ctx: AudioContext): Promise<void> {
+    const sinkCapableCtx = ctx as SinkCapableContext;
+    if (!this.desiredSinkId || typeof sinkCapableCtx.setSinkId !== 'function') return;
+    try {
+      await sinkCapableCtx.setSinkId(this.desiredSinkId);
+    } catch (e) {
+      console.warn('[AudioRelay] Failed to set output device:', e);
+    }
+  }
+
+  /** Sets the preferred audio output device. */
+  public async setOutputDevice(deviceId?: string): Promise<void> {
+    this.desiredSinkId = deviceId;
+    if (this.audioCtx) {
+      await this.applyDesiredSinkId(this.audioCtx);
+    }
+  }
+
+  /** Acquires microphone, initialises Opus encoder, and starts streaming frames. */
+  public async join(deviceId?: string): Promise<AcquireResult> {
+    if (this.encoder) return { usedFallback: false };
+
+    this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+    await this.applyDesiredSinkId(this.audioCtx);
+
+    let acquireResult: AcquireResult;
+    try {
+      acquireResult = await this.audioManager.join(deviceId, this.audioCtx);
+    } catch (e) {
+      await this.audioCtx.close().catch(() => {});
+      this.audioCtx = null;
+      throw e;
     }
 
-    /** Whether the currently supported browser can redirect audio output to a chosen device. */
-    public static get outputSelectionSupported(): boolean {
-        return typeof window !== 'undefined' &&
-            typeof (AudioContext.prototype as SinkCapableContext).setSinkId === 'function';
-    }
+    try {
+      const stream = this.audioManager.stream;
+      if (!stream) throw new Error('[AudioRelay] No microphone stream available.');
 
-    private async applyDesiredSinkId(ctx: AudioContext): Promise<void> {
-        const sinkCapableCtx = ctx as SinkCapableContext;
-        if (!this.desiredSinkId || typeof sinkCapableCtx.setSinkId !== 'function') return;
+      this.encoder = await createEncoder({
+        channels: this.config.channels,
+        sampleRate: this.config.sampleRate,
+        ...this.config.opus,
+      });
+
+      this.preprocessor.reset();
+
+      this.frameBuffer = new FrameBuffer(this.config.frameSize, (frame) => {
+        if (this.selfMuted || !this.encoder) return;
+        const processedFrame = this.preprocessor.process(frame);
         try {
-            await sinkCapableCtx.setSinkId(this.desiredSinkId);
+          const packet = this.encoder.encodeFloat(processedFrame);
+          if (!packet || packet.length === 0) return;
+
+          const chunk = new Uint8Array(packet.length + 2);
+          new DataView(chunk.buffer).setUint16(0, this.sendSeq);
+          chunk.set(packet, 2);
+          this.sendSeq = (this.sendSeq + 1) & 0xffff;
+          this.onChunk?.(chunk);
         } catch (e) {
-            console.warn('[AudioRelay] Failed to set output device:', e);
+          console.warn('[AudioRelay] Encode error:', e);
         }
+      });
+
+      await this.audioCtx.audioWorklet.addModule(pcmCaptureWorkletUrl);
+
+      const source = this.audioCtx.createMediaStreamSource(stream);
+      this.captureSource = source;
+      this.workletNode = new AudioWorkletNode(this.audioCtx, 'roomies-pcm-capture');
+      this.workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+        this.frameBuffer?.push(new Float32Array(e.data));
+      };
+
+      this.captureSink = this.audioCtx.createGain();
+      this.captureSink.gain.value = 0;
+
+      this.analyserNode = this.audioCtx.createAnalyser();
+      this.analyserNode.fftSize = 256;
+
+      // Keep the capture worklet pulled by the graph without audible local monitor output.
+      source.connect(this.analyserNode);
+      this.analyserNode.connect(this.workletNode);
+      this.workletNode.connect(this.captureSink);
+      this.captureSink.connect(this.audioCtx.destination);
+
+      this.startVadPolling();
+
+      return acquireResult;
+    } catch (e) {
+      // Teardown resources on error so mic isn't left captured.
+      this.releaseCapture();
+      throw e;
     }
+  }
 
-    /** Sets the preferred audio output device. */
-    public async setOutputDevice(deviceId?: string): Promise<void> {
-        this.desiredSinkId = deviceId;
-        if (this.audioCtx) {
-            await this.applyDesiredSinkId(this.audioCtx);
-        }
-    }
+  /** Switches active microphone without dropping the encoder connection. */
+  public async switchMic(deviceId?: string): Promise<AcquireResult> {
+    if (!this.audioCtx) throw new Error('[AudioRelay] switchMic called before join.');
+    const result = await this.audioManager.switchInput(deviceId, this.audioCtx);
 
-    /** Acquires microphone, initialises Opus encoder, and starts streaming frames. */
-    public async join(deviceId?: string): Promise<AcquireResult> {
-        if (this.encoder) return { usedFallback: false };
-
-        this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
-        await this.applyDesiredSinkId(this.audioCtx);
-
-        let acquireResult: AcquireResult;
-        try {
-            acquireResult = await this.audioManager.join(deviceId, this.audioCtx);
-        } catch (e) {
-            await this.audioCtx.close().catch(() => {});
-            this.audioCtx = null;
-            throw e;
-        }
-
-        try {
-            const stream = this.audioManager.stream;
-            if (!stream) throw new Error('[AudioRelay] No microphone stream available.');
-
-            this.encoder = await createEncoder({
-                channels: this.config.channels,
-                sampleRate: this.config.sampleRate,
-                ...this.config.opus,
-            });
-
-            this.preprocessor.reset();
-
-            this.frameBuffer = new FrameBuffer(this.config.frameSize, (frame) => {
-                if (this.selfMuted || !this.encoder) return;
-                const processedFrame = this.preprocessor.process(frame);
-                try {
-                    const packet = this.encoder.encodeFloat(processedFrame);
-                    if (!packet || packet.length === 0) return;
-
-                    const chunk = new Uint8Array(packet.length + 2);
-                    new DataView(chunk.buffer).setUint16(0, this.sendSeq);
-                    chunk.set(packet, 2);
-                    this.sendSeq = (this.sendSeq + 1) & 0xffff;
-                    this.onChunk?.(chunk);
-                } catch (e) {
-                    console.warn('[AudioRelay] Encode error:', e);
-                }
-            });
-
-            await this.audioCtx.audioWorklet.addModule(pcmCaptureWorkletUrl);
-
-            const source = this.audioCtx.createMediaStreamSource(stream);
-            this.captureSource = source;
-            this.workletNode = new AudioWorkletNode(this.audioCtx, 'roomies-pcm-capture');
-            this.workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
-                this.frameBuffer?.push(new Float32Array(e.data));
-            };
-
-            this.captureSink = this.audioCtx.createGain();
-            this.captureSink.gain.value = 0;
-
-            this.analyserNode = this.audioCtx.createAnalyser();
-            this.analyserNode.fftSize = 256;
-
-            // Keep the capture worklet pulled by the graph without audible local monitor output.
-            source.connect(this.analyserNode);
-            this.analyserNode.connect(this.workletNode);
-            this.workletNode.connect(this.captureSink);
-            this.captureSink.connect(this.audioCtx.destination);
-
-            this.startVadPolling();
-
-            return acquireResult;
-        } catch (e) {
-            // Teardown resources on error so mic isn't left captured.
-            if (this.captureSource) {
-                this.captureSource.disconnect();
-                this.captureSource = null;
-            }
-            if (this.workletNode) {
-                this.workletNode.disconnect();
-                this.workletNode = null;
-            }
-            if (this.captureSink) {
-                this.captureSink.disconnect();
-                this.captureSink = null;
-            }
-            if (this.analyserNode) {
-                this.analyserNode.disconnect();
-                this.analyserNode = null;
-            }
-            this.frameBuffer = null;
-            if (this.encoder) {
-                this.encoder.free();
-                this.encoder = null;
-            }
-            if (this.audioCtx) {
-                this.audioCtx.close().catch(() => {});
-                this.audioCtx = null;
-            }
-            this.audioManager.leave();
-            throw e;
-        }
-    }
-
-    /** Switches active microphone without dropping the encoder connection. */
-    public async switchMic(deviceId?: string): Promise<AcquireResult> {
-        if (!this.audioCtx) throw new Error('[AudioRelay] switchMic called before join.');
-        const result = await this.audioManager.switchInput(deviceId, this.audioCtx);
-
-        if (this.encoder && this.audioCtx && this.workletNode) {
-            const stream = this.audioManager.stream;
-            if (stream) {
-                if (this.captureSource) {
-                    this.captureSource.disconnect();
-                }
-                const source = this.audioCtx.createMediaStreamSource(stream);
-                
-                if (this.analyserNode) {
-                    source.connect(this.analyserNode);
-                } else {
-                    source.connect(this.workletNode);
-                }
-                
-                this.captureSource = source;
-            }
-        }
-
-        return result;
-    }
-
-    /** Mutes or unmutes the local mic. When muted, no chunks are sent upstream. */
-    public setMuted(muted: boolean): void {
-        this.selfMuted = muted;
-        this.audioManager.setMuted(muted);
-    }
-
-    /** Schedules an incoming encoded audio chunk from a remote peer. */
-    public scheduleChunk(userId: string, chunk: Uint8Array): void {
-        if (chunk.length <= 2) return;
-        // Ensure we have an AudioContext even for receive-only (non-joined) users
-        if (!this.audioCtx) {
-            this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
-            void this.applyDesiredSinkId(this.audioCtx);
-        }
-        if (this.audioCtx.state === 'suspended') {
-            this.audioCtx.resume().catch(() => {});
-        }
-
-        const output = this.ensureOutputChain(this.audioCtx);
-
-        let peer = this.peers.get(userId);
-        if (!peer) {
-            peer = new PeerPlayer(this.audioCtx, this.config, output);
-            const settings = this.peerSettings.get(userId);
-            if (settings?.volume !== undefined) peer.setVolume(settings.volume);
-            if (settings?.muted !== undefined) peer.setMuted(settings.muted);
-            this.peers.set(userId, peer);
-        }
-        const seq = new DataView(chunk.buffer, chunk.byteOffset, 2).getUint16(0);
-        peer.push(seq, chunk.subarray(2));
-    }
-
-    /** Sets the playback volume (0–200) for a specific peer. */
-    public setVolume(userId: string, volume: number): void {
-        this.peerSettings.set(userId, { ...this.peerSettings.get(userId), volume });
-        this.peers.get(userId)?.setVolume(volume);
-    }
-
-    /** Creates (once per AudioContext) the shared master gain all peers route through. */
-    private ensureOutputChain(ctx: AudioContext): GainNode {
-        if (!this.masterGainNode) {
-            this.masterGainNode = ctx.createGain();
-            this.masterGainNode.gain.value = Math.max(0, Math.min(1, this.desiredMasterVolume / 100));
-            this.masterGainNode.connect(ctx.destination);
-        }
-        return this.masterGainNode;
-    }
-
-    /** Sets the master voice volume (0–100) applied on top of every individual peer's volume. */
-    public setMasterVolume(volume: number): void {
-        this.desiredMasterVolume = volume;
-        if (this.masterGainNode && this.audioCtx) {
-            this.masterGainNode.gain.setTargetAtTime(
-                Math.max(0, Math.min(1, volume / 100)),
-                this.audioCtx.currentTime,
-                this.config.playback.gainRampSeconds
-            );
-        }
-    }
-
-    /** Locally silences or restores a specific peer's audio output. */
-    public setPeerMuted(userId: string, muted: boolean): void {
-        this.peerSettings.set(userId, { ...this.peerSettings.get(userId), muted });
-        this.peers.get(userId)?.setMuted(muted);
-    }
-
-    /** Removes a peer's player when they leave the party. */
-    public removePeer(userId: string): void {
-        const peer = this.peers.get(userId);
-        if (peer) {
-            peer.destroy();
-            this.peers.delete(userId);
-        }
-    }
-
-    private startVadPolling(): void {
-        if (this.vadInterval) return;
-        const THRESHOLD = 0.001;
-        
-        let lastActiveSpeakers = new Set<string>();
-
-        this.vadInterval = setInterval(() => {
-            const activeSpeakers = new Set<string>();
-
-            // Check local mic
-            if (this.analyserNode && !this.selfMuted) {
-                const data = new Float32Array(this.analyserNode.fftSize);
-                this.analyserNode.getFloatTimeDomainData(data);
-                let sumSquares = 0;
-                for (let i = 0; i < data.length; i++) {
-                    sumSquares += data[i] * data[i];
-                }
-                const vol = Math.sqrt(sumSquares / data.length);
-                if (vol > THRESHOLD) {
-                    activeSpeakers.add('local');
-                }
-            }
-
-            // Check remote peers
-            for (const [userId, peer] of this.peers.entries()) {
-                if (peer.getVolume() > THRESHOLD) {
-                    activeSpeakers.add(userId);
-                }
-            }
-
-            // If set changed, fire callback
-            if (activeSpeakers.size !== lastActiveSpeakers.size || 
-                [...activeSpeakers].some(s => !lastActiveSpeakers.has(s))) {
-                lastActiveSpeakers = activeSpeakers;
-                this.onActiveSpeakersChanged?.(activeSpeakers);
-            }
-        }, 100);
-    }
-
-    private stopVadPolling(): void {
-        if (this.vadInterval) {
-            clearInterval(this.vadInterval as any);
-            this.vadInterval = null;
-            this.onActiveSpeakersChanged?.(new Set());
-        }
-    }
-
-    /** Stops encoding, releases the mic, and destroys all peer players. */
-    public leave(): void {
-        this.stopVadPolling();
-        
+    if (this.encoder && this.audioCtx && this.workletNode) {
+      const stream = this.audioManager.stream;
+      if (stream) {
         if (this.captureSource) {
-            this.captureSource.disconnect();
-            this.captureSource = null;
+          this.captureSource.disconnect();
         }
-
-        if (this.workletNode) {
-            this.workletNode.disconnect();
-            this.workletNode = null;
-        }
-
-        if (this.captureSink) {
-            this.captureSink.disconnect();
-            this.captureSink = null;
-        }
-
-        this.frameBuffer = null;
+        const source = this.audioCtx.createMediaStreamSource(stream);
 
         if (this.analyserNode) {
-            this.analyserNode.disconnect();
-            this.analyserNode = null;
+          source.connect(this.analyserNode);
+        } else {
+          source.connect(this.workletNode);
         }
 
-        if (this.masterGainNode) {
-            this.masterGainNode.disconnect();
-            this.masterGainNode = null;
-        }
-
-        if (this.encoder) {
-            this.encoder.free();
-            this.encoder = null;
-        }
-
-        if (this.audioCtx) {
-            this.audioCtx.close().catch(() => {});
-            this.audioCtx = null;
-        }
-
-        this.audioManager.leave();
-
-        this.peers.forEach((peer) => peer.destroy());
-
-        this.peers.clear();
-        this.selfMuted = false;
+        this.captureSource = source;
+      }
     }
+
+    return result;
+  }
+
+  /** Mutes or unmutes the local mic. When muted, no chunks are sent upstream. */
+  public setMuted(muted: boolean): void {
+    this.selfMuted = muted;
+    this.audioManager.setMuted(muted);
+  }
+
+  /** Schedules an incoming encoded audio chunk from a remote peer. */
+  public scheduleChunk(userId: string, chunk: Uint8Array): void {
+    if (chunk.length <= 2) return;
+    // Ensure we have an AudioContext even for receive-only (non-joined) users
+    if (!this.audioCtx) {
+      this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+      void this.applyDesiredSinkId(this.audioCtx);
+    }
+    if (this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
+
+    const output = this.ensureOutputChain(this.audioCtx);
+
+    let peer = this.peers.get(userId);
+    if (!peer) {
+      peer = new PeerPlayer(this.audioCtx, this.config, output);
+      const settings = this.peerSettings.get(userId);
+      if (settings?.volume !== undefined) peer.setVolume(settings.volume);
+      if (settings?.muted !== undefined) peer.setMuted(settings.muted);
+      this.peers.set(userId, peer);
+    }
+    const seq = new DataView(chunk.buffer, chunk.byteOffset, 2).getUint16(0);
+    peer.push(seq, chunk.subarray(2));
+  }
+
+  /** Sets the playback volume (0–200) for a specific peer. */
+  public setVolume(userId: string, volume: number): void {
+    this.peerSettings.set(userId, { ...this.peerSettings.get(userId), volume });
+    this.peers.get(userId)?.setVolume(volume);
+  }
+
+  /** Creates (once per AudioContext) the shared master gain all peers route through. */
+  private ensureOutputChain(ctx: AudioContext): GainNode {
+    if (!this.masterGainNode) {
+      this.masterGainNode = ctx.createGain();
+      this.masterGainNode.gain.value = Math.max(0, Math.min(1, this.desiredMasterVolume / 100));
+      this.masterGainNode.connect(ctx.destination);
+    }
+    return this.masterGainNode;
+  }
+
+  /** Sets the master voice volume (0–100) applied on top of every individual peer's volume. */
+  public setMasterVolume(volume: number): void {
+    this.desiredMasterVolume = volume;
+    if (this.masterGainNode && this.audioCtx) {
+      this.masterGainNode.gain.setTargetAtTime(
+        Math.max(0, Math.min(1, volume / 100)),
+        this.audioCtx.currentTime,
+        this.config.playback.gainRampSeconds,
+      );
+    }
+  }
+
+  /** Locally silences or restores a specific peer's audio output. */
+  public setPeerMuted(userId: string, muted: boolean): void {
+    this.peerSettings.set(userId, { ...this.peerSettings.get(userId), muted });
+    this.peers.get(userId)?.setMuted(muted);
+  }
+
+  /** Removes a peer's player when they leave the party. */
+  public removePeer(userId: string): void {
+    const peer = this.peers.get(userId);
+    if (peer) {
+      peer.destroy();
+      this.peers.delete(userId);
+    }
+  }
+
+  private startVadPolling(): void {
+    if (this.vadInterval) return;
+    let lastActiveSpeakers = new Set<string>();
+
+    this.vadInterval = setInterval(() => {
+      const activeSpeakers = new Set<string>();
+      if (this.analyserNode && !this.selfMuted && rmsLevel(this.analyserNode) > SPEAKING_THRESHOLD) {
+        activeSpeakers.add('local');
+      }
+      for (const [userId, peer] of this.peers) {
+        if (peer.getVolume() > SPEAKING_THRESHOLD) activeSpeakers.add(userId);
+      }
+
+      if (!sameMembers(activeSpeakers, lastActiveSpeakers)) {
+        lastActiveSpeakers = activeSpeakers;
+        this.onActiveSpeakersChanged?.(activeSpeakers);
+      }
+    }, VAD_INTERVAL_MS);
+  }
+
+  private stopVadPolling(): void {
+    if (this.vadInterval) {
+      clearInterval(this.vadInterval);
+      this.vadInterval = null;
+      this.onActiveSpeakersChanged?.(new Set());
+    }
+  }
+
+  /** Stops encoding, releases the mic, and destroys all peer players. */
+  public leave(): void {
+    this.stopVadPolling();
+    this.masterGainNode?.disconnect();
+    this.masterGainNode = null;
+    this.releaseCapture();
+    this.peers.forEach((peer) => peer.destroy());
+    this.peers.clear();
+    this.selfMuted = false;
+  }
+
+  /** Disconnects the capture graph, frees the encoder, closes the context and releases the mic. */
+  private releaseCapture(): void {
+    this.captureSource?.disconnect();
+    this.captureSource = null;
+    this.workletNode?.disconnect();
+    this.workletNode = null;
+    this.captureSink?.disconnect();
+    this.captureSink = null;
+    this.analyserNode?.disconnect();
+    this.analyserNode = null;
+    this.frameBuffer = null;
+    this.encoder?.free();
+    this.encoder = null;
+    this.audioCtx?.close().catch(() => {});
+    this.audioCtx = null;
+    this.audioManager.leave();
+  }
 }

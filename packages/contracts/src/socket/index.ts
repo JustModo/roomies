@@ -18,10 +18,7 @@ import {
   ServerSyncHeartbeatAckSchema,
 } from './SyncEvents';
 
-import {
-  ClientPartyUpdateSchema,
-  ServerPartyUpdatedSchema,
-} from './PartyEvents';
+import { ClientPartyUpdateSchema, ServerPartyUpdatedSchema } from './PartyEvents';
 
 export {
   ClientSyncHeartbeatSchema,
@@ -34,23 +31,19 @@ export {
 export * from './PartyEvents';
 
 import {
-  ClientPlaybackPlaySchema, ClientPlaybackPauseSchema, ClientPlaybackSeekSchema, ClientPlaybackSetRateSchema,
-  ServerPlaybackStateSchema, ServerMediaChangedSchema
+  ClientPlaybackPlaySchema,
+  ClientPlaybackPauseSchema,
+  ClientPlaybackSeekSchema,
+  ClientPlaybackSetRateSchema,
+  ServerPlaybackStateSchema,
+  ServerMediaChangedSchema,
 } from './PlaybackEvents';
 
-import {
-  ClientChatSendSchema, ServerChatMessageSchema,
-  ClientEmojiSendSchema, ServerEmojiReactionSchema
-} from './ChatEvents';
+import { ClientChatSendSchema, ServerChatMessageSchema, ClientEmojiSendSchema, ServerEmojiReactionSchema } from './ChatEvents';
 
-import {
-  ServerErrorSchema
-} from './ErrorEvents';
+import { ServerErrorSchema } from './ErrorEvents';
 
-import {
-  ServerAuthKickedSchema,
-  ServerAuthUnauthorizedSchema
-} from './AuthEvents';
+import { ServerAuthKickedSchema, ServerAuthUnauthorizedSchema } from './AuthEvents';
 
 export * from './RoomEvents';
 export * from './PlaybackEvents';

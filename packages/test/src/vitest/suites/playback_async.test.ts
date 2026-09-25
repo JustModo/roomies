@@ -1,23 +1,20 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
-import { roomStore } from '@roomies/server';
+import type { RoomStore } from '@roomies/server';
 
 describe('Playback & Room Sync (Async Mode)', () => {
   let env: TestEnvironmentContext;
+  let roomStore: RoomStore;
 
   beforeAll(async () => {
     env = await setupTestEnvironment();
+    roomStore = env.server.app.ctx.roomStore;
   });
 
   beforeEach(() => {
     roomStore.resetStore();
-    roomStore.updateMedia(
-      env.media.mediaFile.id,
-      'Mock Movie Async',
-      `/hls/${env.media.mediaFile.id}/master.m3u8`,
-      600
-    );
+    roomStore.updateMedia(env.media.mediaFile.id, 'Mock Movie Async', `/hls/${env.media.mediaFile.id}/master.m3u8`, 600);
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused' });
   });
 
@@ -362,21 +359,26 @@ describe('Playback & Room Sync (Async Mode)', () => {
 
     guestClient.send('room.join', {});
     await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id),
     );
 
     guestClient.send('sync.status', { status: 'async' });
-    await guestClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.guest.user.id && msg.payload.status === 'async');
+    await guestClient.waitForEventMatching(
+      'user.status_changed',
+      (msg) => msg.payload.userId === env.guest.user.id && msg.payload.status === 'async',
+    );
 
     adminClient.send('room.update_settings', { settings: { allowAsyncMode: false } });
-    const statusChange = await guestClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.guest.user.id && msg.payload.status === 'ready');
+    const statusChange = await guestClient.waitForEventMatching(
+      'user.status_changed',
+      (msg) => msg.payload.userId === env.guest.user.id && msg.payload.status === 'ready',
+    );
 
     expect(statusChange.payload.status).toBe('ready');
 
     await adminClient.close();
     await guestClient.close();
   });
-
 
   it('delivers forced HLS playlist reset payload', async () => {
     const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
@@ -387,7 +389,7 @@ describe('Playback & Room Sync (Async Mode)', () => {
 
     guestClient.send('room.join', {});
     await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id),
     );
 
     guestClient.send('sync.status', { status: 'async' });
@@ -401,7 +403,6 @@ describe('Playback & Room Sync (Async Mode)', () => {
     await adminClient.close();
     await guestClient.close();
   });
-
 
   it('tears down async transcode sessions on admin reset', async () => {
     const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
@@ -493,9 +494,15 @@ describe('Playback & Room Sync (Async Mode)', () => {
 
     for (let i = 0; i < 5; i++) {
       wsClient.send('sync.status', { status: 'async' });
-      await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id && msg.payload.status === 'async');
+      await wsClient.waitForEventMatching(
+        'user.status_changed',
+        (msg) => msg.payload.userId === env.admin.user.id && msg.payload.status === 'async',
+      );
       wsClient.send('sync.status', { status: 'ready' });
-      await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id && msg.payload.status === 'ready');
+      await wsClient.waitForEventMatching(
+        'user.status_changed',
+        (msg) => msg.payload.userId === env.admin.user.id && msg.payload.status === 'ready',
+      );
     }
 
     const state = roomStore.getState();

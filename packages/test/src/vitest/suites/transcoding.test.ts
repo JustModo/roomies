@@ -9,9 +9,49 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 import { EventEmitter } from 'events';
-import { TranscodeCache, TranscodeSession, TranscodeWorker, READY_TIMEOUT_MS, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, audioBitrateFor, buildSeparateAudioEncodeArgs, variantsForSource, scaledResolution, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
+import { loadConfig } from '@roomies/config';
+import {
+  EncoderBackend,
+  TranscodeDeps,
+  TranscodeSession,
+  TranscodeSessionManager,
+  TranscodeWorker,
+  WorkerSlots,
+  READY_TIMEOUT_MS,
+  RESOLUTION_PRESETS,
+  SUPPORTED_RESOLUTIONS,
+  SEGMENT_DURATION,
+  buildHlsMuxArgs,
+  audioBitrateFor,
+  buildSeparateAudioEncodeArgs,
+  ensureDirectory,
+  readSegmentStats,
+  removeDirectory,
+  transcodeOptionsFrom,
+  variantsForSource,
+  scaledResolution,
+  SyncPolicy,
+  AsyncPolicy,
+  policyForSessionId,
+} from '@roomies/transcoding';
 import fs from 'fs';
 import { spawn as mockedSpawn } from 'child_process';
+import { silentLogger } from '../helpers/silentLogger';
+
+const config = loadConfig();
+const options = transcodeOptionsFrom(config);
+
+const makeDeps = (maxConcurrentWorkers = options.maxConcurrentWorkers): TranscodeDeps => ({
+  options: { ...options, maxConcurrentWorkers },
+  encoder: new EncoderBackend(options.ffmpegPath, silentLogger),
+  slots: new WorkerSlots(maxConcurrentWorkers),
+  log: silentLogger,
+});
+
+const newSession = (sessionId: string, mediaFileId: string, outputDir: string, deps = makeDeps()) =>
+  new TranscodeSession(deps, { sessionId, mediaFileId, inputPath: '/dev/null', outputDir });
+
+const clean = (dir: string) => removeDirectory(dir, silentLogger);
 
 describe('Transcoding & Quality Variant Pipeline', () => {
   it('zeroes the mpegts mux delay so audio PTS stays monotonic across segment cuts', () => {
@@ -78,9 +118,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
   });
 
   it('cleans global transcode cache without throwing', () => {
-    expect(() => {
-      TranscodeCache.cleanGlobalCache();
-    }).not.toThrow();
+    expect(() => new TranscodeSessionManager(options, silentLogger).clearCache()).not.toThrow();
   });
 
   it('resolves correct target bitrates for resolution variants', () => {
@@ -91,14 +129,14 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
   it('ensures directory helper creates recursively', () => {
     const testDir = `${process.env.CACHE_DIR}/nested/dir`;
-    TranscodeCache.ensureDirectory(testDir);
+    ensureDirectory(testDir);
     expect(fs.existsSync(testDir)).toBe(true);
-    TranscodeCache.cleanDirectory(testDir);
+    clean(testDir);
   });
 
   it('computes newest/max-covered segment time from segment filenames on disk', () => {
     const testDir = `${process.env.CACHE_DIR}/variant-cache-stats`;
-    TranscodeCache.ensureDirectory(testDir);
+    ensureDirectory(testDir);
     const startPosition = 100;
 
     // seg_00000.ts..seg_00003.ts => 4 segments, indices 0-3
@@ -106,19 +144,19 @@ describe('Transcoding & Quality Variant Pipeline', () => {
       fs.writeFileSync(`${testDir}/seg_${String(i).padStart(5, '0')}.ts`, '');
     }
 
-    const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(testDir, startPosition);
+    const { newestSegmentTime, maxCoveredTime } = readSegmentStats(testDir, startPosition);
 
     // newestSegmentTime is derived from the highest-index segment's own start time.
     expect(newestSegmentTime).toBe(startPosition + 3 * SEGMENT_DURATION);
     // maxCoveredTime extends one segment past the highest index (its end time).
     expect(maxCoveredTime).toBe(startPosition + 4 * SEGMENT_DURATION);
 
-    TranscodeCache.cleanDirectory(testDir);
+    clean(testDir);
   });
 
   it('routes reportError() through the registered onError callback', () => {
     const testDir = `${process.env.CACHE_DIR}/report-error-test`;
-    const session = new TranscodeSession('test-session', 'media-1', '/dev/null', testDir);
+    const session = newSession('test-session', 'media-1', testDir);
 
     const received: Array<{ resolution: string; error: Error }> = [];
     session.onError((resolution, error) => received.push({ resolution, error }));
@@ -130,16 +168,16 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(received[0].resolution).toBe('720p');
     expect(received[0].error).toBe(err);
 
-    TranscodeCache.cleanDirectory(testDir);
+    clean(testDir);
   });
 
   it('reportError() is a no-op when no onError callback is registered', () => {
     const testDir = `${process.env.CACHE_DIR}/report-error-noop-test`;
-    const session = new TranscodeSession('test-session-2', 'media-1', '/dev/null', testDir);
+    const session = newSession('test-session-2', 'media-1', testDir);
 
     expect(() => session.reportError('360p', new Error('boom'))).not.toThrow();
 
-    TranscodeCache.cleanDirectory(testDir);
+    clean(testDir);
   });
 
   it('spawns exactly one ffmpeg process for a 3-resolution sync-scope offset group (single-decode optimization)', async () => {
@@ -147,7 +185,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     spawnMock.mockClear();
 
     const testDir = `${process.env.CACHE_DIR}/group-spawn-test`;
-    const session = new TranscodeSession('sync', 'media-1', '/dev/null', testDir);
+    const session = newSession('sync', 'media-1', testDir);
 
     // Fire all 3 resolution requests roughly concurrently, like coordinator.ts's
     // Promise.allSettled prewarm does for a room-scope seek. Requests never resolve under
@@ -159,9 +197,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     // Let the microtask queue drain (getSourceFps() + the group's spawnProcess call).
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const ffmpegLikeCalls = spawnMock.mock.calls.filter((call: any[]) =>
-      Array.isArray(call[1]) && call[1].includes('-filter_complex')
-    );
+    const ffmpegLikeCalls = spawnMock.mock.calls.filter((call: any[]) => Array.isArray(call[1]) && call[1].includes('-filter_complex'));
     expect(ffmpegLikeCalls).toHaveLength(1);
 
     const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
@@ -171,20 +207,21 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     await session.stop();
   });
 
-  it('derives a sane MAX_CONCURRENT_VARIANTS default from host CPU count', () => {
-    expect(Number.isInteger(MAX_CONCURRENT_VARIANTS)).toBe(true);
-    expect(MAX_CONCURRENT_VARIANTS).toBeGreaterThanOrEqual(4);
+  it('derives a sane concurrent worker cap from host CPU count when none is configured', () => {
+    const { maxConcurrentWorkers } = transcodeOptionsFrom({ ...config, MAX_CONCURRENT_VARIANTS: undefined });
+    expect(Number.isInteger(maxConcurrentWorkers)).toBe(true);
+    expect(maxConcurrentWorkers).toBeGreaterThanOrEqual(4);
   });
 
   it('returns zeroed stats for a directory with no segments', () => {
     const testDir = `${process.env.CACHE_DIR}/variant-cache-stats-empty`;
-    TranscodeCache.ensureDirectory(testDir);
+    ensureDirectory(testDir);
 
-    const { newestSegmentTime, maxCoveredTime } = TranscodeCache.getVariantCacheStats(testDir, 50);
+    const { newestSegmentTime, maxCoveredTime } = readSegmentStats(testDir, 50);
     expect(newestSegmentTime).toBe(0);
     expect(maxCoveredTime).toBe(0);
 
-    TranscodeCache.cleanDirectory(testDir);
+    clean(testDir);
   });
 
   it('exposes shared HLS mux args used by both encode strategies', () => {
@@ -210,7 +247,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     spawnMock.mockClear();
 
     const testDir = `${process.env.CACHE_DIR}/async-group-spawn-test`;
-    const session = new TranscodeSession('async', 'media-1', '/dev/null', testDir);
+    const session = newSession('async', 'media-1', testDir);
 
     // A second (and third) resolution request at the same offset is no longer refused —
     // every offset always carries the full ladder, so these just await the same worker.
@@ -222,9 +259,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const ffmpegLikeCalls = spawnMock.mock.calls.filter((call: any[]) =>
-      Array.isArray(call[1]) && call[1].includes('-filter_complex')
-    );
+    const ffmpegLikeCalls = spawnMock.mock.calls.filter((call: any[]) => Array.isArray(call[1]) && call[1].includes('-filter_complex'));
     expect(ffmpegLikeCalls).toHaveLength(1);
 
     const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
@@ -234,12 +269,12 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     await session.stop();
   });
 
-  it('re-spawns a fresh worker when seeking back to an offset that was GC\'d, instead of silently reusing a later offset\'s content', async () => {
+  it("re-spawns a fresh worker when seeking back to an offset that was GC'd, instead of silently reusing a later offset's content", async () => {
     const spawnMock = mockedSpawn as unknown as ReturnType<typeof vi.fn>;
     spawnMock.mockClear();
 
     const testDir = `${process.env.CACHE_DIR}/gc-reseek-test`;
-    const session = new TranscodeSession('sync', 'media-1', '/dev/null', testDir);
+    const session = newSession('sync', 'media-1', testDir);
 
     // Two offset groups: 0 (will be abandoned) and 60 (stays active, so 0 is not
     // "latest" and is eligible for GC).
@@ -266,9 +301,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     session.ensureVariantReady('720p', 0).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const freshSpawnCalls = spawnMock.mock.calls.filter((call: any[]) =>
-      Array.isArray(call[1]) && call[1].includes('-filter_complex')
-    );
+    const freshSpawnCalls = spawnMock.mock.calls.filter((call: any[]) => Array.isArray(call[1]) && call[1].includes('-filter_complex'));
     expect(freshSpawnCalls).toHaveLength(1);
     expect(variantGroups.has(0)).toBe(true);
 
@@ -277,7 +310,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
   it('GCs a stale higher-numbered offset after a backward seek, instead of protecting it as "latest" (sync keepLatestEmptyOffset)', async () => {
     const testDir = `${process.env.CACHE_DIR}/backward-seek-gc-test`;
-    const session = new TranscodeSession('sync', 'media-1', '/dev/null', testDir);
+    const session = newSession('sync', 'media-1', testDir);
 
     // Offset 120 is created first (e.g. user was far into the video)...
     session.ensureVariantReady('720p', 120).catch(() => {});
@@ -301,7 +334,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(variantGroups.has(120)).toBe(false); // stale offset GC'd
-    expect(variantGroups.has(0)).toBe(true);    // active offset kept
+    expect(variantGroups.has(0)).toBe(true); // active offset kept
 
     await session.stop();
   });
@@ -333,9 +366,9 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
     it('rejects a pending variant request when FFmpeg exits before producing segments', async () => {
       spawnMock.mockImplementationOnce((_cmd: string, _args: string[], opts: any) =>
-        realSpawn(process.execPath, ['-e', 'process.exit(0)'], opts)
+        realSpawn(process.execPath, ['-e', 'process.exit(0)'], opts),
       );
-      const session = new TranscodeSession('sync', 'media-exit', '/dev/null', `${process.env.CACHE_DIR}/exit-before-ready`);
+      const session = newSession('sync', 'media-exit', `${process.env.CACHE_DIR}/exit-before-ready`);
 
       await expect(session.ensureVariantReady('720p', 0)).rejects.toThrow(/produced no output/);
       expect(groupsOf(session).has(0)).toBe(false);
@@ -344,9 +377,9 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     });
 
     it('rejects and stops the group when no segment appears within READY_TIMEOUT_MS', async () => {
-      const before = TranscodeWorker.liveProcessCount;
+      const deps = makeDeps();
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      const session = new TranscodeSession('sync', 'media-timeout', '/dev/null', `${process.env.CACHE_DIR}/ready-timeout`);
+      const session = newSession('sync', 'media-timeout', `${process.env.CACHE_DIR}/ready-timeout`, deps);
 
       const pending = session.ensureVariantReady('720p', 0);
       const outcome = expect(pending).rejects.toThrow(/Timed out/);
@@ -358,55 +391,63 @@ describe('Transcoding & Quality Variant Pipeline', () => {
       expect(groupsOf(session).has(0)).toBe(false);
 
       vi.useRealTimers();
-      await vi.waitFor(() => expect(TranscodeWorker.liveProcessCount).toBe(before));
+      await vi.waitFor(() => expect(deps.slots.count).toBe(0));
       await session.stop();
     });
 
     it('does not register a worker whose FFmpeg failed to spawn, so the next request retries', async () => {
-      const before = TranscodeWorker.liveProcessCount;
+      const deps = makeDeps();
       spawnMock.mockImplementationOnce(() => {
         throw new Error('spawn EACCES');
       });
-      const session = new TranscodeSession('sync', 'media-spawn-fail', '/dev/null', `${process.env.CACHE_DIR}/spawn-fail`);
+      const session = newSession('sync', 'media-spawn-fail', `${process.env.CACHE_DIR}/spawn-fail`, deps);
 
       await expect(session.ensureVariantReady('720p', 0)).rejects.toThrow('spawn EACCES');
       expect(groupsOf(session).has(0)).toBe(false);
-      expect(TranscodeWorker.liveProcessCount).toBe(before);
+      expect(deps.slots.count).toBe(0);
 
       spawnMock.mockImplementation(fakeChild);
       session.ensureVariantReady('720p', 0).catch(() => {});
       await vi.waitFor(() => expect(groupsOf(session).has(0)).toBe(true));
-      expect(TranscodeWorker.liveProcessCount).toBe(before + 1);
+      expect(deps.slots.count).toBe(1);
 
       await session.stop();
-      expect(TranscodeWorker.liveProcessCount).toBe(before);
+      expect(deps.slots.count).toBe(0);
     });
 
-    it('counts live FFmpeg processes across workers and refuses new workers at MAX_CONCURRENT_VARIANTS', async () => {
+    it('counts live FFmpeg processes across workers and refuses new workers at the cap', async () => {
       spawnMock.mockImplementation(fakeChild);
-      const before = TranscodeWorker.liveProcessCount;
-      const workers = Array.from({ length: MAX_CONCURRENT_VARIANTS - before }, (_, i) => {
-        const worker = new TranscodeWorker(['360p'], new Map([['360p', `${process.env.CACHE_DIR}/cap/${i}`]]), 'cap');
-        worker.start('/dev/null');
+      const deps = makeDeps(4);
+      const workers = Array.from({ length: 4 }, (_, i) => {
+        const worker = new TranscodeWorker(deps, {
+          sessionId: 'cap',
+          resolutions: ['360p'],
+          legDirs: new Map([['360p', `${process.env.CACHE_DIR}/cap/${i}`]]),
+        });
+        worker.start({ inputPath: '/dev/null' });
         return worker;
       });
-      expect(TranscodeWorker.liveProcessCount).toBe(MAX_CONCURRENT_VARIANTS);
+      expect(deps.slots.count).toBe(4);
 
-      const session = new TranscodeSession('sync', 'media-cap', '/dev/null', `${process.env.CACHE_DIR}/cap-session`);
+      const session = newSession('sync', 'media-cap', `${process.env.CACHE_DIR}/cap-session`, deps);
       await expect(session.ensureVariantReady('720p', 0)).rejects.toThrow(/Maximum concurrent/);
       expect(groupsOf(session).size).toBe(0);
 
       await Promise.all(workers.map((w) => w.stop()));
-      expect(TranscodeWorker.liveProcessCount).toBe(before);
+      expect(deps.slots.count).toBe(0);
       await session.stop();
-      TranscodeCache.cleanDirectory(`${process.env.CACHE_DIR}/cap`);
+      clean(`${process.env.CACHE_DIR}/cap`);
     });
   });
 
   describe('hardware encoder argument building', () => {
     const argsFor = (hw: 'qsv' | 'vaapi') => {
-      const worker = new TranscodeWorker(['720p'], new Map([['720p', '/tmp/hw-args/720p']]), 'sync');
-      (worker as any).inputPath = '/media/in.mkv';
+      const worker = new TranscodeWorker(makeDeps(), {
+        sessionId: 'sync',
+        resolutions: ['720p'],
+        legDirs: new Map([['720p', '/tmp/hw-args/720p']]),
+      });
+      (worker as any).input = { inputPath: '/media/in.mkv', startPosition: 0, sourceFps: 24 };
       return (worker as any).buildArgs(hw) as string[];
     };
 
@@ -434,16 +475,16 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
   it('counts demuxed audio_*.ts segments alongside video segments', () => {
     const testDir = `${process.env.CACHE_DIR}/audio-cache-stats`;
-    TranscodeCache.ensureDirectory(testDir);
+    ensureDirectory(testDir);
     for (let i = 0; i < 3; i++) {
       fs.writeFileSync(`${testDir}/audio_${String(i).padStart(5, '0')}.ts`, '');
     }
     fs.writeFileSync(`${testDir}/playlist.m3u8`, '');
 
-    const stats = TranscodeCache.getVariantCacheStats(testDir, 10);
+    const stats = readSegmentStats(testDir, 10);
     expect(stats.segmentCount).toBe(3);
     expect(stats.maxCoveredTime).toBe(10 + 3 * SEGMENT_DURATION);
 
-    TranscodeCache.cleanDirectory(testDir);
+    clean(testDir);
   });
 });

@@ -5,7 +5,8 @@
   "types": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf .turbo node_modules"
+    "clean": "rm -rf .turbo node_modules",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.3.5",

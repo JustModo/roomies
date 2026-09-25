@@ -1,11 +1,6 @@
 import { test, expect } from '../fixtures/roomFixture';
 import { setAllowAsyncMode } from '../helpers/room';
-import {
-  getVideoState,
-  waitForPaused,
-  waitForPlaying,
-  waitForTimesConverged,
-} from '../helpers/syncAssert';
+import { getVideoState, waitForPaused, waitForPlaying, waitForTimesConverged } from '../helpers/syncAssert';
 import { exitRoom, joinRoomViaLobby } from '../helpers/room';
 
 test.describe('Async Mode Isolation', () => {

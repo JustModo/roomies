@@ -37,25 +37,16 @@ export async function getVideoState(page: Page) {
 }
 
 export async function waitForPaused(page: Page, timeout = SETTLE_MS) {
-  await expect
-    .poll(async () => (await getVideoState(page)).paused, { timeout })
-    .toBe(true);
+  await expect.poll(async () => (await getVideoState(page)).paused, { timeout }).toBe(true);
   await expect(page.getByText('PAUSED', { exact: true })).toBeVisible({ timeout });
 }
 
 export async function waitForPlaying(page: Page, timeout = SETTLE_MS) {
-  await expect
-    .poll(async () => (await getVideoState(page)).paused, { timeout })
-    .toBe(false);
+  await expect.poll(async () => (await getVideoState(page)).paused, { timeout }).toBe(false);
   await expect(page.getByText('PAUSED', { exact: true })).toBeHidden({ timeout });
 }
 
-export async function waitForTimeWithin(
-  page: Page,
-  target: number,
-  tolerance = 3,
-  timeout = SETTLE_MS,
-) {
+export async function waitForTimeWithin(page: Page, target: number, tolerance = 3, timeout = SETTLE_MS) {
   await expect
     .poll(
       async () => {
@@ -67,12 +58,7 @@ export async function waitForTimeWithin(
     .toBeLessThanOrEqual(tolerance);
 }
 
-export async function waitForTimesConverged(
-  pageA: Page,
-  pageB: Page,
-  tolerance = 3,
-  timeout = SETTLE_MS,
-) {
+export async function waitForTimesConverged(pageA: Page, pageB: Page, tolerance = 3, timeout = SETTLE_MS) {
   await expect
     .poll(
       async () => {
@@ -116,7 +102,10 @@ export async function waitForPlaybackUnlocked(page: Page, timeout = MEDIA_READY_
   });
   await expect(page.getByText('SYNCING', { exact: true })).toBeHidden({ timeout });
 
-  await page.locator('video').hover({ force: true }).catch(() => undefined);
+  await page
+    .locator('video')
+    .hover({ force: true })
+    .catch(() => undefined);
   const playOrPause = page.locator('button[title="Play"], button[title="Pause"]');
   await expect(playOrPause.first()).toBeEnabled({ timeout });
 }
@@ -146,20 +135,12 @@ export async function waitForMediaReady(page: Page, timeout = MEDIA_READY_MS) {
     .poll(
       async () => {
         const state = await getVideoState(page);
-        return (
-          state.exists &&
-          state.readyState >= 2 &&
-          state.duration > 0 &&
-          Number.isFinite(state.duration)
-        );
+        return state.exists && state.readyState >= 2 && state.duration > 0 && Number.isFinite(state.duration);
       },
       { timeout, message: 'expected video readyState>=2 and duration>0 (HLS buffered)' },
     )
     .toBe(true);
 
   // Don't wait out the HLS observer — video buffer already proved load.
-  await Promise.race([
-    hlsSeenPromise,
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
-  ]);
+  await Promise.race([hlsSeenPromise, new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50))]);
 }

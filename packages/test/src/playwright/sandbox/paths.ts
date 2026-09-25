@@ -24,9 +24,7 @@ export interface E2eEnv {
 
 export function readE2eEnvFile(): E2eEnv {
   if (!fs.existsSync(e2eEnvPath)) {
-    throw new Error(
-      `Missing ${e2eEnvPath} — start-stack.mjs / prepare-sandbox.mjs must run first`,
-    );
+    throw new Error(`Missing ${e2eEnvPath} — start-stack.mjs / prepare-sandbox.mjs must run first`);
   }
   return JSON.parse(fs.readFileSync(e2eEnvPath, 'utf8')) as E2eEnv;
 }

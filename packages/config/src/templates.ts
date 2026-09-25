@@ -1,4 +1,5 @@
-export const defaultConf = `
+export const defaultConf =
+  `
 # Roomies Configuration File
 # --------------------------
 # Timezone for log timestamps and time-aware operations (IANA timezone name).

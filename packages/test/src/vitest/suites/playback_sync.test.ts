@@ -1,23 +1,20 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { setupTestEnvironment, createGuestAccount, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
-import { roomStore, SYNC_CONFIG } from '@roomies/server';
+import { SYNC_CONFIG, type RoomStore } from '@roomies/server';
 
 describe('Playback & Room Sync (Sync Mode)', () => {
   let env: TestEnvironmentContext;
+  let roomStore: RoomStore;
 
   beforeAll(async () => {
     env = await setupTestEnvironment();
+    roomStore = env.server.app.ctx.roomStore;
   });
 
   beforeEach(() => {
     roomStore.resetStore();
-    roomStore.updateMedia(
-      env.media.mediaFile.id,
-      'Mock Movie',
-      `/hls/${env.media.mediaFile.id}/master.m3u8`,
-      600
-    );
+    roomStore.updateMedia(env.media.mediaFile.id, 'Mock Movie', `/hls/${env.media.mediaFile.id}/master.m3u8`, 600);
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused' });
   });
 
@@ -280,7 +277,9 @@ describe('Playback & Room Sync (Sync Mode)', () => {
 
   it('reconciles multi-client buffering state across 3 clients', async () => {
     const third = await createGuestAccount(env.server.baseUrl, env.admin.token, 'thirduser');
-    const clients = await Promise.all([env.admin.token, env.guest.token, third.token].map((t) => createTestWsClient(`${env.server.wsUrl}/ws`, t)));
+    const clients = await Promise.all(
+      [env.admin.token, env.guest.token, third.token].map((t) => createTestWsClient(`${env.server.wsUrl}/ws`, t)),
+    );
     const [client1, client2, client3] = clients;
 
     for (const c of clients) {
@@ -394,12 +393,12 @@ describe('Playback & Room Sync (Sync Mode)', () => {
 
     guestClient.send('room.join', {});
     await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id),
     );
 
     adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: true });
     const updatedState = await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true),
     );
 
     const updatedGuest = updatedState.payload.room.members.find((m: any) => m.userId === env.guest.user.id);
@@ -418,12 +417,12 @@ describe('Playback & Room Sync (Sync Mode)', () => {
 
     guestClient.send('room.join', {});
     await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id),
     );
 
     adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: true });
     await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true),
     );
 
     guestClient.send('playback.play', { currentTime: 10 });
@@ -461,17 +460,17 @@ describe('Playback & Room Sync (Sync Mode)', () => {
 
     guestClient.send('room.join', {});
     await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id),
     );
 
     adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: true });
     await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && m.controlsLocked === true),
     );
 
     adminClient.send('room.set_control_lock', { userId: env.guest.user.id, locked: false });
     const finalState = await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && !m.controlsLocked)
+      msg.payload.room.members.some((m: any) => m.userId === env.guest.user.id && !m.controlsLocked),
     );
 
     const unlockedGuest = finalState.payload.room.members.find((m: any) => m.userId === env.guest.user.id);
@@ -523,7 +522,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     const member = state.payload.room.members[0];
     adminClient.send('room.set_control_lock', { userId: member.userId, locked: true });
     const lockedState = await adminClient.waitForEventMatching('room.state', (msg) =>
-      msg.payload.room.members.some((m: any) => m.userId === member.userId && m.controlsLocked === true)
+      msg.payload.room.members.some((m: any) => m.userId === member.userId && m.controlsLocked === true),
     );
 
     expect(lockedState.payload.room.members[0].controlsLocked).toBe(true);
@@ -556,4 +555,3 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     await client.close();
   });
 });
-

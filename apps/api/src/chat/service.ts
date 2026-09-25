@@ -1,43 +1,29 @@
-import { SocketContext } from '../websocket/router';
-import { IncomingSocketMessage } from '@roomies/contracts';
-import { SocketEmitter } from '../websocket/emitter';
-import { checkRateLimit } from '../websocket/middleware';
+import { RateLimiter } from '../common/rateLimiter';
+import { SocketHub } from '../websocket/hub';
+import { SocketContext, SocketPayload } from '../websocket/router';
 
-type ChatPayload = Extract<IncomingSocketMessage, { event: 'chat.send' }>['payload'];
-type EmojiPayload = Extract<IncomingSocketMessage, { event: 'emoji.send' }>['payload'];
-
-// Emoji rate limit: 1 per 500ms per user (simple time-window check)
+// Emoji rate limit: 1 per 500ms per user.
 const EMOJI_RATE_LIMIT_WINDOW_MS = 500;
 
 export class ChatService {
-  static async handleSend(payload: ChatPayload, ctx: SocketContext) {
-    SocketEmitter.broadcastToRoom(ctx.app, {
+  private emojiLimiter = new RateLimiter(EMOJI_RATE_LIMIT_WINDOW_MS, 1);
+
+  constructor(private readonly hub: SocketHub) {}
+
+  async handleSend(payload: SocketPayload<'chat.send'>, ctx: SocketContext) {
+    this.hub.broadcast({
       event: 'chat.message',
-      payload: {
-        userId: ctx.userId,
-        username: ctx.username,
-        message: payload.message,
-        timestamp: new Date().toISOString(),
-      },
+      payload: { userId: ctx.userId, username: ctx.username, message: payload.message, timestamp: new Date().toISOString() },
     });
   }
 
-  static async handleEmoji(payload: EmojiPayload, ctx: SocketContext) {
-    // Rate limit: 1 emoji per 500ms per user
-    if (!checkRateLimit(ctx.userId, EMOJI_RATE_LIMIT_WINDOW_MS)) {
-      console.log(`[chat] Emoji rate limited for ${ctx.userId}`);
-      return; // Silently drop
-    }
+  /** Broadcasts to the whole room, sender included as confirmation; excess reactions are silently dropped. */
+  async handleEmoji(payload: SocketPayload<'emoji.send'>, ctx: SocketContext) {
+    if (!this.emojiLimiter.allow(ctx.userId)) return;
 
-    // Broadcast to the party room (including sender for confirmation)
-    SocketEmitter.broadcastToRoom(ctx.app, {
+    this.hub.broadcast({
       event: 'emoji.reaction',
-      payload: {
-        userId: ctx.userId,
-        username: ctx.username,
-        emoji: payload.emoji,
-        timestamp: Date.now(),
-      },
+      payload: { userId: ctx.userId, username: ctx.username, emoji: payload.emoji, timestamp: Date.now() },
     });
   }
 }

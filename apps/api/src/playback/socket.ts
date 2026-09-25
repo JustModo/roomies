@@ -1,56 +1,25 @@
-import { registerSocketEvent, SocketContext } from '../websocket/router';
-import { withPlaybackLock, withControlsCheck } from './middleware';
-import { PlaybackService } from './service';
-import { IncomingSocketMessage } from '@roomies/contracts';
+import { FastifyBaseLogger } from 'fastify';
 import { TranscodeSessionManager } from '@roomies/transcoding';
-import { SocketEmitter } from '../websocket/emitter';
-import { FastifyInstance } from 'fastify';
+import { SocketHub } from '../websocket/hub';
+import { SocketRouter } from '../websocket/router';
+import { PlaybackService } from './service';
 
-type PlayPayload = Extract<IncomingSocketMessage, { event: 'playback.play' }>['payload'];
-type PausePayload = Extract<IncomingSocketMessage, { event: 'playback.pause' }>['payload'];
-type SeekPayload = Extract<IncomingSocketMessage, { event: 'playback.seek' }>['payload'];
-type SetRatePayload = Extract<IncomingSocketMessage, { event: 'playback.set_rate' }>['payload'];
+export const registerPlaybackSocketEvents = (router: SocketRouter, playback: PlaybackService) => {
+  const guards = [playback.controlsUnlocked, playback.acceptsCommand];
 
-export const registerPlaybackSocketEvents = () => {
-  registerSocketEvent(
-    'playback.play',
-    withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
-      await PlaybackService.handlePlay(payload as PlayPayload, ctx);
-    }))
-  );
-
-  registerSocketEvent(
-    'playback.pause',
-    withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
-      await PlaybackService.handlePause(payload as PausePayload, ctx);
-    }))
-  );
-
-  registerSocketEvent(
-    'playback.seek',
-    withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
-      await PlaybackService.handleSeek(payload as SeekPayload, ctx);
-    }))
-  );
-
-  registerSocketEvent(
-    'playback.set_rate',
-    withControlsCheck(withPlaybackLock(async (payload: unknown, ctx: SocketContext) => {
-      await PlaybackService.handleSetRate(payload as SetRatePayload, ctx);
-    }))
-  );
+  router.on('playback.play', (payload, ctx) => playback.handlePlay(payload, ctx), ...guards);
+  router.on('playback.pause', (payload, ctx) => playback.handlePause(payload, ctx), ...guards);
+  router.on('playback.seek', (payload, ctx) => playback.handleSeek(payload, ctx), ...guards);
+  router.on('playback.set_rate', (payload, ctx) => playback.handleSetRate(payload, ctx), ...guards);
 };
 
-export const registerTranscodeEvents = (app: FastifyInstance) => {
-  // NOTE: Broadcast transcoding failures to all clients.
-  TranscodeSessionManager.onError((resolution, error) => {
-    console.error('[transcode] Transcoding variant error:', { resolution, error: error.message });
-    SocketEmitter.broadcastToRoom(app, {
+/** NOTE: Broadcast transcoding failures to all clients. */
+export const registerTranscodeEvents = (transcoder: TranscodeSessionManager, hub: SocketHub, log: FastifyBaseLogger) => {
+  transcoder.onError((resolution, error) => {
+    log.error({ resolution, err: error }, 'Transcoding variant error');
+    hub.broadcast({
       event: 'error',
-      payload: {
-        message: `Transcoding error for ${resolution}: ${error.message}`,
-        code: 'TRANSCODE_ERROR',
-      },
+      payload: { message: `Transcoding error for ${resolution}: ${error.message}`, code: 'TRANSCODE_ERROR' },
     });
   });
 };

@@ -1,75 +1,76 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { isDev, projectRoot } from './dev';
-import { ConfigSchema, Config } from './schema';
+import { z } from 'zod';
+import { Config, ConfigSchema } from './schema';
 import { defaultConf } from './templates';
 
-export function loadConfig(): Config {
-  // NOTE: Single source of truth for config location.
-  const configPath = process.env.ROOMIES_CONFIG_PATH || path.resolve(projectRoot, 'config', 'roomies.conf');
-  const configDir = path.dirname(configPath);
+const DEV_DEFAULTS = (projectRoot: string) => ({
+  MEDIA_ROOT: path.resolve(projectRoot, 'media'),
+  CACHE_DIR: path.resolve(projectRoot, 'cache'),
+  FFMPEG_PATH: 'ffmpeg',
+  FFPROBE_PATH: 'ffprobe',
+});
 
-  // NOTE: Creates default config if missing.
+const PROD_DEFAULTS = {
+  MEDIA_ROOT: '/media',
+  CACHE_DIR: '/cache',
+  FFMPEG_PATH: '/usr/lib/jellyfin-ffmpeg/ffmpeg',
+  FFPROBE_PATH: '/usr/lib/jellyfin-ffmpeg/ffprobe',
+};
+
+// NOTE: Searches upwards from startDir for the monorepo root.
+function findProjectRoot(startDir: string): string {
+  for (let dir = startDir; dir !== path.parse(dir).root; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml')) || fs.existsSync(path.join(dir, 'turbo.json'))) return dir;
+  }
+  return startDir;
+}
+
+/**
+ * Reads roomies.conf (creating it from the template if missing) merged with environment
+ * overrides. Call once at startup and pass the result down; nothing reads config on import.
+ */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const nodeEnv = env.NODE_ENV || 'development';
+  const isDev = nodeEnv !== 'production';
+  const projectRoot = isDev ? findProjectRoot(process.cwd()) : process.cwd();
+
+  // NOTE: Single source of truth for config location.
+  const configPath = env.ROOMIES_CONFIG_PATH || path.resolve(projectRoot, 'config', 'roomies.conf');
+  const configDir = path.dirname(configPath);
   if (!fs.existsSync(configPath)) {
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
-    }
+    fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(configPath, defaultConf);
   }
 
   // NOTE: Centralized, persistent store for extracted/uploaded subtitles (unlike
   // CACHE_DIR, which gets wiped on every startup by the transcode cache cleaner).
   const subtitleDataDir = path.resolve(configDir, 'subtitles');
-  if (!fs.existsSync(subtitleDataDir)) {
-    fs.mkdirSync(subtitleDataDir, { recursive: true });
-  }
+  fs.mkdirSync(subtitleDataDir, { recursive: true });
 
-  const parsedConf = dotenv.parse(fs.readFileSync(configPath, 'utf8'));
+  const conf = dotenv.parse(fs.readFileSync(configPath, 'utf8'));
+  const defaults = isDev ? DEV_DEFAULTS(projectRoot) : PROD_DEFAULTS;
 
-  const devDefaults = {
-    CORS_ORIGIN: 'http://localhost',
-    MEDIA_ROOT: path.resolve(projectRoot, 'media'),
-    CACHE_DIR: path.resolve(projectRoot, 'cache'),
-    FFMPEG_PATH: 'ffmpeg',
-    FFPROBE_PATH: 'ffprobe',
-  };
+  const parsed = ConfigSchema.safeParse({
+    FFMPEG_VIDEO_CODEC: conf.FFMPEG_VIDEO_CODEC,
+    FFMPEG_PRESET: conf.FFMPEG_PRESET,
+    HWACCEL_MODE: conf.HWACCEL_MODE,
+    MAX_CONCURRENT_VARIANTS: conf.MAX_CONCURRENT_VARIANTS,
+    TZ: conf.TZ,
+    CORS_ORIGIN: env.CORS_ORIGIN || conf.CORS_ORIGIN || 'http://localhost',
 
-  const prodDefaults = {
-    CORS_ORIGIN: 'http://localhost',
-    MEDIA_ROOT: '/media',
-    CACHE_DIR: '/cache',
-    FFMPEG_PATH: '/usr/lib/jellyfin-ffmpeg/ffmpeg',
-    FFPROBE_PATH: '/usr/lib/jellyfin-ffmpeg/ffprobe',
-  };
+    NODE_ENV: nodeEnv,
+    PORT: env.PORT,
+    MEDIA_ROOT: env.MEDIA_ROOT || defaults.MEDIA_ROOT,
+    CACHE_DIR: env.CACHE_DIR || defaults.CACHE_DIR,
+    SUBTITLE_DATA_DIR: env.SUBTITLE_DATA_DIR || subtitleDataDir,
+    DATABASE_URL: env.DATABASE_URL || `file:${path.resolve(configDir, 'roomies.db')}`,
+    FFMPEG_PATH: env.FFMPEG_PATH || defaults.FFMPEG_PATH,
+    FFPROBE_PATH: env.FFPROBE_PATH || defaults.FFPROBE_PATH,
+  });
+  if (!parsed.success) throw new Error(`Invalid server configuration:\n${z.prettifyError(parsed.error)}`);
 
-  const defaults = isDev ? devDefaults : prodDefaults;
-
-  const rawConfig = {
-    FFMPEG_VIDEO_CODEC: parsedConf.FFMPEG_VIDEO_CODEC,
-    FFMPEG_PRESET: parsedConf.FFMPEG_PRESET,
-    HWACCEL_MODE: parsedConf.HWACCEL_MODE,
-    MAX_CONCURRENT_VARIANTS: parsedConf.MAX_CONCURRENT_VARIANTS,
-    TZ: parsedConf.TZ,
-    CORS_ORIGIN: process.env.CORS_ORIGIN || parsedConf.CORS_ORIGIN || defaults.CORS_ORIGIN,
-
-    PORT: process.env.PORT,
-    MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,
-    CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
-    SUBTITLE_DATA_DIR: process.env.SUBTITLE_DATA_DIR || subtitleDataDir,
-    DATABASE_URL: process.env.DATABASE_URL || `file:${path.resolve(configDir, 'roomies.db')}`,
-    FFMPEG_PATH: process.env.FFMPEG_PATH || defaults.FFMPEG_PATH,
-    FFPROBE_PATH: process.env.FFPROBE_PATH || defaults.FFPROBE_PATH,
-  };
-
-  const parsed = ConfigSchema.safeParse(rawConfig);
-
-  if (!parsed.success) {
-    console.error(parsed.error.format());
-    throw new Error('Invalid server configuration.');
-  }
-
-  process.env.TZ ??= parsed.data.TZ;
-
-  return parsed.data;
+  env.TZ ??= parsed.data.TZ;
+  return Object.freeze(parsed.data);
 }

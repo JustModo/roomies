@@ -1,12 +1,7 @@
-import { registerSocketEvent, SocketContext } from '../websocket/router';
+import { SocketRouter } from '../websocket/router';
 import { PartyService } from './service';
-import { IncomingSocketMessage } from '@roomies/contracts';
 
-type PartyUpdatePayload = Extract<IncomingSocketMessage, { event: 'party.update' }>['payload'];
-
-export const registerPartySocketEvents = () => {
-  // Party state changes (joined, muted, etc.) go through the main /ws gateway
-  registerSocketEvent('party.update', async (payload: unknown, ctx: SocketContext) => {
-    await PartyService.handlePartyUpdate(payload as PartyUpdatePayload, ctx);
-  });
+// Party state changes (joined, muted, etc.) go through the main /ws gateway.
+export const registerPartySocketEvents = (router: SocketRouter, party: PartyService) => {
+  router.on('party.update', (payload, ctx) => party.handlePartyUpdate(payload, ctx));
 };

@@ -44,7 +44,7 @@ test.describe('Auth & Lobby', () => {
   });
 
   test('05. JOIN ROOM enters room and shows room chrome', async ({ page }) => {
-    const tokens = await obtainAdminAndGuest();
+    await obtainAdminAndGuest();
     await loginAs(page, ADMIN_USER.username, ADMIN_USER.password);
     await joinRoomViaLobby(page);
     const room = new RoomPOM(page);
@@ -53,7 +53,7 @@ test.describe('Auth & Lobby', () => {
   });
 
   test('06. direct /room without join interaction redirects to lobby', async ({ page }) => {
-    const tokens = await obtainAdminAndGuest();
+    await obtainAdminAndGuest();
     await loginAs(page, ADMIN_USER.username, ADMIN_USER.password);
     await page.goto('/room');
     await expect(page).toHaveURL(/\/($|\?)/);

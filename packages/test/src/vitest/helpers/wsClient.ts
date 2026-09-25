@@ -26,15 +26,9 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
         send: (event: string, payload: unknown = {}) => {
           ws.send(JSON.stringify({ event, payload }));
         },
-        waitForEventMatching: <T = any>(
-          eventName: string,
-          predicate: (msg: any) => boolean,
-          timeoutMs = 5000
-        ): Promise<T> => {
+        waitForEventMatching: <T = any>(eventName: string, predicate: (msg: any) => boolean, timeoutMs = 5000): Promise<T> => {
           return new Promise((res, rej) => {
-            const existingIdx = receivedMessages.findIndex(
-              (m) => m.event === eventName && predicate(m)
-            );
+            const existingIdx = receivedMessages.findIndex((m) => m.event === eventName && predicate(m));
             if (existingIdx !== -1) {
               const [msg] = receivedMessages.splice(existingIdx, 1);
               return res(msg as unknown as T);
@@ -96,7 +90,7 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
           const matched = messageListeners[i](parsed);
           if (matched) break;
         }
-      } catch (err) {
+      } catch {
         // Ignore non-JSON messages
       }
     });

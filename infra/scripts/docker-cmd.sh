@@ -5,7 +5,7 @@ set -e
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
 CADDY_PID=$!
 
-node dist/index.js &
+node dist/main.js &
 NODE_PID=$!
 
 terminate() {

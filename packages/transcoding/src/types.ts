@@ -1,3 +1,5 @@
+import type { Config } from '@roomies/config';
+
 export type Resolution = '360p' | '720p' | '1080p';
 
 export interface ResolutionConfig {
@@ -12,6 +14,10 @@ export interface ResolutionConfig {
 export type TranscodeErrorCallback = (resolution: Resolution, error: Error) => void;
 
 export type HardwareEncoder = 'vaapi' | 'nvenc' | 'qsv' | 'cpu';
+
+export type FfmpegPreset = Config['FFMPEG_PRESET'];
+
+export type HwAccelMode = Config['HWACCEL_MODE'];
 
 /** streamIndex is the absolute ffprobe stream index in the source file (not an audio-relative
  *  ordinal) — used directly as `-map 0:<streamIndex>`, same convention as subtitle extraction. */

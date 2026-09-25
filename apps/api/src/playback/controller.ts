@@ -1,11 +1,24 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { ChangeMediaRequest } from '@roomies/contracts';
+import { z } from 'zod';
+import { ChangeMediaRequestSchema } from '@roomies/contracts';
+import { Resolution, isResolution } from '@roomies/transcoding';
+import { BadRequestError, NotFoundError } from '../config/errors';
+import { RoomStore } from '../room/store';
 import { PlaybackService } from './service';
-import type { HlsParams, HlsQuery } from './routes';
 
-type HlsRequest = FastifyRequest<{ Params: HlsParams; Querystring: HlsQuery }>;
+const HlsParamsSchema = z.object({
+  mediaId: z.string(),
+  sessionId: z.enum(['sync', 'async']),
+  resolution: z.custom<Resolution>((value) => typeof value === 'string' && isResolution(value)).optional(),
+  trackId: z.string().optional(),
+});
 
-const NOT_FOUND_ERRORS = ['Media file not found', 'Session media mismatch'];
+const HlsQuerySchema = z.object({
+  offset: z.coerce.number().nonnegative().optional(),
+});
+
+export type HlsRoute = { Params: z.infer<typeof HlsParamsSchema>; Querystring: z.infer<typeof HlsQuerySchema> };
+type HlsRequest = FastifyRequest<HlsRoute>;
 
 const sendPlaylist = (reply: FastifyReply, playlist: string) =>
   reply
@@ -13,72 +26,57 @@ const sendPlaylist = (reply: FastifyReply, playlist: string) =>
     .type('application/vnd.apple.mpegurl')
     .send(playlist);
 
-const sendPlaylistError = (reply: FastifyReply, error: any, failure: string) => {
-  if (NOT_FOUND_ERRORS.includes(error?.message)) {
-    return reply.status(404).send({ error: error.message });
-  }
-  console.error(`[playback] ${failure}:`, error);
-  return reply.status(500).send({ error: failure });
-};
+export class PlaybackController {
+  constructor(
+    private readonly playback: PlaybackService,
+    private readonly roomStore: RoomStore,
+  ) {}
 
-export const PlaybackController = {
-  async changeMedia(req: FastifyRequest<{ Body: ChangeMediaRequest }>, reply: FastifyReply) {
-    try {
-      const result = await PlaybackService.changeMedia(req.body.mediaFileId, req.server);
-      console.log(`[playback] Media changed to ${result.mediaFileId} (${result.title})`);
-      return reply.send(result);
-    } catch (error: any) {
-      if (error.message === 'Media file not found') {
-        return reply.status(404).send({ error: error.message });
-      }
-      console.error('[playback] Failed to change media:', error);
-      return reply.status(500).send({ error: 'Internal server error' });
+  /** preHandler: parses HLS params/query and only serves media (and audio tracks) that are currently playing. */
+  validateHls = async (req: FastifyRequest) => {
+    const params = HlsParamsSchema.safeParse(req.params);
+    const query = HlsQuerySchema.safeParse(req.query);
+    if (!params.success || !query.success) throw new BadRequestError('Invalid HLS request');
+
+    const room = this.roomStore.getState();
+    const { mediaId, trackId } = params.data;
+    if (mediaId !== room.mediaId) throw new NotFoundError('Media is not playing');
+    if (trackId !== undefined && !room.audioTracks.some((track) => track.id === trackId)) {
+      throw new NotFoundError('Audio track not found');
     }
-  },
 
-  async stopMedia(req: FastifyRequest, reply: FastifyReply) {
-    try {
-      await PlaybackService.stopMedia(req.server);
-      console.log('[playback] Media playback stopped');
-      return reply.send({ success: true });
-    } catch (error: any) {
-      console.error('[playback] Failed to stop media:', error);
-      return reply.status(500).send({ error: 'Internal server error' });
-    }
-  },
+    req.params = params.data;
+    req.query = query.data;
+  };
 
-  async getActive(req: FastifyRequest, reply: FastifyReply) {
-    const active = PlaybackService.getActivePlayback();
-    return reply.send(active);
-  },
+  changeMedia = async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = ChangeMediaRequestSchema.safeParse(req.body);
+    if (!body.success) throw new BadRequestError('Invalid request data', body.error.format());
 
-  async getMasterPlaylist(req: HlsRequest, reply: FastifyReply) {
+    return reply.send(await this.playback.changeMedia(body.data.mediaFileId));
+  };
+
+  stopMedia = async (_req: FastifyRequest, reply: FastifyReply) => {
+    await this.playback.stopMedia();
+    return reply.send({ success: true });
+  };
+
+  getActive = async (_req: FastifyRequest, reply: FastifyReply) => {
+    return reply.send(this.playback.getActivePlayback());
+  };
+
+  getMasterPlaylist = async (req: HlsRequest, reply: FastifyReply) => {
     const { mediaId, sessionId } = req.params;
-    try {
-      const playlist = await PlaybackService.generateMasterPlaylist(mediaId, req.query.offset, sessionId);
-      return sendPlaylist(reply, playlist);
-    } catch (error: any) {
-      return sendPlaylistError(reply, error, 'Failed to generate master playlist');
-    }
-  },
+    return sendPlaylist(reply, await this.playback.generateMasterPlaylist(mediaId, req.query.offset, sessionId));
+  };
 
-  async getVariantStream(req: HlsRequest, reply: FastifyReply) {
+  getVariantStream = async (req: HlsRequest, reply: FastifyReply) => {
     const { mediaId, sessionId, resolution } = req.params;
-    try {
-      const playlistContent = await PlaybackService.getVariantPlaylist(mediaId, sessionId, resolution!, req.query.offset);
-      return sendPlaylist(reply, playlistContent);
-    } catch (error: any) {
-      return sendPlaylistError(reply, error, 'Failed to start transcoding variant');
-    }
-  },
+    return sendPlaylist(reply, await this.playback.getVariantPlaylist(mediaId, sessionId, resolution!, req.query.offset));
+  };
 
-  async getAudioStream(req: HlsRequest, reply: FastifyReply) {
+  getAudioStream = async (req: HlsRequest, reply: FastifyReply) => {
     const { mediaId, sessionId, trackId } = req.params;
-    try {
-      const playlistContent = await PlaybackService.getAudioPlaylist(mediaId, sessionId, trackId!, req.query.offset);
-      return sendPlaylist(reply, playlistContent);
-    } catch (error: any) {
-      return sendPlaylistError(reply, error, 'Failed to start transcoding audio track');
-    }
-  }
-};
+    return sendPlaylist(reply, await this.playback.getAudioPlaylist(mediaId, sessionId, trackId!, req.query.offset));
+  };
+}

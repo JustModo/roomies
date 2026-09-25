@@ -21,8 +21,6 @@ export interface SeedingResult {
   mediaFile: PrismaMediaFile;
 }
 
-
-
 export interface TestEnvironmentContext {
   db: TestDbContext;
   server: TestServerContext;
@@ -33,11 +31,7 @@ export interface TestEnvironmentContext {
   cleanup: () => Promise<void>;
 }
 
-export async function createAdminAccount(
-  baseUrl: string,
-  username = 'admin',
-  password = 'password123'
-): Promise<UserAccount> {
+export async function createAdminAccount(baseUrl: string, username = 'admin', password = 'password123'): Promise<UserAccount> {
   const res = await fetch(`${baseUrl}/api/auth/setup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -60,7 +54,7 @@ export async function createGuestAccount(
   baseUrl: string,
   adminToken: string,
   username = 'guestuser',
-  password = 'guestpassword123'
+  password = 'guestpassword123',
 ): Promise<UserAccount> {
   const createRes = await fetch(`${baseUrl}/api/users/guest`, {
     method: 'POST',
@@ -98,7 +92,7 @@ export async function seedTestMedia(
   mockMedia: MockMediaDir,
   title = 'Mock Movie',
   fileName = 'mock.mp4',
-  duration = 600
+  duration = 600,
 ): Promise<SeedingResult> {
   const library = await prisma.library.create({
     data: { name: 'Mock Lib', path: mockMedia.dirPath },
@@ -120,14 +114,12 @@ export async function seedTestMedia(
   return { library, movie, mediaFile };
 }
 
-export async function setupTestEnvironment(
-  serverOptions?: BootstrapOptions
-): Promise<TestEnvironmentContext> {
+export async function setupTestEnvironment(serverOptions?: BootstrapOptions): Promise<TestEnvironmentContext> {
   const mockMedia = createMockMediaDir();
   const db = await createTestDatabase();
   const media = await seedTestMedia(db.prisma, mockMedia);
 
-  const server = await createTestServer(serverOptions);
+  const server = await createTestServer(db.prisma, serverOptions);
 
   const admin = await createAdminAccount(server.baseUrl);
   const guest = await createGuestAccount(server.baseUrl, admin.token);

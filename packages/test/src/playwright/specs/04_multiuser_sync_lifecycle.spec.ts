@@ -50,7 +50,7 @@ test.describe('Multi-User Sync Lifecycle', () => {
     await waitForTimesConverged(adminPage, guestPage, 5, 30000);
   });
 
-  test('06. mid-play guest join matches playing + playhead', async ({ room, browser, request }) => {
+  test('06. mid-play guest join matches playing + playhead', async ({ room, browser }) => {
     const { adminPage, adminPlayer } = room;
     await adminPlayer.playViaButton();
     await waitForPlaying(adminPage);
@@ -109,11 +109,14 @@ test.describe('Multi-User Sync Lifecycle', () => {
     const { adminPage, guestPage, adminPlayer, guestPlayer } = room;
     await Promise.all([adminPlayer.toggleViaSpace(), guestPlayer.toggleViaSpace()]);
     await expect
-      .poll(async () => {
-        const a = await getVideoState(adminPage);
-        const b = await getVideoState(guestPage);
-        return a.paused === b.paused;
-      }, { timeout: 20000 })
+      .poll(
+        async () => {
+          const a = await getVideoState(adminPage);
+          const b = await getVideoState(guestPage);
+          return a.paused === b.paused;
+        },
+        { timeout: 20000 },
+      )
       .toBe(true);
   });
 

@@ -13,7 +13,13 @@ export async function loginAs(page: Page, username: string, password: string): P
 
 export async function joinRoomViaLobby(page: Page) {
   // Ensure we're authenticated on lobby first
-  if (!page.url().match(/\/($|\?)/) || !(await page.getByRole('button', { name: /JOIN ROOM/i }).isVisible().catch(() => false))) {
+  if (
+    !page.url().match(/\/($|\?)/) ||
+    !(await page
+      .getByRole('button', { name: /JOIN ROOM/i })
+      .isVisible()
+      .catch(() => false))
+  ) {
     await page.goto('/');
     await expect(page.getByRole('button', { name: /JOIN ROOM/i })).toBeVisible({ timeout: 20000 });
   }

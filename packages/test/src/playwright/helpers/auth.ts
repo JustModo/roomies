@@ -1,8 +1,4 @@
-import {
-  createAdminAccount,
-  createGuestAccount,
-  type UserAccount,
-} from '../../vitest/helpers/testFixtures';
+import { createAdminAccount, createGuestAccount, type UserAccount } from '../../vitest/helpers/testFixtures';
 
 export const API_BASE = 'http://127.0.0.1:3000';
 
@@ -55,12 +51,7 @@ export async function obtainAdminAndGuest(): Promise<AuthTokens> {
   }
 
   const guestUsername = `g_${Math.random().toString(36).slice(2, 8)}`;
-  const guest = await createGuestAccount(
-    API_BASE,
-    admin.token,
-    guestUsername,
-    GUEST_PASSWORD,
-  );
+  const guest = await createGuestAccount(API_BASE, admin.token, guestUsername, GUEST_PASSWORD);
 
   return {
     adminToken: admin.token,
@@ -72,10 +63,7 @@ export async function obtainAdminAndGuest(): Promise<AuthTokens> {
   };
 }
 
-export async function createGuest(
-  adminToken: string,
-  username?: string,
-): Promise<UserAccount> {
+export async function createGuest(adminToken: string, username?: string): Promise<UserAccount> {
   const guestUsername = username ?? `g_${Math.random().toString(36).slice(2, 8)}`;
   return createGuestAccount(API_BASE, adminToken, guestUsername, GUEST_PASSWORD);
 }

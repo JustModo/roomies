@@ -12,10 +12,11 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "cross-env DATABASE_URL=file:../../config/roomies.db prisma generate && cross-env DATABASE_URL=file:../../config/roomies.db prisma migrate dev && tsx watch src/index.ts",
+    "dev": "cross-env DATABASE_URL=file:../../config/roomies.db prisma generate && cross-env DATABASE_URL=file:../../config/roomies.db prisma migrate dev && tsx watch src/main.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/main.ts",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

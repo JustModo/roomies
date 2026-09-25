@@ -1,31 +1,18 @@
-import { FastifyInstance } from 'fastify';
-import { LibraryController } from './controller';
-import { ScanLibraryRequestSchema } from '@roomies/contracts';
-import { verifyJwt, requireRole } from '../auth/middleware';
+import { FastifyPluginAsync } from 'fastify';
+import { AuthGuard } from '../auth/middleware';
+import { LibraryController, SubtitleRoute, UploadRoute } from './controller';
 
-export const libraryRoutes = async (app: FastifyInstance) => {
-  app.addHook('preHandler', verifyJwt);
+export const libraryRoutes =
+  (controller: LibraryController, guard: AuthGuard): FastifyPluginAsync =>
+  async (app) => {
+    // NOTE: Library scanning and subtitle management are restricted to root accounts.
+    const rootOnly = { preHandler: guard.requireRole('root') };
 
-  app.get('/', LibraryController.getLibraries);
-  app.get('/subtitles/:subtitleId', LibraryController.getSubtitle);
+    app.addHook('preHandler', guard.verifyJwt);
 
-  // NOTE: Manual subtitle uploads are restricted to root accounts, same as library scanning.
-  app.post('/media/:mediaFileId/subtitles', { preHandler: requireRole('root') }, async (req, reply) => {
-    return LibraryController.uploadSubtitle(req as any, reply);
-  });
-
-  app.delete('/subtitles/:subtitleId', { preHandler: requireRole('root') }, async (req, reply) => {
-    return LibraryController.deleteSubtitle(req as any, reply);
-  });
-
-  // NOTE: Library scanning is restricted to root accounts.
-  app.post('/scan', { preHandler: requireRole('root') }, async (req, reply) => {
-    const parsedBody = ScanLibraryRequestSchema.safeParse(req.body);
-    if (!parsedBody.success) {
-      return reply.status(400).send({ error: 'Invalid request data', details: parsedBody.error.format() });
-    }
-
-    req.body = parsedBody.data;
-    return LibraryController.scan(req as any, reply);
-  });
-};
+    app.get('/', controller.getLibraries);
+    app.get<SubtitleRoute>('/subtitles/:subtitleId', controller.getSubtitle);
+    app.post<UploadRoute>('/media/:mediaFileId/subtitles', rootOnly, controller.uploadSubtitle);
+    app.delete<SubtitleRoute>('/subtitles/:subtitleId', rootOnly, controller.deleteSubtitle);
+    app.post('/scan', rootOnly, controller.scan);
+  };

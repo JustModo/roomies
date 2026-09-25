@@ -46,9 +46,7 @@ test.describe('Subtitles', () => {
     await adminPlayer.expectSubtitleText(/E2E subtitle [12]/i);
     // Jump into next cue window (~20s+)
     await adminPlayer.seekForward10();
-    await expect
-      .poll(async () => adminPlayer.getCurrentTime(), { timeout: 15000 })
-      .toBeGreaterThan(15);
+    await expect.poll(async () => adminPlayer.getCurrentTime(), { timeout: 15000 }).toBeGreaterThan(15);
     await adminPlayer.expectSubtitleText(/E2E subtitle [23]/i);
   });
 

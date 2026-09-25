@@ -1,30 +1,24 @@
-import { SocketEmitter } from '../websocket/emitter';
-import { roomStore } from '../room/store';
-import { IncomingSocketMessage } from '@roomies/contracts';
-import { SocketContext } from '../websocket/router';
-
-type PartyUpdatePayload = Extract<IncomingSocketMessage, { event: 'party.update' }>['payload'];
+import { RoomStore } from '../room/store';
+import { SocketHub } from '../websocket/hub';
+import { SocketContext, SocketPayload } from '../websocket/router';
 
 export class PartyService {
-  static async handlePartyUpdate(payload: PartyUpdatePayload, ctx: SocketContext) {
-    const state = roomStore.getState();
-    const member = state.members.find(m => m.userId === ctx.userId);
+  constructor(
+    private readonly roomStore: RoomStore,
+    private readonly hub: SocketHub,
+  ) {}
+
+  async handlePartyUpdate(payload: SocketPayload<'party.update'>, ctx: SocketContext) {
+    const member = this.roomStore.getMember(ctx.userId);
     if (!member) return;
 
-    const newParty = {
+    const party = {
       isJoined: payload.isJoined ?? member.party.isJoined,
       micMuted: payload.micMuted ?? member.party.micMuted,
       videoMuted: payload.videoMuted ?? member.party.videoMuted,
     };
 
-    roomStore.updateMember(ctx.userId, { party: newParty });
-
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'party.updated',
-      payload: {
-        userId: ctx.userId,
-        party: newParty,
-      }
-    });
+    this.roomStore.updateMember(ctx.userId, { party });
+    this.hub.broadcast({ event: 'party.updated', payload: { userId: ctx.userId, party } });
   }
 }

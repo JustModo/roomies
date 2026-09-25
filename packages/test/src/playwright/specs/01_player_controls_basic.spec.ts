@@ -1,11 +1,5 @@
 import { test, expect } from '../fixtures/roomFixture';
-import {
-  getVideoState,
-  waitForNoMediaOverlay,
-  waitForPaused,
-  waitForPlaying,
-  waitForTimeWithin,
-} from '../helpers/syncAssert';
+import { getVideoState, waitForNoMediaOverlay, waitForPaused, waitForPlaying, waitForTimeWithin } from '../helpers/syncAssert';
 
 test.describe('Player Controls & Basic Scrubbing', () => {
   test('01. play via UI starts video', async ({ room }) => {
@@ -43,9 +37,7 @@ test.describe('Player Controls & Basic Scrubbing', () => {
     const { adminPlayer } = room;
     const before = await adminPlayer.getCurrentTime();
     await adminPlayer.seekForward10();
-    await expect
-      .poll(async () => (await adminPlayer.getCurrentTime()) - before, { timeout: 15000 })
-      .toBeGreaterThanOrEqual(8);
+    await expect.poll(async () => (await adminPlayer.getCurrentTime()) - before, { timeout: 15000 }).toBeGreaterThanOrEqual(8);
   });
 
   test('06. ArrowLeft seeks about -10s', async ({ room }) => {
@@ -56,23 +48,17 @@ test.describe('Player Controls & Basic Scrubbing', () => {
     await waitForTimeWithin(adminPage, 20, 3);
     const before = await adminPlayer.getCurrentTime();
     await adminPlayer.seekBackward10();
-    await expect
-      .poll(async () => before - (await adminPlayer.getCurrentTime()), { timeout: 15000 })
-      .toBeGreaterThanOrEqual(8);
+    await expect.poll(async () => before - (await adminPlayer.getCurrentTime()), { timeout: 15000 }).toBeGreaterThanOrEqual(8);
   });
 
   test('07. Back/Forward 10s control buttons seek', async ({ room }) => {
     const { adminPlayer } = room;
     const before = await adminPlayer.getCurrentTime();
     await adminPlayer.seekForwardViaButton();
-    await expect
-      .poll(async () => (await adminPlayer.getCurrentTime()) - before, { timeout: 15000 })
-      .toBeGreaterThanOrEqual(8);
+    await expect.poll(async () => (await adminPlayer.getCurrentTime()) - before, { timeout: 15000 }).toBeGreaterThanOrEqual(8);
     const mid = await adminPlayer.getCurrentTime();
     await adminPlayer.seekBackwardViaButton();
-    await expect
-      .poll(async () => mid - (await adminPlayer.getCurrentTime()), { timeout: 15000 })
-      .toBeGreaterThanOrEqual(8);
+    await expect.poll(async () => mid - (await adminPlayer.getCurrentTime()), { timeout: 15000 }).toBeGreaterThanOrEqual(8);
   });
 
   test('08. Mute / Unmute via title buttons', async ({ room }) => {
@@ -87,9 +73,7 @@ test.describe('Player Controls & Basic Scrubbing', () => {
     const { adminPage, adminPlayer } = room;
     await adminPlayer.unmute();
     await adminPlayer.setVolume(0.4);
-    await expect
-      .poll(async () => Math.abs((await getVideoState(adminPage)).volume - 0.4))
-      .toBeLessThan(0.05);
+    await expect.poll(async () => Math.abs((await getVideoState(adminPage)).volume - 0.4)).toBeLessThan(0.05);
   });
 
   test('10. playback rate cycles through speed labels', async ({ room }) => {

@@ -1,9 +1,6 @@
-import { Application, Signal } from "libopus-wasm";
-import type {
-  Application as OpusApplication,
-  Signal as OpusSignal,
-} from "libopus-wasm";
-import type { JitterBufferOptions } from "./audio/JitterBuffer";
+import { Application, Signal } from 'libopus-wasm';
+import type { Application as OpusApplication, Signal as OpusSignal } from 'libopus-wasm';
+import type { JitterBufferOptions } from './audio/JitterBuffer';
 
 export interface VoiceConfig {
   sampleRate: 48000;

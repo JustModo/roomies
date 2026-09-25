@@ -1,11 +1,5 @@
 import { test, expect } from '../fixtures/roomFixture';
-import {
-  getVideoState,
-  waitForTimesConverged,
-  waitForTimeWithin,
-  waitForPlaying,
-  waitForPaused,
-} from '../helpers/syncAssert';
+import { getVideoState, waitForTimesConverged, waitForTimeWithin, waitForPlaying } from '../helpers/syncAssert';
 
 test.describe('Seek / Transcode Offset (client-visible)', () => {
   test('01. seek far ahead eventually reaches target region', async ({ room }) => {

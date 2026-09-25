@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 
 const SRT = '1\n00:00:01,000 --> 00:00:02,500\nHello there\n';
-const ASS = '[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,{\\an8}Top line\n';
+const ASS =
+  '[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,{\\an8}Top line\n';
 
 describe('Subtitle routes', () => {
   let env: TestEnvironmentContext;

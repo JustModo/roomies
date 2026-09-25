@@ -1,12 +1,26 @@
-import { FastifyInstance } from "fastify";
-import { authenticateWebSocket } from "../auth/websocket";
-import { voiceManager } from "./manager";
-import { VOICE_PROTOCOL, VoiceServerControlMessage } from "./config";
-import {
-  VoicePacketRateLimiter,
-  isValidOpusPacket,
-  parseVoiceClientControlMessage,
-} from "./protocol";
+import { WebSocket } from '@fastify/websocket';
+import { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
+import { AuthGuard } from '../auth/middleware';
+import { RateLimiter } from '../common/rateLimiter';
+import { VOICE_PROTOCOL, VoiceClientControlMessage } from './config';
+import { VoiceManager, sendControl } from './manager';
+
+type RawMessage = Buffer | ArrayBuffer | Buffer[];
+
+const toBuffer = (message: RawMessage): Buffer =>
+  Buffer.isBuffer(message) ? message : Array.isArray(message) ? Buffer.concat(message) : Buffer.from(message);
+
+const parseControlMessage = (raw: string): VoiceClientControlMessage | null => {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const event = typeof parsed === 'object' && parsed !== null ? (parsed as { event?: unknown }).event : undefined;
+    return event === 'join' || event === 'leave' || event === 'pong' ? { event } : null;
+  } catch {
+    return null;
+  }
+};
+
+const isValidOpusPacket = (packet: Buffer): boolean => packet.length > 2 && packet.length <= VOICE_PROTOCOL.maxOpusPacketBytes + 2;
 
 /**
  * Dedicated WebSocket gateway for voice chat at /ws/voice.
@@ -16,228 +30,121 @@ import {
  *   - Server prepends 2-byte sender `sessionId` and relays as binary, without reading the rest.
  *   - JSON control frames are still used for channel setup ('join', 'joined', etc.).
  */
-export const setupVoiceGateway = (app: FastifyInstance) => {
-  app.route({
-    method: "GET",
-    url: "/ws/voice",
-    handler: (_req, reply) => {
-      reply.status(400).send({ error: "WebSocket upgrade required" });
-    },
-    wsHandler: async (connection, req) => {
-      const userPayload = await authenticateWebSocket(req);
+export class VoiceGateway {
+  constructor(
+    private readonly guard: AuthGuard,
+    private readonly voice: VoiceManager,
+    private readonly log: FastifyBaseLogger,
+  ) {}
 
-      if (!userPayload) {
-        console.warn("[voice] WebSocket unauthorized");
-        connection.send(
-          JSON.stringify({ event: "error", payload: "Unauthorized" }),
-        );
-        connection.close();
+  register(app: FastifyInstance): void {
+    app.route({
+      method: 'GET',
+      url: '/ws/voice',
+      handler: (_req, reply) => {
+        reply.status(400).send({ error: 'WebSocket upgrade required' });
+      },
+      wsHandler: (socket, req) => this.handleConnection(socket, req),
+    });
+  }
+
+  private async handleConnection(connection: WebSocket, req: FastifyRequest): Promise<void> {
+    const user = await this.guard.authenticateWebSocket(req);
+    if (!user) {
+      this.log.warn('Voice WebSocket unauthorized');
+      sendControl(connection, { event: 'error', payload: 'Unauthorized' });
+      connection.close();
+      return;
+    }
+    if (connection.readyState !== connection.OPEN) return;
+
+    const { userId } = user;
+    const limiter = new RateLimiter(VOICE_PROTOCOL.rateLimitWindowMs, VOICE_PROTOCOL.maxPacketsPerSecond);
+    let pingInterval: NodeJS.Timeout | undefined;
+    let isInVoiceSession = false;
+    let lastPongAt = Date.now();
+    let lastPreJoinWarnAt = 0;
+
+    const closeWithPolicyViolation = (reason: string) => {
+      sendControl(connection, { event: 'error', payload: reason });
+      connection.close(VOICE_PROTOCOL.closeCodePolicyViolation, reason);
+    };
+
+    const join = () => {
+      if (isInVoiceSession) return;
+      const sessionId = this.voice.joinRoom(userId, connection);
+      isInVoiceSession = true;
+
+      sendControl(connection, { event: 'session_map', payload: this.voice.sessionMap() });
+      sendControl(connection, { event: 'joined' });
+      this.voice.broadcastControl({ event: 'peer_joined', payload: { userId, sessionId } }, userId);
+
+      lastPongAt = Date.now();
+      pingInterval = setInterval(() => {
+        if (Date.now() - lastPongAt > VOICE_PROTOCOL.heartbeatIntervalMs * 2) {
+          this.log.warn({ userId }, 'Terminating silent voice peer');
+          connection.terminate();
+          return;
+        }
+        sendControl(connection, { event: 'ping' });
+      }, VOICE_PROTOCOL.heartbeatIntervalMs);
+    };
+
+    const cleanup = (reason: 'leave' | 'disconnect') => {
+      if (reason === 'disconnect') this.voice.untrackConnection(userId, connection);
+      if (!isInVoiceSession) return;
+      isInVoiceSession = false;
+      clearInterval(pingInterval);
+
+      // Only a connection that still owns the session may evict it — a superseded
+      // one (reconnect race, duplicate tab) must not send a bogus peer_left.
+      if (!this.voice.leaveRoom(userId, connection)) return;
+      this.voice.broadcastControl({ event: 'peer_left', payload: { userId } });
+      this.log.info({ userId, reason }, 'Voice session closed');
+    };
+
+    const relayAudio = (packet: Buffer) => {
+      if (!isInVoiceSession) {
+        const now = Date.now();
+        if (now - lastPreJoinWarnAt >= VOICE_PROTOCOL.heartbeatIntervalMs) {
+          lastPreJoinWarnAt = now;
+          this.log.warn({ userId }, 'Ignoring pre-join audio');
+        }
         return;
       }
 
-      if (connection.readyState !== 1) return;
+      const sessionId = this.voice.getClientSessionId(userId);
+      if (!isValidOpusPacket(packet) || !limiter.allow() || sessionId === undefined) return;
 
-      const { userId } = userPayload;
-      let pingInterval: NodeJS.Timeout | null = null;
-      let isInVoiceSession = false;
-      let lastPongAt = Date.now();
-      let lastPreJoinWarnAt = 0;
-      const rateLimiter = new VoicePacketRateLimiter();
+      // Frame format: [2-byte sessionId][2-byte sequence][raw Opus]
+      const framed = Buffer.allocUnsafe(packet.length + 2);
+      framed.writeUInt16BE(sessionId, 0);
+      packet.copy(framed, 2);
+      this.voice.broadcastBinary(userId, framed);
+    };
 
-      const sendControl = (message: VoiceServerControlMessage) => {
-        if (connection.readyState === 1) {
-          connection.send(JSON.stringify(message));
-        }
-      };
+    this.log.info({ userId }, 'Voice user connected');
+    this.voice.trackConnection(userId, connection);
 
-      const closeWithPolicyViolation = (payload: string) => {
-        sendControl({ event: "error", payload });
-        connection.close(VOICE_PROTOCOL.closeCodePolicyViolation, payload);
-      };
+    connection.on('message', (message: RawMessage, isBinary: boolean) => {
+      const buffer = toBuffer(message);
+      if (isBinary) return relayAudio(buffer);
 
-      console.log(`[voice] user connected: ${userId}`);
-      voiceManager.trackConnection(userId, connection);
+      const control = parseControlMessage(buffer.toString('utf8'));
+      if (!control) return closeWithPolicyViolation('Invalid voice control message');
 
-      const cleanup = (reason: "leave" | "disconnect") => {
-        if (reason === "disconnect") voiceManager.untrackConnection(userId, connection);
-        if (!isInVoiceSession) return;
-        isInVoiceSession = false;
+      switch (control.event) {
+        case 'join':
+          return join();
+        case 'leave':
+          cleanup('leave');
+          return connection.close();
+        case 'pong':
+          lastPongAt = Date.now();
+      }
+    });
 
-        if (pingInterval) {
-          clearInterval(pingInterval);
-          pingInterval = null;
-        }
-
-        // Only remove/broadcast if this connection is still the current
-        // owner of the session — a stale connection (e.g. a reconnect race
-        // or duplicate tab) that already got superseded must not evict the
-        // live session or send a bogus peer_left for it.
-        const removed = voiceManager.leaveRoom(userId, connection);
-        if (!removed) return;
-
-        // Notify other clients about the user leaving
-        for (const client of voiceManager.getRoomClients()) {
-          if (client.socket.readyState === 1) {
-            client.socket.send(
-              JSON.stringify({
-                event: "peer_left",
-                payload: { userId },
-              } satisfies VoiceServerControlMessage),
-            );
-          }
-        }
-        console.log(
-          `[voice] session closed for ${userId} (reason: ${reason})`,
-        );
-      };
-
-      connection.on(
-        "message",
-        (message: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
-          //
-          // Control messages (JSON)
-          //
-          if (!isBinary) {
-            let rawText: string;
-
-            if (typeof message === "string") {
-              rawText = message;
-            } else if (Buffer.isBuffer(message)) {
-              rawText = message.toString("utf8");
-            } else if (message instanceof ArrayBuffer) {
-              rawText = Buffer.from(message).toString("utf8");
-            } else if (Array.isArray(message)) {
-              rawText = Buffer.concat(message).toString("utf8");
-            } else {
-              closeWithPolicyViolation("Unsupported voice control frame");
-              return;
-            }
-
-            const parsed = parseVoiceClientControlMessage(rawText);
-
-            if (!parsed) {
-              closeWithPolicyViolation("Invalid voice control message");
-              return;
-            }
-
-            switch (parsed.event) {
-              case "join": {
-                if (isInVoiceSession) return;
-
-                const sessionId = voiceManager.joinRoom(userId, connection);
-                isInVoiceSession = true;
-
-                console.log(`[voice] client joined room: ${userId}`);
-
-                const map: Record<string, number> = {};
-                for (const client of voiceManager.getRoomClients()) {
-                  map[client.userId] = client.sessionId;
-                }
-
-                sendControl({
-                  event: "session_map",
-                  payload: map,
-                });
-
-                sendControl({
-                  event: "joined",
-                });
-
-                for (const client of voiceManager.getRoomClients()) {
-                  if (
-                    client.userId !== userId &&
-                    client.socket.readyState === 1
-                  ) {
-                    client.socket.send(
-                      JSON.stringify({
-                        event: "peer_joined",
-                        payload: {
-                          userId,
-                          sessionId,
-                        },
-                      } satisfies VoiceServerControlMessage),
-                    );
-                  }
-                }
-
-                lastPongAt = Date.now();
-                pingInterval = setInterval(() => {
-                  if (!isInVoiceSession) return;
-                  if (Date.now() - lastPongAt > VOICE_PROTOCOL.heartbeatIntervalMs * 2) {
-                    console.warn(`[voice] terminating silent peer: ${userId}`);
-                    connection.terminate();
-                    return;
-                  }
-                  sendControl({ event: "ping" });
-                }, VOICE_PROTOCOL.heartbeatIntervalMs);
-
-                return;
-              }
-
-              case "leave": {
-                cleanup("leave");
-                connection.close();
-                return;
-              }
-
-              case "pong":
-                lastPongAt = Date.now();
-                return;
-
-              default:
-                return;
-            }
-          }
-
-          //
-          // Binary audio packets
-          //
-          const packet = Buffer.isBuffer(message)
-            ? message
-            : message instanceof ArrayBuffer
-              ? Buffer.from(message)
-              : Array.isArray(message)
-                ? Buffer.concat(message)
-                : null;
-
-          if (!packet) {
-            closeWithPolicyViolation("Unsupported binary frame");
-            return;
-          }
-
-          if (!isInVoiceSession) {
-            const now = Date.now();
-            if (now - lastPreJoinWarnAt >= VOICE_PROTOCOL.heartbeatIntervalMs) {
-              lastPreJoinWarnAt = now;
-              console.warn(
-                `[voice] ignoring pre-join audio from ${userId}`,
-              );
-            }
-            return;
-          }
-
-          if (!isValidOpusPacket(packet) || !rateLimiter.allow()) {
-            return;
-          }
-
-          const sessionId = voiceManager.getClientSessionId(userId);
-
-          if (sessionId === undefined) {
-            return;
-          }
-
-          // Frame format:
-          // [2-byte sessionId][2-byte sequence][raw Opus]
-          const framedMessage = Buffer.allocUnsafe(packet.length + 2);
-          framedMessage.writeUInt16BE(sessionId, 0);
-          packet.copy(framedMessage, 2);
-
-          voiceManager.broadcastBinary(userId, framedMessage);
-        },
-      );
-
-      connection.on("close", () => cleanup("disconnect"));
-      connection.on("error", () => cleanup("disconnect"));
-    },
-  });
-};
+    connection.on('close', () => cleanup('disconnect'));
+    connection.on('error', () => cleanup('disconnect'));
+  }
+}

@@ -1,10 +1,5 @@
 import { test, expect } from '../fixtures/roomFixture';
-import {
-  getVideoState,
-  waitForPlaying,
-  waitForTimesConverged,
-  waitForMediaReady,
-} from '../helpers/syncAssert';
+import { getVideoState, waitForPlaying, waitForTimesConverged, waitForMediaReady } from '../helpers/syncAssert';
 import { joinRoomViaLobby } from '../helpers/room';
 
 test.describe('Sync Stress & Resiliency', () => {
@@ -50,9 +45,15 @@ test.describe('Sync Stress & Resiliency', () => {
       .poll(
         async () => {
           const locked = await adminPage.locator('[title="Controls locked while syncing"]').count();
-          const syncing = await adminPage.getByText('SYNCING', { exact: true }).isVisible().catch(() => false);
+          const syncing = await adminPage
+            .getByText('SYNCING', { exact: true })
+            .isVisible()
+            .catch(() => false);
           const playOrPause = adminPage.locator('button[title="Play"], button[title="Pause"]');
-          const enabled = await playOrPause.first().isEnabled().catch(() => false);
+          const enabled = await playOrPause
+            .first()
+            .isEnabled()
+            .catch(() => false);
           // Success when either we observed syncing, or controls are usable again
           return locked > 0 || syncing || enabled;
         },
@@ -61,10 +62,13 @@ test.describe('Sync Stress & Resiliency', () => {
       .toBe(true);
 
     await expect
-      .poll(async () => {
-        await adminPlayer.revealControls();
-        return adminPage.locator('button[title="Play"], button[title="Pause"]').first().isEnabled();
-      }, { timeout: 45000 })
+      .poll(
+        async () => {
+          await adminPlayer.revealControls();
+          return adminPage.locator('button[title="Play"], button[title="Pause"]').first().isEnabled();
+        },
+        { timeout: 45000 },
+      )
       .toBe(true);
   });
 
@@ -75,11 +79,14 @@ test.describe('Sync Stress & Resiliency', () => {
       await pageWait(200);
     }
     await expect
-      .poll(async () => {
-        const a = await getVideoState(adminPage);
-        const b = await getVideoState(guestPage);
-        return a.paused === b.paused;
-      }, { timeout: 30000 })
+      .poll(
+        async () => {
+          const a = await getVideoState(adminPage);
+          const b = await getVideoState(guestPage);
+          return a.paused === b.paused;
+        },
+        { timeout: 30000 },
+      )
       .toBe(true);
     await expect(guestPlayer).toBeTruthy();
   });

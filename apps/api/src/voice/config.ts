@@ -6,10 +6,7 @@ export const VOICE_PROTOCOL = {
   closeCodePolicyViolation: 1008,
 } as const;
 
-export type VoiceClientControlMessage =
-  | { event: 'join' }
-  | { event: 'leave' }
-  | { event: 'pong' };
+export type VoiceClientControlMessage = { event: 'join' } | { event: 'leave' } | { event: 'pong' };
 
 export type VoiceServerControlMessage =
   | { event: 'session_map'; payload: Record<string, number> }

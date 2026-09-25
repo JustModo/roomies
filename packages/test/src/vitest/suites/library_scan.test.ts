@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { LibraryService } from '@roomies/library';
+import { loadConfig } from '@roomies/config';
+import { LibraryService, libraryOptionsFrom } from '@roomies/library';
+import { silentLogger } from '../helpers/silentLogger';
 import { createTestDatabase, TestDbContext } from '../helpers/testDatabase';
 
 describe('Library scan against disk', () => {
   let db: TestDbContext;
+  let library: LibraryService;
   const titleDir = path.join(process.env.MEDIA_ROOT!, 'Arrival');
   const video = path.join(titleDir, 'Arrival.mkv');
   const englishSubs = path.join(titleDir, 'Arrival.en.srt');
@@ -18,6 +21,7 @@ describe('Library scan against disk', () => {
 
   beforeAll(async () => {
     db = await createTestDatabase();
+    library = new LibraryService(db.prisma, libraryOptionsFrom(loadConfig()), silentLogger);
     fs.mkdirSync(titleDir, { recursive: true });
     fs.writeFileSync(video, 'video');
     fs.writeFileSync(englishSubs, '1\n00:00:01,000 --> 00:00:02,000\nHi\n');
@@ -29,7 +33,7 @@ describe('Library scan against disk', () => {
   });
 
   it('imports a same-basename sidecar subtitle with the language from its filename', async () => {
-    await LibraryService.scanLibrary(db.prisma);
+    await library.scan();
 
     await vi.waitFor(async () => expect(await sidecars()).toHaveLength(1));
     const [subtitle] = await sidecars();
@@ -43,7 +47,7 @@ describe('Library scan against disk', () => {
 
   it('picks up new sidecars on rescan without duplicating existing ones', async () => {
     fs.writeFileSync(frenchSubs, '1\n00:00:01,000 --> 00:00:02,000\nSalut\n');
-    await LibraryService.scanLibrary(db.prisma);
+    await library.scan();
 
     await vi.waitFor(async () => expect((await sidecars()).map((s) => s.language)).toEqual(['en', 'fr']));
     await probeFailed();
@@ -51,7 +55,7 @@ describe('Library scan against disk', () => {
 
   it('removes the row of a sidecar deleted from disk', async () => {
     fs.rmSync(englishSubs);
-    await LibraryService.scanLibrary(db.prisma);
+    await library.scan();
 
     await vi.waitFor(async () => expect((await sidecars()).map((s) => s.path)).toEqual([frenchSubs]));
     await probeFailed();
@@ -60,7 +64,7 @@ describe('Library scan against disk', () => {
   it('shares one in-flight scan between concurrent callers', async () => {
     const findFirst = vi.spyOn(db.prisma.library, 'findFirst');
 
-    const [a, b] = await Promise.all([LibraryService.scanLibrary(db.prisma), LibraryService.scanLibrary(db.prisma)]);
+    const [a, b] = await Promise.all([library.scan(), library.scan()]);
 
     expect(findFirst).toHaveBeenCalledTimes(1);
     expect(a).toEqual(b);

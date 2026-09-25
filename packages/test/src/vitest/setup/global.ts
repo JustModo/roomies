@@ -15,13 +15,9 @@ export async function setup() {
   tempMediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roomies-test-media-'));
 
   const confPath = path.join(tempConfigDir, 'roomies.conf');
-  const dummyConf = [
-    'CORS_ORIGIN=http://localhost:3000',
-    'FFMPEG_VIDEO_CODEC=libx264',
-    'FFMPEG_PRESET=ultrafast',
-    'HWACCEL_MODE=cpu',
-  ].join('\n');
-
+  const dummyConf = ['CORS_ORIGIN=http://localhost:3000', 'FFMPEG_VIDEO_CODEC=libx264', 'FFMPEG_PRESET=ultrafast', 'HWACCEL_MODE=cpu'].join(
+    '\n',
+  );
 
   fs.writeFileSync(confPath, dummyConf);
 
@@ -38,12 +34,18 @@ export async function setup() {
 
 export async function teardown() {
   if (tempConfigDir) {
-    try { fs.rmSync(tempConfigDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(tempConfigDir, { recursive: true, force: true });
+    } catch {}
   }
   if (tempCacheDir) {
-    try { fs.rmSync(tempCacheDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(tempCacheDir, { recursive: true, force: true });
+    } catch {}
   }
   if (tempMediaDir) {
-    try { fs.rmSync(tempMediaDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(tempMediaDir, { recursive: true, force: true });
+    } catch {}
   }
 }

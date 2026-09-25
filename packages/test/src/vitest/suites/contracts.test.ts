@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  LoginSchema,
-  CreateGuestSchema,
-  ChangeMediaRequestSchema,
-} from '@roomies/contracts';
+import { LoginSchema, CreateGuestSchema, ChangeMediaRequestSchema } from '@roomies/contracts';
 
 describe('Contracts & Schemas', () => {
   it('validates correct login request payload', () => {

@@ -1,333 +1,192 @@
-import { SocketContext } from '../websocket/router';
-import { IncomingSocketMessage } from '@roomies/contracts';
-import { roomStore } from '../room/store';
-import { SocketEmitter } from '../websocket/emitter';
-import { coordinator } from '../playback/coordinator';
-import { buildMediaChangedPayload } from '../playback/helpers';
-import { SYNC_CONFIG } from '../config';
+import { FastifyBaseLogger } from 'fastify';
+import { mediaChangedFor } from '../playback/helpers';
+import { PlaybackCoordinator } from '../playback/coordinator';
+import { MemberState, RoomPlaybackState, RoomStore } from '../room/store';
+import { SocketHub } from '../websocket/hub';
+import { SocketContext, SocketPayload } from '../websocket/router';
+import { SYNC_CONFIG } from './config';
 
-type HeartbeatPayload = Extract<IncomingSocketMessage, { event: 'sync.heartbeat' }>['payload'];
-type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['payload'];
+type HeartbeatPayload = SocketPayload<'sync.heartbeat'>;
+type StatusPayload = SocketPayload<'sync.status'>;
+type PositionedHeartbeat = HeartbeatPayload & { position: number };
 
+/** Keeps every member's playhead aligned with the room and owns member status transitions. */
 export class SyncService {
-  private static userStatusLocks = new Map<string, Promise<void>>();
+  private userStatusLocks = new Map<string, Promise<void>>();
 
-  static async handleHeartbeat(rawPayload: HeartbeatPayload, ctx: SocketContext) {
+  constructor(
+    private readonly roomStore: RoomStore,
+    private readonly hub: SocketHub,
+    private readonly coordinator: PlaybackCoordinator,
+    private readonly log: FastifyBaseLogger,
+  ) {}
+
+  async handleHeartbeat(rawPayload: HeartbeatPayload, ctx: SocketContext) {
     if (rawPayload.timestamp !== undefined) {
-      SocketEmitter.sendToClient(ctx.socket, {
-        event: 'sync.heartbeat_ack',
-        payload: { timestamp: rawPayload.timestamp }
-      });
+      this.hub.sendTo(ctx.socket, { event: 'sync.heartbeat_ack', payload: { timestamp: rawPayload.timestamp } });
     }
 
-    const state = roomStore.getState();
-    const payload = { ...rawPayload, playbackRate: rawPayload.playbackRate ?? state.playback.playbackRate };
-    const member = state.members.find(m => m.userId === ctx.userId);
-
+    const payload = { ...rawPayload, playbackRate: rawPayload.playbackRate ?? this.roomStore.getState().playback.playbackRate };
+    const member = this.roomStore.getMember(ctx.userId);
     const statusChanged = !!member && payload.status !== undefined && payload.status !== member.status;
     const pingChanged = !!member && payload.pingQuality !== undefined && payload.pingQuality !== member.pingQuality;
 
     if (member && pingChanged) {
-      roomStore.updateMember(ctx.userId, { pingQuality: payload.pingQuality });
+      this.roomStore.updateMember(ctx.userId, { pingQuality: payload.pingQuality });
       if (!statusChanged) {
-        SocketEmitter.broadcastToRoom(ctx.app, {
+        this.hub.broadcast({
           event: 'user.status_changed',
-          payload: { userId: ctx.userId, status: member.status, pingQuality: payload.pingQuality }
+          payload: { userId: ctx.userId, status: member.status, pingQuality: payload.pingQuality },
         });
       }
     }
 
-    if (statusChanged) {
-      await this.handleStatus({ status: payload.status! }, ctx);
-    }
+    if (statusChanged) await this.handleStatus({ status: payload.status! }, ctx);
 
-    const updatedMember = roomStore.getState().members.find(m => m.userId === ctx.userId);
-    if (payload.position !== undefined) {
-      if (updatedMember && updatedMember.status === 'async') {
-        this.handleAsyncHeartbeat({ ...payload, position: payload.position }, ctx, updatedMember);
-      } else {
-        this.handleSyncHeartbeat({ ...payload, position: payload.position }, ctx, roomStore.getState());
-      }
+    if (payload.position === undefined) return;
+    const positioned = { ...payload, position: payload.position };
+    if (this.roomStore.getMember(ctx.userId)?.status === 'async') {
+      this.handleAsyncHeartbeat(positioned, ctx);
+    } else {
+      this.handleSyncHeartbeat(positioned, ctx);
     }
   }
 
-  private static handleAsyncHeartbeat(
-    payload: HeartbeatPayload & { position: number },
-    ctx: SocketContext,
-    _member: ReturnType<typeof roomStore.getState>['members'][0]
-  ) {
-    roomStore.updateMember(ctx.userId, { 
-      position: payload.position,
-      activeResolution: payload.resolution 
-    });
-    const swappedOffset = coordinator.updateAsyncPlayhead(ctx.userId, payload.position, payload.resolution);
+  /** Serialized per user so rapid status flips can't interleave async enter/exit. */
+  async handleStatus(payload: StatusPayload, ctx: SocketContext) {
+    const previous = this.userStatusLocks.get(ctx.userId) ?? Promise.resolve();
+    const next = previous.then(() =>
+      this.applyStatus(payload, ctx).catch((err) => this.log.error({ err, userId: ctx.userId }, 'Error handling status')),
+    );
+    this.userStatusLocks.set(ctx.userId, next);
+    await next;
+    if (this.userStatusLocks.get(ctx.userId) === next) this.userStatusLocks.delete(ctx.userId);
+  }
+
+  /** Pauses when every member went async, and moves the room between buffering and its intended state. */
+  reconcileRoomBufferingState(): void {
+    const { members, playback } = this.roomStore.getState();
+    const activeMembers = members.filter((m) => m.status !== 'async');
+
+    if (activeMembers.length === 0 && (playback.state === 'playing' || playback.intendedState === 'playing')) {
+      return this.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
+    }
+
+    const anyoneBuffering = members.some((m) => m.status === 'buffering');
+    if (anyoneBuffering && playback.state === 'playing') {
+      this.updatePlayback({ state: 'buffering', anchorTime: Date.now() });
+    }
+    if (!anyoneBuffering && (playback.state === 'waiting' || playback.state === 'buffering') && activeMembers.length > 0) {
+      this.updatePlayback({ state: playback.intendedState, anchorTime: Date.now() });
+    }
+  }
+
+  private handleAsyncHeartbeat(payload: PositionedHeartbeat, ctx: SocketContext) {
+    this.roomStore.updateMember(ctx.userId, { position: payload.position, activeResolution: payload.resolution });
+    const swappedOffset = this.coordinator.updateAsyncPlayhead(ctx.userId, payload.position, payload.resolution);
 
     // Client HLS must reinit when the server playhead jumps to another covering offset.
-    if (swappedOffset !== null) {
-      const state = roomStore.getState();
-      if (state.mediaId) {
-        SocketEmitter.sendToClient(ctx.socket, {
-          event: 'media.changed',
-          payload: buildMediaChangedPayload({
-            mediaFileId: state.mediaId,
-            title: state.mediaTitle || 'Unknown Media',
-            duration: state.duration,
-            transcodeOffset: swappedOffset,
-            sessionScope: 'user',
-            sessionId: 'async',
-            subtitles: state.subtitles,
-            audioTracks: state.audioTracks,
-          }),
+    const state = this.roomStore.getState();
+    if (swappedOffset !== null && state.mediaId) {
+      this.hub.sendTo(ctx.socket, { event: 'media.changed', payload: mediaChangedFor(state, 'user', swappedOffset) });
+    }
+  }
+
+  private handleSyncHeartbeat(payload: PositionedHeartbeat, ctx: SocketContext) {
+    const { playback } = this.roomStore.getState();
+
+    // NOTE: If the room is buffering, wait for it to resume before enforcing sync.
+    if (playback.state !== 'buffering') {
+      const expectedPosition = this.roomStore.getCurrentPosition();
+      const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
+      // NOTE: Cooldown check for hard seeks to prevent feedback loops.
+      const now = Date.now();
+      const inSeekCooldown = now - (ctx.socket.lastSeekTime ?? 0) < SYNC_CONFIG.HARD_SEEK_COOLDOWN_MS;
+
+      if (driftMs > SYNC_CONFIG.HARD_THRESHOLD_MS && !inSeekCooldown && playback.state === 'playing') {
+        ctx.socket.lastSeekTime = now;
+        this.log.warn({ userId: ctx.userId, driftMs: Math.round(driftMs), seekTo: expectedPosition }, 'Hard seek correction');
+        this.hub.sendTo(ctx.socket, { event: 'sync.correct', payload: { position: expectedPosition, seek: true } });
+      } else if (driftMs > SYNC_CONFIG.SOFT_THRESHOLD_MS && playback.state === 'playing') {
+        this.applySoftCorrection(ctx, payload, playback, expectedPosition, driftMs);
+      } else if (payload.playbackRate !== playback.playbackRate) {
+        this.log.info({ userId: ctx.userId, playbackRate: playback.playbackRate }, 'User back in sync, resetting playback rate');
+        this.hub.sendTo(ctx.socket, {
+          event: 'sync.correct',
+          payload: { position: expectedPosition, playbackRate: playback.playbackRate },
         });
       }
     }
+
+    this.roomStore.updateMember(ctx.userId, { position: payload.position, activeResolution: payload.resolution });
+    this.coordinator.updateSyncPlayhead(ctx.userId, payload.position);
   }
 
-  private static handleSyncHeartbeat(
-    payload: HeartbeatPayload & { position: number },
+  /** Nudges the client's rate relative to the room rate; skipped while a correction is already running. */
+  private applySoftCorrection(
     ctx: SocketContext,
-    state: ReturnType<typeof roomStore.getState>
+    payload: PositionedHeartbeat,
+    playback: RoomPlaybackState,
+    expectedPosition: number,
+    driftMs: number,
   ) {
+    if (payload.playbackRate !== playback.playbackRate) return;
 
-    const { playback } = state;
-    const expectedPosition = this.calculateExpectedPosition(playback);
-    const driftMs = Math.abs(expectedPosition - payload.position) * 1000;
+    const delta = SYNC_CONFIG.SOFT_CORRECTION_RATE_DELTA;
+    const correctionRate = playback.playbackRate * (payload.position < expectedPosition ? 1 + delta : 1 - delta);
+    const correctionDurationMs = Math.round(driftMs / Math.abs(correctionRate - playback.playbackRate));
 
-    const SOFT_THRESHOLD_MS = SYNC_CONFIG.SOFT_THRESHOLD_MS;
-    const HARD_THRESHOLD_MS = SYNC_CONFIG.HARD_THRESHOLD_MS;
-
-    // NOTE: If the room is buffering, wait for it to resume before enforcing sync.
-    if (playback.state === 'buffering') {
-      roomStore.updateMember(ctx.userId, { 
-        position: payload.position,
-        activeResolution: payload.resolution 
-      });
-      coordinator.updateSyncPlayhead(ctx.userId, payload.position);
-      return;
-    }
-
-    // NOTE: Cooldown check for hard seeks to prevent feedback loops.
-    const lastSeekTime = ctx.socket.lastSeekTime || 0;
-    const now = Date.now();
-    const isSeekingCooldown = (now - lastSeekTime) < SYNC_CONFIG.HARD_SEEK_COOLDOWN_MS;
-
-    if (driftMs > HARD_THRESHOLD_MS && !isSeekingCooldown && playback.state === 'playing') {
-      this.applyHardCorrection(ctx, expectedPosition, driftMs, now);
-    } else if (driftMs > SOFT_THRESHOLD_MS && playback.state === 'playing') {
-      this.applySoftCorrection(ctx, payload, playback, expectedPosition, driftMs);
-    } else {
-      this.clearSoftCorrection(ctx, payload, playback, expectedPosition);
-    }
-
-    roomStore.updateMember(ctx.userId, { 
-      position: payload.position,
-      activeResolution: payload.resolution 
-    });
-
-    coordinator.updateSyncPlayhead(ctx.userId, payload.position);
-  }
-
-  private static calculateExpectedPosition(playback: ReturnType<typeof roomStore.getState>['playback']): number {
-    let expectedPosition = playback.anchorPosition;
-    if (playback.state === 'playing') {
-      const elapsedSeconds = (Date.now() - playback.anchorTime) / 1000;
-      expectedPosition += elapsedSeconds * playback.playbackRate;
-    }
-    return expectedPosition;
-  }
-
-  private static applyHardCorrection(ctx: SocketContext, expectedPosition: number, driftMs: number, now: number) {
-    ctx.socket.lastSeekTime = now;
-
-    console.warn(`[sync] Hard seek correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Seeking to ${expectedPosition.toFixed(2)}s`);
-    SocketEmitter.sendToClient(ctx.socket, {
+    this.log.warn({ userId: ctx.userId, driftMs: Math.round(driftMs), correctionRate, correctionDurationMs }, 'Soft rate correction');
+    this.hub.sendTo(ctx.socket, {
       event: 'sync.correct',
-      payload: {
-        position: expectedPosition,
-        seek: true
-      }
+      payload: { position: expectedPosition, playbackRate: correctionRate, correctionDurationMs },
     });
   }
 
-  private static applySoftCorrection(ctx: SocketContext, payload: HeartbeatPayload & { position: number }, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number, driftMs: number) {
-
-    const isCorrecting = payload.playbackRate !== playback.playbackRate;
-    if (!isCorrecting) {
-      const isBehind = payload.position < expectedPosition;
-      
-      // Make correction relative to the current room playback rate
-      const delta = SYNC_CONFIG.SOFT_CORRECTION_RATE_DELTA;
-      const correctionRate = playback.playbackRate * (isBehind ? 1 + delta : 1 - delta);
-      
-      const speedDelta = Math.abs(correctionRate - playback.playbackRate);
-      const correctionDurationMs = Math.round(driftMs / speedDelta);
-
-      console.warn(`[sync] Soft rate correction for user ${ctx.userId}: drift of ${driftMs.toFixed(0)}ms. Applying ${correctionRate.toFixed(2)}x rate for ${correctionDurationMs}ms`);
-      SocketEmitter.sendToClient(ctx.socket, {
-        event: 'sync.correct',
-        payload: {
-          position: expectedPosition,
-          playbackRate: correctionRate,
-          correctionDurationMs
-        }
-      });
-    }
-  }
-
-  private static clearSoftCorrection(ctx: SocketContext, payload: HeartbeatPayload, playback: ReturnType<typeof roomStore.getState>['playback'], expectedPosition: number) {
-    if (payload.playbackRate !== playback.playbackRate) {
-      console.log(`[sync] User ${ctx.userId} is in sync. Resetting playbackRate to ${playback.playbackRate}x`);
-      SocketEmitter.sendToClient(ctx.socket, {
-        event: 'sync.correct',
-        payload: {
-          position: expectedPosition,
-          playbackRate: playback.playbackRate
-        }
-      });
-    }
-  }
-
-  static async handleStatus(payload: StatusPayload, ctx: SocketContext) {
-    const previousPromise = this.userStatusLocks.get(ctx.userId) || Promise.resolve();
-    const nextPromise = previousPromise.then(async () => {
-      try {
-        await this.executeHandleStatus(payload, ctx);
-      } catch (err) {
-        console.error(`[sync] Error handling status for user ${ctx.userId}:`, err);
-      }
-    });
-    this.userStatusLocks.set(ctx.userId, nextPromise);
-    await nextPromise;
-    if (this.userStatusLocks.get(ctx.userId) === nextPromise) {
-      this.userStatusLocks.delete(ctx.userId);
-    }
-  }
-
-  private static async executeHandleStatus(payload: StatusPayload, ctx: SocketContext) {
-    const state = roomStore.getState();
-    const member = state.members.find(m => m.userId === ctx.userId);
+  private async applyStatus(payload: StatusPayload, ctx: SocketContext) {
+    const state = this.roomStore.getState();
+    const member = this.roomStore.getMember(ctx.userId);
     const wasAsync = member?.status === 'async';
-    let isNowAsync = payload.status === 'async';
 
-    if (isNowAsync && !state.settings.allowAsyncMode) {
-      console.warn(`[sync] User ${ctx.userId} attempted to enter async mode while allowAsyncMode is false`);
-      isNowAsync = false;
-      payload.status = 'ready';
+    let status = payload.status;
+    if (status === 'async' && !state.settings.allowAsyncMode) {
+      this.log.warn({ userId: ctx.userId }, 'Rejected async mode while allowAsyncMode is false');
+      status = 'ready';
     }
 
-    if (isNowAsync && !wasAsync) {
-      await this.handleEnterAsyncMode(ctx, payload, state, member);
-    } else if (!isNowAsync && wasAsync) {
-      this.handleExitAsyncMode(ctx, payload, state);
+    if (status === 'async' && !wasAsync) {
+      await this.enterAsyncMode(ctx, member);
+    } else if (status !== 'async' && wasAsync) {
+      this.exitAsyncMode(ctx, status);
     } else {
-      roomStore.updateMember(ctx.userId, { status: payload.status });
+      this.roomStore.updateMember(ctx.userId, { status });
     }
 
-    SocketEmitter.broadcastToRoom(ctx.app, {
-      event: 'user.status_changed',
-      payload: { userId: ctx.userId, status: payload.status, pingQuality: member?.pingQuality }
-    });
-
-    this.reconcileRoomBufferingState(ctx);
+    this.hub.broadcast({ event: 'user.status_changed', payload: { userId: ctx.userId, status, pingQuality: member?.pingQuality } });
+    this.reconcileRoomBufferingState();
   }
 
-  private static async handleEnterAsyncMode(
-    ctx: SocketContext, 
-    payload: StatusPayload, 
-    state: ReturnType<typeof roomStore.getState>, 
-    member: ReturnType<typeof roomStore.getState>['members'][0] | undefined
-  ) {
-    // ENTERING ASYNC: Compute offset based on actual current playhead
+  /** Starts a user-scoped transcode at the member's current playhead and points their player at it. */
+  private async enterAsyncMode(ctx: SocketContext, member: MemberState | undefined) {
+    const state = this.roomStore.getState();
     const position = member?.position ?? state.playback.anchorPosition;
-    
-    const { effectiveOffset } = await coordinator.resolveSeek(
-      { type: 'user', userId: ctx.userId },
-      position,
-      state.mediaId!
-    );
+    const { effectiveOffset } = await this.coordinator.resolveSeek({ type: 'user', userId: ctx.userId }, position, state.mediaId);
 
-    roomStore.updateMember(ctx.userId, {
-      status: payload.status,
-      asyncSession: { transcodeOffset: effectiveOffset },
-    });
-
-    // Send the user-scoped media info back to start their HLS player
-    SocketEmitter.sendToClient(ctx.socket, {
-      event: 'media.changed',
-      payload: buildMediaChangedPayload({
-        mediaFileId: state.mediaId!,
-        title: state.mediaTitle || 'Unknown Media',
-        duration: state.duration,
-        transcodeOffset: effectiveOffset,
-        sessionScope: 'user',
-        sessionId: 'async',
-        subtitles: state.subtitles,
-        audioTracks: state.audioTracks,
-      }),
-    });
+    this.roomStore.updateMember(ctx.userId, { status: 'async', asyncSession: { transcodeOffset: effectiveOffset } });
+    this.hub.sendTo(ctx.socket, { event: 'media.changed', payload: mediaChangedFor(state, 'user', effectiveOffset) });
   }
 
-  private static handleExitAsyncMode(
-    ctx: SocketContext, 
-    payload: StatusPayload, 
-    state: ReturnType<typeof roomStore.getState>
-  ) {
-    // EXITING ASYNC: Remove async session state, let garbage collector handle the transcode session
-    roomStore.updateMember(ctx.userId, {
-      status: payload.status,
-      asyncSession: undefined,
-    });
-    coordinator.removeAsyncPlayhead(ctx.userId);
+  /** Drops the async session (the transcode GC reclaims it) and points the player back at the room stream. */
+  private exitAsyncMode(ctx: SocketContext, status: MemberState['status']) {
+    this.roomStore.updateMember(ctx.userId, { status, asyncSession: undefined });
+    this.coordinator.removeAsyncPlayhead(ctx.userId);
 
-    // Send the room-scoped media info back to reset their HLS player
-    SocketEmitter.sendToClient(ctx.socket, {
-      event: 'media.changed',
-      payload: buildMediaChangedPayload({
-        mediaFileId: state.mediaId!,
-        title: state.mediaTitle || 'Unknown Media',
-        duration: state.duration,
-        transcodeOffset: state.transcodeOffset,
-        sessionScope: 'room',
-        sessionId: 'sync',
-        subtitles: state.subtitles,
-        audioTracks: state.audioTracks,
-      }),
-    });
+    const state = this.roomStore.getState();
+    this.hub.sendTo(ctx.socket, { event: 'media.changed', payload: mediaChangedFor(state, 'room', state.transcodeOffset) });
   }
 
-  static reconcileRoomBufferingState(ctx: SocketContext) {
-    const state = roomStore.getState();
-    const activeMembers = state.members.filter(m => m.status !== 'async');
-
-    // Pause room if everyone went async
-    if (activeMembers.length === 0 && (state.playback.state === 'playing' || state.playback.intendedState === 'playing')) {
-      roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'playback.state',
-        payload: roomStore.getState().playback
-      });
-      return;
-    }
-
-    const anyoneBuffering = state.members.some(m => m.status === 'buffering');
-    
-    if (anyoneBuffering && state.playback.state === 'playing') {
-      // Pause room if someone starts buffering
-      roomStore.updatePlayback({ state: 'buffering', anchorTime: Date.now() });
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'playback.state',
-        payload: roomStore.getState().playback
-      });
-    }
-    
-    if (!anyoneBuffering && (state.playback.state === 'waiting' || state.playback.state === 'buffering') && activeMembers.length > 0) {
-      // Resume playback if no members are buffering
-      roomStore.updatePlayback({ state: state.playback.intendedState, anchorTime: Date.now() });
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'playback.state',
-        payload: roomStore.getState().playback
-      });
-    }
+  private updatePlayback(updates: Partial<RoomPlaybackState>): void {
+    this.roomStore.updatePlayback(updates);
+    this.hub.broadcast({ event: 'playback.state', payload: this.roomStore.getState().playback });
   }
 }
-

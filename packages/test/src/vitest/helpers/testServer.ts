@@ -1,3 +1,4 @@
+import type { PrismaClient } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 import { createApp, CreateAppOptions } from '@roomies/server';
 
@@ -9,8 +10,10 @@ export interface TestServerContext {
   close: () => Promise<void>;
 }
 
-export async function createTestServer(options?: CreateAppOptions): Promise<TestServerContext> {
+export async function createTestServer(prisma: PrismaClient, options?: CreateAppOptions): Promise<TestServerContext> {
   const app = await createApp({
+    prisma,
+    logLevel: 'silent',
     skipLibraryScan: true,
     skipHardwareDetection: true,
     skipTranscodeClean: true,

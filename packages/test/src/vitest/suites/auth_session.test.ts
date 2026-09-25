@@ -27,7 +27,7 @@ describe('Auth sessions: refresh, logout and media cookies', () => {
 
   beforeAll(async () => {
     db = await createTestDatabase();
-    server = await createTestServer();
+    server = await createTestServer(db.prisma);
     await createAdminAccount(server.baseUrl);
   });
 

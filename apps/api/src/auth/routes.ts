@@ -1,12 +1,14 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyPluginAsync } from 'fastify';
 import { AuthController } from './controller';
-import { loginRateLimit, verifyMediaAccess } from './middleware';
+import { AuthGuard } from './middleware';
 
-export const authRoutes = async (app: FastifyInstance) => {
-  app.get('/status', AuthController.status);
-  app.post('/setup', AuthController.setupRoot);
-  app.post('/login', { preHandler: loginRateLimit }, AuthController.login);
-  app.post('/refresh', AuthController.refresh);
-  app.post('/logout', AuthController.logout);
-  app.get('/media', { preHandler: verifyMediaAccess }, AuthController.media);
-};
+export const authRoutes =
+  (controller: AuthController, guard: AuthGuard): FastifyPluginAsync =>
+  async (app) => {
+    app.get('/status', controller.status);
+    app.post('/setup', controller.setupRoot);
+    app.post('/login', { preHandler: controller.rateLimitLogin }, controller.login);
+    app.post('/refresh', controller.refresh);
+    app.post('/logout', controller.logout);
+    app.get('/media', { preHandler: guard.verifyMediaAccess }, controller.media);
+  };

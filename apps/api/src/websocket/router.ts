@@ -1,5 +1,6 @@
-import { FastifyInstance } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
+import { FastifyBaseLogger } from 'fastify';
+import { IncomingSocketMessage } from '@roomies/contracts';
 
 export interface RoomSocket extends WebSocket {
   lastSeekTime?: number;
@@ -7,9 +8,7 @@ export interface RoomSocket extends WebSocket {
   socketId?: string;
 }
 
-
 export interface SocketContext {
-  app: FastifyInstance;
   socket: RoomSocket;
   userId: string;
   username: string;
@@ -17,41 +16,45 @@ export interface SocketContext {
   socketId: string;
 }
 
+export type SocketEvent = IncomingSocketMessage['event'];
+export type SocketPayload<E extends SocketEvent> = Extract<IncomingSocketMessage, { event: E }>['payload'];
+export type SocketHandler<E extends SocketEvent> = (payload: SocketPayload<E>, ctx: SocketContext) => Promise<void> | void;
 
-export type SocketEventHandler = (payload: unknown, ctx: SocketContext) => Promise<void> | void;
+/** Runs before a handler; returning false drops the event. */
+export type SocketGuard<P = unknown> = (payload: P, ctx: SocketContext) => boolean;
+
+export const requireSocketRole =
+  (...roles: string[]): SocketGuard =>
+  (_payload, ctx) =>
+    roles.includes(ctx.role);
 
 export class SocketRouter {
-  private registry = new Map<string, SocketEventHandler>();
+  private handlers = new Map<SocketEvent, (payload: unknown, ctx: SocketContext) => Promise<void>>();
 
-  register(event: string, handler: SocketEventHandler): void {
-    this.registry.set(event, handler);
+  constructor(private readonly log: FastifyBaseLogger) {}
+
+  on<E extends SocketEvent>(event: E, handler: SocketHandler<E>, ...guards: SocketGuard<SocketPayload<E>>[]): void {
+    this.handlers.set(event, async (raw, ctx) => {
+      const payload = raw as SocketPayload<E>;
+      if (!guards.every((guard) => guard(payload, ctx))) {
+        this.log.warn({ event, userId: ctx.userId }, 'Socket event blocked by guard');
+        return;
+      }
+      await handler(payload, ctx);
+    });
   }
 
-  async dispatch(event: string, payload: unknown, ctx: SocketContext): Promise<void> {
+  async dispatch(event: SocketEvent, payload: unknown, ctx: SocketContext): Promise<void> {
+    const handler = this.handlers.get(event);
+    if (!handler) {
+      this.log.warn({ event }, 'No handler registered for socket event');
+      return;
+    }
+
     try {
-      const handler = this.registry.get(event);
-      if (handler) {
-        await handler(payload, ctx);
-      } else {
-        console.warn('[sync] No handler implemented for socket event:', { event });
-      }
+      await handler(payload, ctx);
     } catch (err) {
-      console.error('[sync] Error handling socket event:', { err, event });
+      this.log.error({ err, event }, 'Error handling socket event');
     }
   }
-
-  clear(): void {
-    this.registry.clear();
-  }
 }
-
-export const defaultSocketRouter = new SocketRouter();
-
-
-export const registerSocketEvent = (event: string, handler: SocketEventHandler) => {
-  defaultSocketRouter.register(event, handler);
-};
-
-export const dispatchSocketEvent = async (event: string, payload: unknown, ctx: SocketContext) => {
-  await defaultSocketRouter.dispatch(event, payload, ctx);
-};

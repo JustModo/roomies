@@ -23,7 +23,7 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
   }
 
   // 2. Match 1x01 (season 1, episode 1)
-  const xMatch = lowerBase.match(/(?:^|\s|[\[\(])(\d+)x(\d+)(?:\s|[\]\)]|$)/i);
+  const xMatch = lowerBase.match(/(?:^|\s|[[(])(\d+)x(\d+)(?:\s|[\])]|$)/i);
   if (xMatch) {
     const season = parseInt(xMatch[1], 10);
     const episode = parseInt(xMatch[2], 10);
@@ -57,7 +57,7 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
   }
 
   // 5. Try leading 3/4-digit standalone format (e.g. 101 -> S1E1, 1205 -> S12E5).
-  const joinedMatch = lowerBase.match(/(?:^|\s|[\[\(-])([1-9]\d{2,3})(?:\s|[\]\)-]|$)/);
+  const joinedMatch = lowerBase.match(/(?:^|\s|[[(-])([1-9]\d{2,3})(?:\s|[\])-]|$)/);
   if (joinedMatch) {
     const numStr = joinedMatch[1];
     // Avoid common resolutions/years

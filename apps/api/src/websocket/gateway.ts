@@ -1,94 +1,78 @@
-import { FastifyInstance } from 'fastify';
-import { IncomingSocketMessageSchema, OutgoingSocketMessage } from '@roomies/contracts';
-import { authenticateWebSocket } from '../auth/websocket';
-import { dispatchSocketEvent, SocketContext, RoomSocket } from './router';
-import { createRateLimiter } from './middleware';
-import { voiceManager } from '../voice/manager';
+import { WebSocket } from '@fastify/websocket';
+import { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
+import { IncomingSocketMessageSchema } from '@roomies/contracts';
+import { AuthGuard } from '../auth/middleware';
+import { RateLimiter } from '../common/rateLimiter';
+import { SocketHub } from './hub';
+import { RoomSocket, SocketContext, SocketRouter } from './router';
 
 const MESSAGE_WINDOW_MS = 1000;
 const MAX_MESSAGES_PER_WINDOW = 20;
 
-type KickReason = Extract<OutgoingSocketMessage, { event: 'auth.kicked' }>['payload']['reason'];
+/** Authenticates /ws connections and feeds their messages into the socket router. */
+export class WebsocketGateway {
+  constructor(
+    private readonly guard: AuthGuard,
+    private readonly hub: SocketHub,
+    private readonly router: SocketRouter,
+    private readonly log: FastifyBaseLogger,
+  ) {}
 
-/** Force-closes every room and voice WebSocket of a user, e.g. after a new login elsewhere or account deletion. */
-export const kickUserConnections = (app: FastifyInstance, userId: string, reason: KickReason = 'logged_in_elsewhere'): void => {
-  const message: OutgoingSocketMessage = { event: 'auth.kicked', payload: { reason } };
-  for (const connection of app.room) {
-    if ((connection as RoomSocket).userId !== userId) continue;
-    try {
-      connection.send(JSON.stringify(message));
-    } catch (e) {
-      console.error('[sync] Failed to notify kicked connection:', e);
-    }
-    connection.close();
+  register(app: FastifyInstance): void {
+    app.route({
+      method: 'GET',
+      url: '/ws',
+      handler: (_req, reply) => {
+        this.log.warn('Received HTTP GET on /ws instead of WebSocket upgrade');
+        reply.status(400).send({ error: 'WebSocket upgrade required' });
+      },
+      wsHandler: (socket, req) => this.handleConnection(socket, req),
+    });
   }
 
-  voiceManager.kickUser(userId);
-};
+  private async handleConnection(connection: WebSocket, req: FastifyRequest): Promise<void> {
+    const user = await this.guard.authenticateWebSocket(req);
+    if (!user) {
+      this.log.warn('WebSocket unauthorized');
+      this.hub.sendTo(connection, { event: 'auth.unauthorized', payload: { reason: 'invalid_or_expired_token' } });
+      connection.close();
+      return;
+    }
 
-/** Decorates the Fastify instance with a room registry and sets up the /ws route. */
-export const setupWebsocketGateway = (app: FastifyInstance) => {
-  app.decorate('room', new Set<RoomSocket>());
+    const socket = connection as RoomSocket;
+    socket.userId = user.userId;
+    socket.socketId = req.id;
+    this.hub.add(socket);
 
-  app.route({
-    method: 'GET',
-    url: '/ws',
-    handler: (req, reply) => {
-      console.warn('[sync] Received HTTP GET on /ws instead of WebSocket Upgrade');
-      reply.status(400).send({ error: 'WebSocket upgrade required' });
-    },
-    wsHandler: async (connection, req) => {
-      const roomSocket = connection as RoomSocket;
-      const userPayload = await authenticateWebSocket(req);
+    const ctx: SocketContext = { socket, userId: user.userId, username: user.username, role: user.role, socketId: req.id };
+    const limiter = new RateLimiter(MESSAGE_WINDOW_MS, MAX_MESSAGES_PER_WINDOW);
+    this.log.info({ userId: user.userId }, 'User connected');
 
-      if (!userPayload) {
-        console.warn('[sync] WS Unauthorized');
-        const unauthorizedMsg: OutgoingSocketMessage = { event: 'auth.unauthorized', payload: { reason: 'invalid_or_expired_token' } };
-        connection.send(JSON.stringify(unauthorizedMsg));
-        connection.close();
+    socket.on('message', async (raw: Buffer) => {
+      let json: unknown;
+      try {
+        json = JSON.parse(raw.toString());
+      } catch {
+        this.log.warn({ userId: user.userId }, 'Received non-JSON WebSocket message');
         return;
       }
 
-      const { userId, username, role } = userPayload;
-      const socketId = req.id;
+      const parsed = IncomingSocketMessageSchema.safeParse(json);
+      if (!parsed.success) {
+        this.log.warn({ userId: user.userId }, 'Invalid WebSocket message format');
+        return;
+      }
 
-      const ctx: SocketContext = { app, socket: roomSocket, userId, username, role, socketId };
+      // NOTE: sync.status is exempt so a throttled client can still report buffering.
+      if (parsed.data.event !== 'sync.status' && !limiter.allow()) return;
 
-      console.log(`[sync] User connected via WebSocket: ${userId}`);
+      await this.router.dispatch(parsed.data.event, parsed.data.payload, ctx);
+    });
 
-      roomSocket.userId = userId;
-      roomSocket.socketId = socketId;
-      app.room.add(roomSocket);
-
-      const withinRateLimit = createRateLimiter(MESSAGE_WINDOW_MS, MAX_MESSAGES_PER_WINDOW);
-
-      const handleMessage = async (message: string) => {
-        try {
-          const rawData = JSON.parse(message);
-          const parsedData = IncomingSocketMessageSchema.safeParse(rawData);
-
-          if (!parsedData.success) {
-            console.warn('[sync] Invalid WS message format');
-            return;
-          }
-
-          if (parsedData.data.event !== 'sync.status' && !withinRateLimit()) return;
-
-          await dispatchSocketEvent(parsedData.data.event, parsedData.data.payload, ctx);
-        } catch (e) {
-          console.error('[sync] Failed to parse WS message JSON:', e);
-        }
-      };
-
-      connection.on('message', handleMessage);
-
-      connection.on('close', async () => {
-        console.log(`[sync] User disconnected from WebSocket: ${userId}`);
-
-        app.room.delete(connection);
-
-        await dispatchSocketEvent('room.leave', {}, ctx);
-      });
-    }
-  });
-};
+    socket.on('close', async () => {
+      this.log.info({ userId: user.userId }, 'User disconnected');
+      this.hub.remove(socket);
+      await this.router.dispatch('room.leave', {}, ctx);
+    });
+  }
+}

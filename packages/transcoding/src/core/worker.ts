@@ -1,21 +1,43 @@
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import path from 'path';
-import { FfmpegPreset, HwAccelMode } from '../config/settings';
-import { Resolution, HardwareEncoder, AudioTrackDescriptor } from '../types';
 import {
+  CACHE_RESUME_AHEAD_SECONDS,
+  CACHE_SUSPEND_AHEAD_SECONDS,
+  RENDER_NODE,
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
-  FFMPEG_PATH,
-  VIDEO_CODEC,
-  CACHE_SUSPEND_AHEAD_SECONDS,
-  CACHE_RESUME_AHEAD_SECONDS,
-  RENDER_NODE,
-} from '../config/config';
-import { getDetectedHardwareEncoder, downgradeToCpu } from '../ffmpeg/hwaccel';
-import { TranscodeCache } from '../fs/cache';
-import { appendAudioTrackHlsOutput, audioBitrateFor, buildHlsMuxArgs, AUDIO_TIMESTAMP_FIX } from '../ffmpeg/hlsArgs';
+} from '../config/constants';
+import { AUDIO_TIMESTAMP_FIX, appendAudioTrackHlsOutput, audioBitrateFor, buildHlsMuxArgs } from '../ffmpeg/hlsArgs';
+import { ensureDirectory, readSegmentStats } from '../fs/cache';
 import { startSegmentReadyWatcher } from '../fs/readyWatcher';
+import { AudioTrackDescriptor, FfmpegPreset, HardwareEncoder, Resolution } from '../types';
+import { TranscodeDeps } from './deps';
+
+export interface WorkerSpec {
+  sessionId: string;
+  resolutions: Resolution[];
+  legDirs: Map<Resolution, string>;
+  audioTracks?: AudioTrackDescriptor[];
+  audioLegDirs?: Map<string, string>;
+}
+
+export interface WorkerInput {
+  inputPath: string;
+  startPosition?: number;
+  sourceFps?: number;
+  sourceAudioBitrate?: number;
+}
+
+/** One HLS output of the shared process: a video rung, or a demuxed audio track. */
+interface Leg {
+  key: string;
+  dir: string;
+  event: 'ready' | 'audio-ready';
+  isReady: boolean;
+  newestSegmentTime: number;
+  maxCoveredTime: number;
+}
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
 const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
@@ -35,76 +57,67 @@ const QSV_PRESET_MAP: Record<FfmpegPreset, string> = {
 };
 
 const STDERR_TAIL_LINES = 50;
+const STOP_TIMEOUT_MS = 3000;
 
-interface LegState {
-  isReady: boolean;
-  newestSegmentTime: number;
-  maxCoveredTime: number;
-}
+const createLeg = (key: string, dir: string, event: Leg['event']): Leg => ({
+  key,
+  dir,
+  event,
+  isReady: false,
+  newestSegmentTime: 0,
+  maxCoveredTime: 0,
+});
 
-/** Manages a shared FFmpeg process encoding all configured resolutions via filter_complex split. */
+/**
+ * Manages a shared FFmpeg process encoding all configured resolutions via filter_complex split.
+ * Emits 'ready' (resolution) / 'audio-ready' (trackId) per leg, 'error' and 'exit'.
+ */
 export class TranscodeWorker extends EventEmitter {
-  private static liveProcesses = 0;
-
-  static get liveProcessCount(): number {
-    return TranscodeWorker.liveProcesses;
-  }
-
-  public readonly resolutions: Resolution[];
-  public readonly sessionId: string;
-  public readonly audioTracks: AudioTrackDescriptor[];
+  readonly sessionId: string;
+  readonly resolutions: Resolution[];
+  readonly audioTracks: AudioTrackDescriptor[];
   /** Enables separate audio-only HLS outputs when multiple audio tracks exist. */
-  public readonly hasSeparateAudio: boolean;
+  readonly hasSeparateAudio: boolean;
 
-  private readonly legDirs: Map<Resolution, string>;
-  private readonly legs: Map<Resolution, LegState>;
-  private readonly audioLegDirs: Map<string, string>;
-  private readonly audioLegs: Map<string, LegState>;
+  private readonly legs: Map<Resolution, Leg>;
+  private readonly audioLegs: Map<string, Leg>;
 
+  private input: WorkerInput & { startPosition: number; sourceFps: number } = { inputPath: '', startPosition: 0, sourceFps: 24 };
   private process: ChildProcess | null = null;
   private stopReadyWatcher: (() => void) | null = null;
-  private _isRunning = false;
-  private _isSuspended = false;
-  private _startPosition: number = 0;
-  private preset: FfmpegPreset = 'veryfast';
-  private hwAccelMode: HwAccelMode = 'auto';
-  private inputPath: string = '';
+  private running = false;
+  private suspended = false;
   private hwFallbackAttempted = false;
-  private sourceFps: number = 24;
-  private sourceAudioBitrate: number | undefined;
   private stopRequested = false;
   private stopPromise: Promise<void> | null = null;
   private stderrTail: string[] = [];
 
   constructor(
-    resolutions: Resolution[],
-    legDirs: Map<Resolution, string>,
-    sessionId: string,
-    audioTracks: AudioTrackDescriptor[] = [],
-    audioLegDirs: Map<string, string> = new Map()
+    private readonly deps: TranscodeDeps,
+    spec: WorkerSpec,
   ) {
     super();
     this.setMaxListeners(50);
-    this.resolutions = resolutions;
-    this.legDirs = legDirs;
-    this.sessionId = sessionId;
-    this.legs = new Map(resolutions.map(res => [res, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
-    this.audioTracks = audioTracks;
-    this.hasSeparateAudio = audioTracks.length > 1;
-    this.audioLegDirs = audioLegDirs;
-    this.audioLegs = new Map(audioTracks.map(t => [t.id, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
+    this.sessionId = spec.sessionId;
+    this.resolutions = spec.resolutions;
+    this.audioTracks = spec.audioTracks ?? [];
+    this.hasSeparateAudio = this.audioTracks.length > 1;
+    this.legs = new Map(spec.resolutions.map((res) => [res, createLeg(res, spec.legDirs.get(res) ?? '', 'ready')]));
+    this.audioLegs = new Map(
+      this.hasSeparateAudio ? this.audioTracks.map((t) => [t.id, createLeg(t.id, spec.audioLegDirs?.get(t.id) ?? '', 'audio-ready')]) : [],
+    );
   }
 
   get isRunning(): boolean {
-    return this._isRunning;
+    return this.running;
   }
 
   get startPosition(): number {
-    return this._startPosition;
+    return this.input.startPosition;
   }
 
   legOutputDir(resolution: Resolution): string {
-    const dir = this.legDirs.get(resolution);
+    const dir = this.legs.get(resolution)?.dir;
     if (!dir) throw new Error(`No output directory registered for resolution ${resolution}`);
     return dir;
   }
@@ -118,7 +131,7 @@ export class TranscodeWorker extends EventEmitter {
   }
 
   audioLegOutputDir(trackId: string): string {
-    const dir = this.audioLegDirs.get(trackId);
+    const dir = this.audioLegs.get(trackId)?.dir;
     if (!dir) throw new Error(`No output directory registered for audio track ${trackId}`);
     return dir;
   }
@@ -127,210 +140,198 @@ export class TranscodeWorker extends EventEmitter {
     return this.audioLegs.get(trackId)?.isReady ?? false;
   }
 
-  start(
-    inputPath: string,
-    startPosition: number = 0,
-    preset: FfmpegPreset = 'veryfast',
-    hwAccelMode: HwAccelMode = 'auto',
-    sourceFps: number = 24,
-    sourceAudioBitrate?: number
-  ): void {
-    if (this._isRunning) return;
-    this.inputPath = inputPath;
-    this._startPosition = startPosition;
-    this.preset = preset;
-    this.hwAccelMode = hwAccelMode;
-    this.sourceFps = sourceFps;
-    this.sourceAudioBitrate = sourceAudioBitrate;
-
-    this.spawnProcess(this.shouldUseHardware());
+  start(input: WorkerInput): void {
+    if (this.running) return;
+    this.input = { ...input, startPosition: input.startPosition ?? 0, sourceFps: input.sourceFps ?? 24 };
+    this.spawnProcess(this.hardwareEncoder());
   }
 
-  private shouldUseHardware(): HardwareEncoder | null {
-    if (this.hwAccelMode !== 'auto') return null;
-    const detected = getDetectedHardwareEncoder();
+  async stop(): Promise<void> {
+    this.stopPromise ??= this.terminate();
+    return this.stopPromise;
+  }
+
+  /** Suspend/resume the shared process based on the most-behind leg's progress. */
+  manageCache(currentPlayhead: number): void {
+    const videoLegs = [...this.legs.values()];
+    if (!this.process || !this.running || !videoLegs.some((leg) => leg.isReady)) return;
+
+    const aheadBy = Math.min(...videoLegs.map((leg) => leg.newestSegmentTime)) - currentPlayhead;
+    const logContext = { sessionId: this.sessionId, resolutions: this.resolutions, aheadBy: Math.round(aheadBy) };
+    try {
+      if (aheadBy > CACHE_SUSPEND_AHEAD_SECONDS && !this.suspended) {
+        this.deps.log.info(logContext, 'Suspending FFmpeg');
+        this.process.kill('SIGSTOP');
+        this.suspended = true;
+      } else if (aheadBy < CACHE_RESUME_AHEAD_SECONDS && this.suspended) {
+        this.deps.log.info(logContext, 'Resuming FFmpeg');
+        this.process.kill('SIGCONT');
+        this.suspended = false;
+      }
+    } catch (err) {
+      this.deps.log.error({ err, ...logContext }, 'Error managing worker cache');
+    }
+  }
+
+  private allLegs(): Leg[] {
+    return [...this.legs.values(), ...this.audioLegs.values()];
+  }
+
+  private markReady(leg: Leg): void {
+    leg.isReady = true;
+    this.emit(leg.event, leg.key);
+  }
+
+  private hardwareEncoder(): HardwareEncoder | null {
+    if (this.deps.options.hwAccelMode !== 'auto') return null;
+    const detected = this.deps.encoder.current;
     return detected === 'cpu' ? null : detected;
   }
 
-  private buildArgs(hw: HardwareEncoder | null): string[] {
-    const splitLabels = this.resolutions.map((_, i) => `v${i}`);
-    const outLabels = this.resolutions.map((_, i) => `o${i}`);
-
-    // Decode and split happen once; per-leg scaling is performed within filter_complex.
-    const filterParts = [`[0:v]split=${this.resolutions.length}${splitLabels.map(l => `[${l}]`).join('')}`];
-    this.resolutions.forEach((res, i) => {
-      const preset = RESOLUTION_PRESETS[res];
-      // Fit inside the rung's box keeping the source aspect; deliberately no pad. Padding
-      // bakes black bars into every frame of a non-16:9 source, which the player then
-      // letterboxes again whenever its container is not 16:9. See scaledResolution().
-      const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p`;
-      const hwSuffix = hw === 'vaapi' ? ',format=nv12,hwupload' : hw === 'qsv' ? ',format=nv12,hwupload=extra_hw_frames=64' : '';
-      filterParts.push(`[${splitLabels[i]}]${scaleFilter}${hwSuffix}[${outLabels[i]}]`);
-    });
-
+  private videoCodecArgs(hw: HardwareEncoder | null): string[] {
+    const { preset, videoCodec } = this.deps.options;
     // Use encoder-native -g based on source FPS for segment-aligned keyframes.
-    const gopSize = Math.round(SEGMENT_DURATION * this.sourceFps);
+    const gop = String(Math.round(SEGMENT_DURATION * this.input.sourceFps));
     // -g alone is advisory: x264 clamps keyint_min to keyint/2 and hardware encoders ignore
     // sc_threshold, so scene cuts still emit IDRs and segments drift (0.4s-3.9s observed).
     const forceKeyframes = ['-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`];
 
-    const muxedAudioMap = this.audioTracks[0] ? `0:${this.audioTracks[0].streamIndex}` : '0:a:0?';
-    const outputArgs: string[] = [];
-    this.resolutions.forEach((res, i) => {
-      const preset = RESOLUTION_PRESETS[res];
-      const dir = this.legOutputDir(res);
-      const playlistPath = path.join(dir, 'stream.m3u8');
-      const segmentPattern = path.join(dir, 'seg_%05d.ts');
-
-      let videoArgs: string[];
-      if (hw === 'vaapi') {
-        videoArgs = ['-c:v', 'h264_vaapi', '-g', String(gopSize), ...forceKeyframes];
-      } else if (hw === 'qsv') {
-        videoArgs = ['-c:v', 'h264_qsv', '-preset', QSV_PRESET_MAP[this.preset], '-g', String(gopSize), ...forceKeyframes];
-      } else if (hw === 'nvenc') {
-        videoArgs = ['-c:v', 'h264_nvenc', '-preset', NVENC_PRESET_MAP[this.preset], '-g', String(gopSize), ...forceKeyframes];
-      } else {
-        videoArgs = [
-          '-c:v', VIDEO_CODEC,
-          '-preset', this.preset,
-          ...(VIDEO_CODEC === 'libx264' ? ['-tune', 'zerolatency'] : []),
-          '-g', String(gopSize),
-          '-keyint_min', String(gopSize),
+    switch (hw) {
+      case 'vaapi':
+        return ['-c:v', 'h264_vaapi', '-g', gop, ...forceKeyframes];
+      case 'qsv':
+        return ['-c:v', 'h264_qsv', '-preset', QSV_PRESET_MAP[preset], '-g', gop, ...forceKeyframes];
+      case 'nvenc':
+        return ['-c:v', 'h264_nvenc', '-preset', NVENC_PRESET_MAP[preset], '-g', gop, ...forceKeyframes];
+      default:
+        return [
+          '-c:v',
+          videoCodec,
+          '-preset',
+          preset,
+          ...(videoCodec === 'libx264' ? ['-tune', 'zerolatency'] : []),
+          '-g',
+          gop,
+          '-keyint_min',
+          gop,
           ...forceKeyframes,
         ];
-      }
+    }
+  }
 
-      outputArgs.push(
-        '-map', `[${outLabels[i]}]`,
-        // Audio is demuxed into sibling HLS outputs when multiple tracks exist.
-        ...(this.hasSeparateAudio ? [] : ['-map', muxedAudioMap]),
-        ...videoArgs,
-        '-b:v', preset.videoBitrate,
-        '-maxrate', preset.maxRate,
-        '-bufsize', preset.bufSize,
+  private buildArgs(hw: HardwareEncoder | null): string[] {
+    const { inputPath, startPosition, sourceAudioBitrate } = this.input;
+    const splitLabels = this.resolutions.map((_, i) => `[v${i}]`);
 
-        ...(this.hasSeparateAudio
-          ? []
-          : [...AUDIO_TIMESTAMP_FIX, '-c:a', 'aac', '-b:a', audioBitrateFor(preset.audioBitrate, this.sourceAudioBitrate), '-ac', '2']),
+    // Decode and split happen once; per-leg scaling is performed within filter_complex.
+    // Fit inside the rung's box keeping the source aspect; deliberately no pad. Padding
+    // bakes black bars into every frame of a non-16:9 source, which the player then
+    // letterboxes again whenever its container is not 16:9. See scaledResolution().
+    const hwSuffix = hw === 'vaapi' ? ',format=nv12,hwupload' : hw === 'qsv' ? ',format=nv12,hwupload=extra_hw_frames=64' : '';
+    const filterParts = [
+      `[0:v]split=${this.resolutions.length}${splitLabels.join('')}`,
+      ...this.resolutions.map((res, i) => {
+        const { width, height } = RESOLUTION_PRESETS[res];
+        const scale = `scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p`;
+        return `${splitLabels[i]}${scale}${hwSuffix}[o${i}]`;
+      }),
+    ];
 
-        ...buildHlsMuxArgs(segmentPattern),
-        playlistPath,
-      );
+    const muxedAudioMap = this.audioTracks[0] ? `0:${this.audioTracks[0].streamIndex}` : '0:a:0?';
+    const outputArgs = this.resolutions.flatMap((res, i) => {
+      const preset = RESOLUTION_PRESETS[res];
+      const dir = this.legOutputDir(res);
+      // Audio is demuxed into sibling HLS outputs when multiple tracks exist.
+      const audioMap = this.hasSeparateAudio ? [] : ['-map', muxedAudioMap];
+      const audioEncode = this.hasSeparateAudio
+        ? []
+        : [...AUDIO_TIMESTAMP_FIX, '-c:a', 'aac', '-b:a', audioBitrateFor(preset.audioBitrate, sourceAudioBitrate), '-ac', '2'];
+      return [
+        '-map',
+        `[o${i}]`,
+        ...audioMap,
+        ...this.videoCodecArgs(hw),
+        '-b:v',
+        preset.videoBitrate,
+        '-maxrate',
+        preset.maxRate,
+        '-bufsize',
+        preset.bufSize,
+        ...audioEncode,
+        ...buildHlsMuxArgs(path.join(dir, 'seg_%05d.ts')),
+        path.join(dir, 'stream.m3u8'),
+      ];
     });
 
-    if (this.hasSeparateAudio) {
-      for (const track of this.audioTracks) {
-        const dir = this.audioLegOutputDir(track.id);
-        appendAudioTrackHlsOutput(
-          outputArgs,
-          track.streamIndex,
-          path.join(dir, 'playlist.m3u8'),
-          path.join(dir, 'audio_%05d.ts'),
-          this.sourceAudioBitrate,
-        );
-      }
+    for (const leg of this.audioLegs.values()) {
+      const track = this.audioTracks.find((t) => t.id === leg.key)!;
+      appendAudioTrackHlsOutput(
+        outputArgs,
+        track.streamIndex,
+        path.join(leg.dir, 'playlist.m3u8'),
+        path.join(leg.dir, 'audio_%05d.ts'),
+        sourceAudioBitrate,
+      );
     }
 
     const hwDeviceArgs =
-      hw === 'vaapi' ? ['-vaapi_device', RENDER_NODE]
-      : hw === 'qsv' ? ['-init_hw_device', `qsv=hw:hw,child_device=${RENDER_NODE}`, '-filter_hw_device', 'hw']
-      : [];
+      hw === 'vaapi'
+        ? ['-vaapi_device', RENDER_NODE]
+        : hw === 'qsv'
+          ? ['-init_hw_device', `qsv=hw:hw,child_device=${RENDER_NODE}`, '-filter_hw_device', 'hw']
+          : [];
 
     return [
       ...hwDeviceArgs,
-      ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString()] : []),
-      '-i', this.inputPath,
-      '-filter_complex', filterParts.join(';'),
+      ...(startPosition > 0 ? ['-ss', startPosition.toString()] : []),
+      '-i',
+      inputPath,
+      '-filter_complex',
+      filterParts.join(';'),
       ...outputArgs,
     ];
   }
 
   private spawnProcess(hw: HardwareEncoder | null): void {
-    for (const res of this.resolutions) {
-      TranscodeCache.ensureDirectory(this.legOutputDir(res));
-    }
-    if (this.hasSeparateAudio) {
-      for (const track of this.audioTracks) {
-        TranscodeCache.ensureDirectory(this.audioLegOutputDir(track.id));
-      }
-    }
+    for (const leg of this.allLegs()) ensureDirectory(leg.dir);
 
-    const args = this.buildArgs(hw);
-    const proc = spawn(FFMPEG_PATH, args, {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-
+    const proc = spawn(this.deps.options.ffmpegPath, this.buildArgs(hw), { stdio: ['ignore', 'ignore', 'pipe'] });
     this.process = proc;
-    this._isRunning = true;
+    this.running = true;
     this.stderrTail = [];
-    TranscodeWorker.liveProcesses++;
+    this.deps.slots.acquire();
+
     let settled = false;
     const settle = (): boolean => {
       if (settled) return false;
       settled = true;
-      TranscodeWorker.liveProcesses--;
+      this.running = false;
+      this.deps.slots.release();
+      this.stopWatchers();
       return true;
     };
 
-    proc.stderr?.on('data', (data: Buffer) => {
-      for (const raw of data.toString().split(/\r?\n|\r/)) {
-        const line = raw.trim();
-        if (!line) continue;
-        this.stderrTail.push(line);
-        if (this.stderrTail.length > STDERR_TAIL_LINES) this.stderrTail.shift();
-        if (line.toLowerCase().includes('error') || line.toLowerCase().includes('fatal')) {
-          console.error(`[transcode] worker [${this.resolutions.join(',')}] error: ${line}`);
-        }
-      }
-    });
+    proc.stderr?.on('data', (data: Buffer) => this.recordStderr(data));
 
     proc.on('error', (err) => {
-      if (!settle()) return;
-      this._isRunning = false;
-      this.stopWatchers();
-      this.handleFailure(hw, err);
+      if (settle()) this.handleFailure(hw, err);
     });
 
     proc.on('exit', (code, signal) => {
       if (!settle()) return;
-      this._isRunning = false;
 
       // Mark leg ready on exit if segments exist; flag starved legs on unexpected exit.
       let anyLegStarved = false;
-      for (const res of this.resolutions) {
-        const leg = this.legs.get(res)!;
-        if (!leg.isReady) {
-          const tsCount = TranscodeCache.getVariantCacheStats(this.legOutputDir(res), this._startPosition).segmentCount;
-          if (tsCount > 0 && (code === 0 || this.stopRequested)) {
-            leg.isReady = true;
-            this.emit('ready', res);
-          } else if (!this.stopRequested) {
-            anyLegStarved = true;
-          }
-        }
-      }
-      if (this.hasSeparateAudio) {
-        for (const track of this.audioTracks) {
-          const leg = this.audioLegs.get(track.id)!;
-          if (!leg.isReady) {
-            const tsCount = TranscodeCache.getVariantCacheStats(this.audioLegOutputDir(track.id), this._startPosition).segmentCount;
-            if (tsCount > 0 && (code === 0 || this.stopRequested)) {
-              leg.isReady = true;
-              this.emit('audio-ready', track.id);
-            } else if (!this.stopRequested) {
-              anyLegStarved = true;
-            }
-          }
-        }
+      for (const leg of this.allLegs().filter((l) => !l.isReady)) {
+        const hasSegments = readSegmentStats(leg.dir, this.input.startPosition).segmentCount > 0;
+        if (hasSegments && (code === 0 || this.stopRequested)) this.markReady(leg);
+        else if (!this.stopRequested) anyLegStarved = true;
       }
 
-      this.stopWatchers();
       // FFmpeg traps SIGTERM to flush segments and exit cleanly.
       if (!this.stopRequested && (anyLegStarved || (code !== 0 && signal !== 'SIGTERM'))) {
-        this.handleFailure(hw, new Error(
-          `FFmpeg exited with code ${code}, signal ${signal}, produced no output for one or more legs`,
-          { cause: this.stderrTail.join('\n') },
-        ));
+        const message = `FFmpeg exited with code ${code}, signal ${signal}, produced no output for one or more legs`;
+        this.handleFailure(hw, new Error(message, { cause: this.stderrTail.join('\n') }));
         return;
       }
       this.emit('exit', code, signal);
@@ -339,14 +340,23 @@ export class TranscodeWorker extends EventEmitter {
     this.watchSegments();
   }
 
+  private recordStderr(data: Buffer): void {
+    for (const raw of data.toString().split(/\r?\n|\r/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      this.stderrTail.push(line);
+      if (this.stderrTail.length > STDERR_TAIL_LINES) this.stderrTail.shift();
+      if (/error|fatal/i.test(line)) this.deps.log.error({ resolutions: this.resolutions }, `FFmpeg: ${line}`);
+    }
+  }
+
   /** Fall back to CPU encoding once if hardware encoding fails before any leg is ready. */
   private handleFailure(hw: HardwareEncoder | null, err: Error): void {
-    const anyLegReady = this.resolutions.some(res => this.legs.get(res)!.isReady);
+    const anyLegReady = [...this.legs.values()].some((leg) => leg.isReady);
     if (hw !== null && !anyLegReady && !this.hwFallbackAttempted) {
       this.hwFallbackAttempted = true;
-      console.error(`[transcode] worker [${this.resolutions.join(',')}] hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
-      // Downgrade shared detection cache so subsequent workers skip hardware encoder.
-      downgradeToCpu();
+      this.deps.log.error({ err, hw, resolutions: this.resolutions }, 'Hardware encoder failed, falling back to CPU');
+      this.deps.encoder.downgradeToCpu();
       try {
         this.spawnProcess(null);
         return;
@@ -357,116 +367,45 @@ export class TranscodeWorker extends EventEmitter {
     this.emit('error', err);
   }
 
-  async stop(): Promise<void> {
-    if (this.stopPromise) return this.stopPromise;
+  private async terminate(): Promise<void> {
+    this.stopWatchers();
+    this.stopRequested = true;
+    if (!this.process || !this.running) return;
 
-    this.stopPromise = (async () => {
-      this.stopWatchers();
-      this.stopRequested = true;
+    const proc = this.process;
+    const exited = new Promise<void>((resolve) => this.once('exit', () => resolve()));
+    // SIGCONT is required to process SIGTERM if suspended.
+    if (this.suspended) proc.kill('SIGCONT');
+    proc.kill('SIGTERM');
+    // Force kill if FFmpeg hangs.
+    const timeout = setTimeout(() => proc.kill('SIGKILL'), STOP_TIMEOUT_MS);
 
-      if (this.process && this._isRunning) {
-        const exitPromise = new Promise<void>((resolve) => {
-          const onExit = () => {
-            this.removeListener('exit', onExit);
-            resolve();
-          };
-          this.on('exit', onExit);
-        });
-
-        // SIGCONT is required to process SIGTERM if suspended.
-        if (this._isSuspended) {
-          this.process.kill('SIGCONT');
-        }
-        this.process.kill('SIGTERM');
-
-        // Force kill if FFmpeg hangs for more than 3 seconds.
-        const timeout = setTimeout(() => {
-          if (this.process) this.process.kill('SIGKILL');
-        }, 3000);
-
-        await exitPromise;
-        clearTimeout(timeout);
-
-        this.process = null;
-        this._isRunning = false;
-        this._isSuspended = false;
-      }
-    })();
-
-    return this.stopPromise;
+    await exited;
+    clearTimeout(timeout);
+    this.process = null;
+    this.suspended = false;
   }
 
-  /** Suspend/resume the shared process based on the most-behind leg's progress. */
-  manageCache(currentPlayhead: number): void {
-    if (!this.resolutions.some(res => this.legs.get(res)!.isReady)) return;
-
-    try {
-      if (this.process && this._isRunning) {
-        const minNewestSegmentTime = Math.min(...this.resolutions.map(res => this.legs.get(res)!.newestSegmentTime));
-        const aheadBy = minNewestSegmentTime - currentPlayhead;
-
-        if (aheadBy > CACHE_SUSPEND_AHEAD_SECONDS && !this._isSuspended) {
-          console.log(`[transcode] [session ${this.sessionId}] worker [${this.resolutions.join(',')}] suspending FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
-          this.process.kill('SIGSTOP');
-          this._isSuspended = true;
-        } else if (aheadBy < CACHE_RESUME_AHEAD_SECONDS && this._isSuspended) {
-          console.log(`[transcode] [session ${this.sessionId}] worker [${this.resolutions.join(',')}] resuming FFmpeg (ahead by ${aheadBy.toFixed(1)}s)`);
-          this.process.kill('SIGCONT');
-          this._isSuspended = false;
-        }
-      }
-    } catch (err) {
-      console.error(`[transcode] [session ${this.sessionId}] Error managing cache for worker [${this.resolutions.join(',')}]:`, err);
-    }
-  }
-
-  /** Watches every leg's output directory for segment files via shared readyWatcher. */
+  /** Watches every leg's output directory for segment files via the shared readyWatcher. */
   private watchSegments(): void {
-    const targets = [
-      ...this.resolutions.map((res) => ({
-        dir: this.legOutputDir(res),
-        isReady: () => this.legs.get(res)?.isReady ?? false,
-        onReady: () => {
-          const leg = this.legs.get(res)!;
-          leg.isReady = true;
-          this.emit('ready', res);
-        },
-        onStats: ({ newestSegmentTime, maxCoveredTime }: { newestSegmentTime: number; maxCoveredTime: number }) => {
-          const leg = this.legs.get(res)!;
+    const watcher = startSegmentReadyWatcher({
+      startPosition: this.input.startPosition,
+      isRunning: () => this.running,
+      targets: this.allLegs().map((leg) => ({
+        dir: leg.dir,
+        isReady: () => leg.isReady,
+        onReady: () => this.markReady(leg),
+        onStats: ({ newestSegmentTime, maxCoveredTime }) => {
           leg.newestSegmentTime = newestSegmentTime;
           leg.maxCoveredTime = maxCoveredTime;
         },
       })),
-      ...(this.hasSeparateAudio
-        ? this.audioTracks.map((track) => ({
-            dir: this.audioLegOutputDir(track.id),
-            isReady: () => this.audioLegs.get(track.id)?.isReady ?? false,
-            onReady: () => {
-              const leg = this.audioLegs.get(track.id)!;
-              leg.isReady = true;
-              this.emit('audio-ready', track.id);
-            },
-            onStats: ({ newestSegmentTime, maxCoveredTime }: { newestSegmentTime: number; maxCoveredTime: number }) => {
-              const leg = this.audioLegs.get(track.id)!;
-              leg.newestSegmentTime = newestSegmentTime;
-              leg.maxCoveredTime = maxCoveredTime;
-            },
-          }))
-        : []),
-    ];
-
-    const watcher = startSegmentReadyWatcher({
-      startPosition: this._startPosition,
-      isRunning: () => this._isRunning,
-      targets,
     });
     this.stopReadyWatcher = watcher.stop;
   }
 
   private stopWatchers(): void {
-    if (this.stopReadyWatcher) {
-      this.stopReadyWatcher();
-      this.stopReadyWatcher = null;
-    }
+    this.stopReadyWatcher?.();
+    this.stopReadyWatcher = null;
   }
 }

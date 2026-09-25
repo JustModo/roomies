@@ -17,7 +17,7 @@ describe('Login rate limiting', () => {
 
   beforeAll(async () => {
     db = await createTestDatabase();
-    server = await createTestServer();
+    server = await createTestServer(db.prisma);
 
     await fetch(`${server.baseUrl}/api/auth/setup`, {
       method: 'POST',
@@ -52,8 +52,8 @@ describe('Login rate limiting', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '10.0.0.42' },
           body: JSON.stringify({ username: 'admin', password: 'wrong-password' }),
-        })
-      )
+        }),
+      ),
     );
     const statuses = burst.map((r) => r.status);
 

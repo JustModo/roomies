@@ -9,7 +9,7 @@ import {
   loginAs,
   memberMenuButton,
 } from '../helpers/room';
-import { waitForPaused, waitForPlaying, getVideoState, waitForMediaReady } from '../helpers/syncAssert';
+import { waitForPaused, getVideoState, waitForMediaReady } from '../helpers/syncAssert';
 import { createGuest, GUEST_PASSWORD } from '../helpers/auth';
 import { startMedia } from '../helpers/media';
 

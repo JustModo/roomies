@@ -7,11 +7,7 @@ export const isSampleOrTrailer = (filePath: string): boolean => {
 };
 
 /** Processes a directory identified as a Movie. */
-export const processMovie = (
-  folderPath: string,
-  folderName: string,
-  videoFiles: string[]
-): ScannedMedia | null => {
+export const processMovie = (folderPath: string, folderName: string, videoFiles: string[]): ScannedMedia | null => {
   if (videoFiles.length === 0) return null;
 
   // Filter out common sample/trailer files if multiple video files exist in movie directory

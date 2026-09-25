@@ -57,7 +57,7 @@ describe('JitterBuffer', () => {
     expect(jb.push(8, packet(8))).toBe(true);
   });
 
-  it('decodes a lost frame from the next packet\'s FEC when that packet is buffered', () => {
+  it("decodes a lost frame from the next packet's FEC when that packet is buffered", () => {
     const jb = buffer();
     fill(jb, 1, 3, 4);
 

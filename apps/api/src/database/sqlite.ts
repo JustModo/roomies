@@ -1,44 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
-import { DATABASE_URL, NODE_ENV } from '@roomies/config';
 
-let clientInstance: PrismaClient | null = null;
-let clientUrl: string | null = null;
-
-export function getPrisma(): PrismaClient {
-  const currentUrl = process.env.DATABASE_URL || DATABASE_URL;
-  if (!clientInstance || clientUrl !== currentUrl) {
-    if (clientInstance) {
-      clientInstance.$disconnect().catch(() => {});
-    }
-    clientUrl = currentUrl;
-    const adapter = new PrismaLibSql({ url: currentUrl });
-    clientInstance = new PrismaClient({
-      adapter,
-      log: NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-    });
-  }
-  return clientInstance;
+export function createPrismaClient(url: string, logQueries = false): PrismaClient {
+  return new PrismaClient({
+    adapter: new PrismaLibSql({ url }),
+    log: logQueries ? ['query', 'error', 'warn'] : ['error'],
+  });
 }
-
-export async function resetPrismaClient(): Promise<void> {
-  if (clientInstance) {
-    try {
-      await clientInstance.$disconnect();
-    } catch {}
-    clientInstance = null;
-    clientUrl = null;
-  }
-}
-
-export const prisma = new Proxy({} as PrismaClient, {
-  get(_target, prop) {
-    const client = getPrisma();
-    const val = (client as any)[prop];
-    if (typeof val === 'function') {
-      return val.bind(client);
-    }
-    return val;
-  },
-});
-

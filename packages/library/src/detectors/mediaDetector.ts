@@ -15,8 +15,8 @@ export const detectMediaType = (folderName: string, videoFiles: string[]): 'movi
     // Explicit S01E01, 1x01, or Episode 01 markers
     const hasExplicitEpisodePattern =
       /s\d+\s*e\d+/i.test(fileName) ||
-      /(?:^|\s|[\[\(])\d+x\d+(?:\s|[\]\)]|$)/i.test(fileName) ||
-      /(?:ep(?:isode)?)\s*[\._-]?\s*\d+/i.test(fileName);
+      /(?:^|\s|[[(])\d+x\d+(?:\s|[\])]|$)/i.test(fileName) ||
+      /(?:ep(?:isode)?)\s*[._-]?\s*\d+/i.test(fileName);
 
     // Season folder structure (e.g. /Season 01/ or /Season 1/)
     const hasSeasonSubfolder = /[\\/]season\s*\d+/i.test(filePath);
