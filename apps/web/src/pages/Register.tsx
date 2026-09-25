@@ -11,7 +11,7 @@ export default function Register() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [checking, setChecking] = useState(true);
-  const { setToken } = useAuth();
+  const { setSession } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,10 +49,7 @@ export default function Register() {
         throw new Error('Registration failed');
       }
       
-      const data = await res.json();
-      if (data.token) {
-        setToken(data.token);
-      }
+      setSession(await res.json());
       setSuccess(true);
       setTimeout(() => navigate('/'), 2000);
     } catch (err) {

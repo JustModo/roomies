@@ -3,31 +3,40 @@ import jwt from 'jsonwebtoken';
 import { JWTPayload } from '@roomies/contracts';
 import { Config } from '../config';
 import { prisma } from '../database/sqlite';
+import { MEDIA_COOKIE } from './cookies';
 
-export const verifyJwt = async (req: FastifyRequest, reply: FastifyReply) => {
+export const verifyAccessToken = async (token: string): Promise<JWTPayload | null> => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return reply.status(401).send({ error: 'Unauthorized' });
-    }
-
-    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, Config.JWT_SECRET, { algorithms: ['HS256'] }) as JWTPayload;
 
     // Reject tokens from a session that's been superseded by a newer login elsewhere.
-    const currentSession = await prisma.refreshToken.findFirst({
-      where: { userId: decoded.userId },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!currentSession || currentSession.id !== decoded.sessionId) {
-      return reply.status(401).send({ error: 'Unauthorized' });
-    }
-
-    req.user = decoded;
-  } catch (err) {
-    return reply.status(401).send({ error: 'Unauthorized' });
+    const session = await prisma.refreshToken.findUnique({ where: { id: decoded.sessionId } });
+    if (!session || session.userId !== decoded.userId) return null;
+    return decoded;
+  } catch {
+    return null;
   }
 };
+
+const bearerToken = (req: FastifyRequest): string | undefined => {
+  const authHeader = req.headers.authorization;
+  return authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : undefined;
+};
+
+const authenticateWith = (extractToken: (req: FastifyRequest) => string | undefined) => {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = extractToken(req);
+    const user = token ? await verifyAccessToken(token) : null;
+    if (!user) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+    req.user = user;
+  };
+};
+
+export const verifyJwt = authenticateWith(bearerToken);
+
+export const verifyMediaAccess = authenticateWith((req) => bearerToken(req) ?? req.cookies[MEDIA_COOKIE]);
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -36,16 +45,8 @@ const LOGIN_MAX_ATTEMPTS = 5;
 // so there is no peer to share counters with, and losing them on restart is fine.
 const loginAttempts = new Map<string, { count: number; expiresAt: number }>();
 
-/** Blocks an IP after too many failed logins, so passwords can't be brute forced. */
+/** Blocks an IP after too many login attempts, so passwords can't be brute forced. */
 export const loginRateLimit = async (req: FastifyRequest, reply: FastifyReply) => {
-  const attempt = loginAttempts.get(req.ip);
-
-  if (attempt && attempt.expiresAt > Date.now() && attempt.count >= LOGIN_MAX_ATTEMPTS) {
-    return reply.status(429).send({ error: 'Too many login attempts, try again later' });
-  }
-};
-
-export const recordLoginFailure = (ip: string) => {
   const now = Date.now();
 
   // Drop expired entries here so the map stays bounded without a timer.
@@ -53,11 +54,15 @@ export const recordLoginFailure = (ip: string) => {
     if (value.expiresAt <= now) loginAttempts.delete(key);
   }
 
-  const attempt = loginAttempts.get(ip);
-  if (attempt && attempt.expiresAt > now) {
+  const attempt = loginAttempts.get(req.ip);
+  if (attempt && attempt.count >= LOGIN_MAX_ATTEMPTS) {
+    return reply.status(429).send({ error: 'Too many login attempts, try again later' });
+  }
+
+  if (attempt) {
     attempt.count += 1;
   } else {
-    loginAttempts.set(ip, { count: 1, expiresAt: now + LOGIN_WINDOW_MS });
+    loginAttempts.set(req.ip, { count: 1, expiresAt: now + LOGIN_WINDOW_MS });
   }
 };
 

@@ -147,29 +147,31 @@ export const RichChatInput = forwardRef<RichChatInputHandle, RichChatInputProps>
       if (!el) return;
 
       const color = getUsernameColor(username);
+      const badge = document.createElement('span');
+      badge.contentEditable = 'false';
+      badge.dataset.mention = username;
       // Use inline align-baseline for exact text baseline matching
-      const badgeHtml = `<span contenteditable="false" data-mention="${username}" class="font-extrabold uppercase tracking-wider text-[10px] py-0.5 rounded inline align-baseline cursor-default select-none opacity-70" style="color: ${color}; background-color: ${color}15;">@${username}</span>\u00A0`;
+      badge.className = 'font-extrabold uppercase tracking-wider text-[10px] py-0.5 rounded inline align-baseline cursor-default select-none opacity-70';
+      badge.style.color = color;
+      badge.style.backgroundColor = `${color}15`;
+      badge.textContent = `@${username}`;
+      const frag = document.createDocumentFragment();
+      frag.append(badge, '\u00A0');
 
       const range = getRangeByOffsets(el, mentionStartIndex, mentionStartIndex + 1 + queryLength);
       let newCaretPos = 0;
 
       if (range) {
         range.deleteContents();
-        const wrapper = document.createElement('span');
-        wrapper.innerHTML = badgeHtml;
-        const frag = document.createDocumentFragment();
-        while (wrapper.firstChild) {
-          frag.appendChild(wrapper.firstChild);
-        }
         range.insertNode(frag);
-        
+
         newCaretPos = mentionStartIndex + username.length + 2;
       } else {
         // Fallback if range fails
         const { text } = getPlainTextAndCaretOffset(el);
         const textBefore = text.slice(0, mentionStartIndex);
         const textAfter = text.slice(mentionStartIndex + 1 + queryLength);
-        el.innerHTML = textBefore + badgeHtml + textAfter;
+        el.replaceChildren(textBefore, frag, textAfter);
         newCaretPos = textBefore.length + username.length + 2;
       }
 

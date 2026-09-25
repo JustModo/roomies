@@ -1,9 +1,10 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from './service';
-import { SetupRootSchema, LoginSchema, LoginRequest } from '@roomies/contracts';
+import { SetupRootSchema, LoginSchema } from '@roomies/contracts';
 import { prisma } from '../database/sqlite';
 import { kickUserConnections } from '../websocket/gateway';
-import { clearLoginAttempts, recordLoginFailure } from './middleware';
+import { clearLoginAttempts } from './middleware';
+import { REFRESH_COOKIE, setAuthCookies, clearAuthCookies } from './cookies';
 
 export const AuthController = {
   async status(req: FastifyRequest, reply: FastifyReply) {
@@ -18,7 +19,8 @@ export const AuthController = {
     }
 
     try {
-      const response = await AuthService.setupRoot(parsedBody.data);
+      const { refreshToken, ...response } = await AuthService.setupRoot(parsedBody.data);
+      setAuthCookies(req, reply, { token: response.token, refreshToken });
       return reply.send(response);
     } catch (err: any) {
       if (err.message.includes('already exists')) {
@@ -35,16 +37,45 @@ export const AuthController = {
     }
 
     try {
-      const response = await AuthService.login(parsedBody.data);
+      const { refreshToken, ...response } = await AuthService.login(parsedBody.data);
       clearLoginAttempts(req.ip);
       kickUserConnections(req.server, response.user.id);
+      setAuthCookies(req, reply, { token: response.token, refreshToken });
       return reply.send(response);
     } catch (e: any) {
       if (e.message === 'Invalid credentials') {
-        recordLoginFailure(req.ip);
         return reply.status(401).send({ error: e.message });
       }
       return reply.status(500).send({ error: 'Internal Server Error' });
     }
+  },
+
+  async refresh(req: FastifyRequest, reply: FastifyReply) {
+    const currentToken = req.cookies[REFRESH_COOKIE];
+    if (!currentToken) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    try {
+      const { refreshToken, ...response } = await AuthService.refresh(currentToken);
+      setAuthCookies(req, reply, { token: response.token, refreshToken });
+      return reply.send(response);
+    } catch {
+      clearAuthCookies(reply);
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+  },
+
+  async logout(req: FastifyRequest, reply: FastifyReply) {
+    const currentToken = req.cookies[REFRESH_COOKIE];
+    if (currentToken) {
+      await AuthService.logout(currentToken);
+    }
+    clearAuthCookies(reply);
+    return reply.status(204).send();
+  },
+
+  async media(req: FastifyRequest, reply: FastifyReply) {
+    return reply.status(200).send();
   },
 };

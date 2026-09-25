@@ -10,6 +10,14 @@ import { prisma } from '../database/sqlite';
 
 
 const SUBTITLE_EXTENSIONS = ['.srt', '.vtt', '.ass', '.ssa'];
+const ASS_EXTENSIONS = ['.ass', '.ssa'];
+
+const realpathOrResolve = (filePath: string) => fs.promises.realpath(filePath).catch(() => path.resolve(filePath));
+
+async function isWithinRoot(resolved: string, root: string): Promise<boolean> {
+  const relative = path.relative(await realpathOrResolve(root), resolved);
+  return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+}
 
 function decodeSubtitleBuffer(buffer: Buffer): string {
   // UTF-8 BOM
@@ -56,7 +64,7 @@ export const LibraryController = {
       const updatedLibrary = await LibraryService.scanLibrary(prisma);
       return reply.send(updatedLibrary);
     } catch (e) {
-      req.log.error(e, 'Failed to scan library');
+      console.error('[library] Failed to scan library:', e);
       return reply.status(500).send({ error: 'Failed to scan library' });
     }
   },
@@ -67,9 +75,8 @@ export const LibraryController = {
       return reply.status(404).send({ error: 'Subtitle not found' });
     }
 
-    const resolved = path.resolve(subtitle.path);
-    const withinRoot = (root: string) => resolved === root || resolved.startsWith(root + path.sep);
-    if (!withinRoot(MEDIA_ROOT) && !withinRoot(SUBTITLE_DATA_DIR)) {
+    const resolved = await realpathOrResolve(subtitle.path);
+    if (!(await isWithinRoot(resolved, MEDIA_ROOT)) && !(await isWithinRoot(resolved, SUBTITLE_DATA_DIR))) {
       return reply.status(404).send({ error: 'Subtitle not found' });
     }
 
@@ -81,6 +88,10 @@ export const LibraryController = {
     try {
       const buffer = await fs.promises.readFile(resolved);
       const raw = decodeSubtitleBuffer(buffer);
+      if (ASS_EXTENSIONS.includes(ext)) {
+        reply.type('text/x-ssa; charset=utf-8');
+        return reply.send(raw);
+      }
       const offset = parseFloat(req.query.offset ?? '0') || 0;
       const vtt = convertSubtitleToVtt(raw, offset);
       reply.type('text/vtt');
@@ -129,7 +140,7 @@ export const LibraryController = {
       data: { mediaFileId: mediaFile.id, path: destPath, language },
     });
 
-    return reply.status(201).send(subtitle);
+    return reply.status(201).send({ id: subtitle.id, mediaFileId: subtitle.mediaFileId, language: subtitle.language });
   },
 
   async deleteSubtitle(req: FastifyRequest<{ Params: { subtitleId: string } }>, reply: FastifyReply) {
@@ -143,8 +154,8 @@ export const LibraryController = {
       return reply.status(400).send({ error: 'Embedded subtitles extracted from video files cannot be deleted' });
     }
 
-    const resolved = path.resolve(subtitle.path);
-    if (resolved !== SUBTITLE_DATA_DIR && !resolved.startsWith(SUBTITLE_DATA_DIR + path.sep)) {
+    const resolved = await realpathOrResolve(subtitle.path);
+    if (!(await isWithinRoot(resolved, SUBTITLE_DATA_DIR))) {
       // Only managed subtitles under SUBTITLE_DATA_DIR can be deleted from disk.
       return reply.status(400).send({ error: 'This subtitle is not managed by the app and cannot be deleted here' });
     }

@@ -12,8 +12,8 @@ import {
  * Dedicated WebSocket gateway for voice chat at /ws/voice.
  *
  * Implements a pure binary protocol for audio data to maximize bandwidth efficiency:
- *   - Client sends raw binary Opus frames.
- *   - Server prepends 2-byte sender `sessionId` and relays as binary.
+ *   - Client sends binary frames of a 2-byte sequence number followed by Opus.
+ *   - Server prepends 2-byte sender `sessionId` and relays as binary, without reading the rest.
  *   - JSON control frames are still used for channel setup ('join', 'joined', etc.).
  */
 export const setupVoiceGateway = (app: FastifyInstance) => {
@@ -35,9 +35,13 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
         return;
       }
 
+      if (connection.readyState !== 1) return;
+
       const { userId } = userPayload;
       let pingInterval: NodeJS.Timeout | null = null;
       let isInVoiceSession = false;
+      let lastPongAt = Date.now();
+      let lastPreJoinWarnAt = 0;
       const rateLimiter = new VoicePacketRateLimiter();
 
       const sendControl = (message: VoiceServerControlMessage) => {
@@ -52,8 +56,10 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
       };
 
       console.log(`[voice] user connected: ${userId}`);
+      voiceManager.trackConnection(userId, connection);
 
       const cleanup = (reason: "leave" | "disconnect") => {
+        if (reason === "disconnect") voiceManager.untrackConnection(userId, connection);
         if (!isInVoiceSession) return;
         isInVoiceSession = false;
 
@@ -154,10 +160,15 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
                   }
                 }
 
+                lastPongAt = Date.now();
                 pingInterval = setInterval(() => {
-                  if (isInVoiceSession) {
-                    sendControl({ event: "ping" });
+                  if (!isInVoiceSession) return;
+                  if (Date.now() - lastPongAt > VOICE_PROTOCOL.heartbeatIntervalMs * 2) {
+                    console.warn(`[voice] terminating silent peer: ${userId}`);
+                    connection.terminate();
+                    return;
                   }
+                  sendControl({ event: "ping" });
                 }, VOICE_PROTOCOL.heartbeatIntervalMs);
 
                 return;
@@ -170,7 +181,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
               }
 
               case "pong":
-                // Optional heartbeat handling.
+                lastPongAt = Date.now();
                 return;
 
               default:
@@ -195,19 +206,17 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
           }
 
           if (!isInVoiceSession) {
-            console.warn(
-              `[voice] ignoring pre-join audio from ${userId}`,
-            );
+            const now = Date.now();
+            if (now - lastPreJoinWarnAt >= VOICE_PROTOCOL.heartbeatIntervalMs) {
+              lastPreJoinWarnAt = now;
+              console.warn(
+                `[voice] ignoring pre-join audio from ${userId}`,
+              );
+            }
             return;
           }
 
-          if (!isValidOpusPacket(packet)) {
-            closeWithPolicyViolation("Invalid voice packet size");
-            return;
-          }
-
-          if (!rateLimiter.allow()) {
-            closeWithPolicyViolation("Voice packet rate limit exceeded");
+          if (!isValidOpusPacket(packet) || !rateLimiter.allow()) {
             return;
           }
 
@@ -218,7 +227,7 @@ export const setupVoiceGateway = (app: FastifyInstance) => {
           }
 
           // Frame format:
-          // [2-byte sessionId][raw Opus]
+          // [2-byte sessionId][2-byte sequence][raw Opus]
           const framedMessage = Buffer.allocUnsafe(packet.length + 2);
           framedMessage.writeUInt16BE(sessionId, 0);
           packet.copy(framedMessage, 2);

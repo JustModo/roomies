@@ -1,6 +1,7 @@
 # Base stage
 FROM node:22-bookworm-slim AS base
-RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
 RUN apt-get update && apt-get install -y --no-install-recommends \
   wget gnupg ca-certificates curl \
   && mkdir -p /etc/apt/keyrings \

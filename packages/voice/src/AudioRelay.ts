@@ -28,18 +28,15 @@ export class AudioRelay {
     private captureSink: GainNode | null = null;
     private frameBuffer: FrameBuffer | null = null;
     private peers = new Map<string, PeerPlayer>();
+    private peerSettings = new Map<string, { volume?: number; muted?: boolean }>();
     private selfMuted = false;
     private desiredSinkId: string | undefined;
     private analyserNode: AnalyserNode | null = null;
     private vadInterval: number | ReturnType<typeof setInterval> | null = null;
     /** All peer outputs route through this so a single control scales everyone at once. */
     private masterGainNode: GainNode | null = null;
-    /** Auto-ducks the master bus relative to the video's volume. */
-    private duckGainNode: GainNode | null = null;
     private desiredMasterVolume = 100;
-    private desiredDuckLevel = 1;
-    /** Voice bus gain tracks video volume scaled by this fraction, so voices stay under the video's level. */
-    // private static readonly DUCK_RATIO = 0.7;
+    private sendSeq = 0;
 
     /** Called with each encoded Opus chunk that should be sent to the server. */
     public onChunk?: ChunkCallback;
@@ -114,7 +111,11 @@ export class AudioRelay {
                     const packet = this.encoder.encodeFloat(processedFrame);
                     if (!packet || packet.length === 0) return;
 
-                    this.onChunk?.(packet);
+                    const chunk = new Uint8Array(packet.length + 2);
+                    new DataView(chunk.buffer).setUint16(0, this.sendSeq);
+                    chunk.set(packet, 2);
+                    this.sendSeq = (this.sendSeq + 1) & 0xffff;
+                    this.onChunk?.(chunk);
                 } catch (e) {
                     console.warn('[AudioRelay] Encode error:', e);
                 }
@@ -209,7 +210,8 @@ export class AudioRelay {
     }
 
     /** Schedules an incoming encoded audio chunk from a remote peer. */
-    public scheduleChunk(userId: string, packet: Uint8Array): void {
+    public scheduleChunk(userId: string, chunk: Uint8Array): void {
+        if (chunk.length <= 2) return;
         // Ensure we have an AudioContext even for receive-only (non-joined) users
         if (!this.audioCtx) {
             this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
@@ -224,25 +226,27 @@ export class AudioRelay {
         let peer = this.peers.get(userId);
         if (!peer) {
             peer = new PeerPlayer(this.audioCtx, this.config, output);
+            const settings = this.peerSettings.get(userId);
+            if (settings?.volume !== undefined) peer.setVolume(settings.volume);
+            if (settings?.muted !== undefined) peer.setMuted(settings.muted);
             this.peers.set(userId, peer);
         }
-        peer.scheduleChunk(packet);
+        const seq = new DataView(chunk.buffer, chunk.byteOffset, 2).getUint16(0);
+        peer.push(seq, chunk.subarray(2));
     }
 
     /** Sets the playback volume (0–200) for a specific peer. */
     public setVolume(userId: string, volume: number): void {
+        this.peerSettings.set(userId, { ...this.peerSettings.get(userId), volume });
         this.peers.get(userId)?.setVolume(volume);
     }
 
-    /** Creates (once per AudioContext) the shared master/duck gain chain all peers route through. */
+    /** Creates (once per AudioContext) the shared master gain all peers route through. */
     private ensureOutputChain(ctx: AudioContext): GainNode {
-        if (!this.masterGainNode || !this.duckGainNode) {
+        if (!this.masterGainNode) {
             this.masterGainNode = ctx.createGain();
-            this.duckGainNode = ctx.createGain();
             this.masterGainNode.gain.value = Math.max(0, Math.min(1, this.desiredMasterVolume / 100));
-            this.duckGainNode.gain.value = this.desiredDuckLevel;
-            this.masterGainNode.connect(this.duckGainNode);
-            this.duckGainNode.connect(ctx.destination);
+            this.masterGainNode.connect(ctx.destination);
         }
         return this.masterGainNode;
     }
@@ -259,24 +263,9 @@ export class AudioRelay {
         }
     }
 
-    /**
-     * Ducks the voice bus to track the video's volume (0–1), scaled by DUCK_RATIO so it stays under it.
-     * Disabled: tracking video volume down to near-zero made voice audibly cut out. Voice now stays
-     * at a fixed level regardless of video volume — only the master/peer volume controls apply.
-     */
-    public setDuckLevel(_videoVolume: number): void {
-        this.desiredDuckLevel = 1;
-        if (this.duckGainNode && this.audioCtx) {
-            this.duckGainNode.gain.setTargetAtTime(
-                this.desiredDuckLevel,
-                this.audioCtx.currentTime,
-                this.config.playback.gainRampSeconds
-            );
-        }
-    }
-
     /** Locally silences or restores a specific peer's audio output. */
     public setPeerMuted(userId: string, muted: boolean): void {
+        this.peerSettings.set(userId, { ...this.peerSettings.get(userId), muted });
         this.peers.get(userId)?.setMuted(muted);
     }
 
@@ -367,24 +356,19 @@ export class AudioRelay {
             this.masterGainNode = null;
         }
 
-        if (this.duckGainNode) {
-            this.duckGainNode.disconnect();
-            this.duckGainNode = null;
-        }
-
         if (this.encoder) {
             this.encoder.free();
             this.encoder = null;
         }
 
         if (this.audioCtx) {
-            this.audioCtx.close();
+            this.audioCtx.close().catch(() => {});
             this.audioCtx = null;
         }
 
         this.audioManager.leave();
 
-        void Promise.all([...this.peers.values()].map((peer) => peer.destroy()));
+        this.peers.forEach((peer) => peer.destroy());
 
         this.peers.clear();
         this.selfMuted = false;

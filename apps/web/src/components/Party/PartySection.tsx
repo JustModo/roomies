@@ -11,8 +11,6 @@ interface PartySectionProps {
   roomState: RoomState | null;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
   setControlLock: (userId: string, locked: boolean) => void;
-  addMessageHandler: (handler: (msg: any) => void) => () => void;
-  sendMessage: (msg: any) => void;
 }
 
 export interface LocalMemberState {

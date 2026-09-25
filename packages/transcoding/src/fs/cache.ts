@@ -33,19 +33,19 @@ export class TranscodeCache {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  static getVariantCacheStats(dir: string, startPosition: number): { newestSegmentTime: number; maxCoveredTime: number } {
+  static getVariantCacheStats(dir: string, startPosition: number): { newestSegmentTime: number; maxCoveredTime: number; segmentCount: number } {
     let newestSegmentTime = 0;
     let maxIndex = -1;
+    let segmentCount = 0;
 
     try {
       const files = fs.readdirSync(dir);
       for (const file of files) {
-        if (!file.endsWith('.ts')) continue;
-
-        const match = file.match(/seg_(\d+)\.ts/);
+        const match = file.match(/^(?:seg|audio)_(\d+)\.ts$/);
         if (match) {
+          segmentCount++;
           const index = parseInt(match[1], 10);
-          
+
           const segmentTime = startPosition + (index * SEGMENT_DURATION);
           if (segmentTime > newestSegmentTime) {
             newestSegmentTime = segmentTime;
@@ -62,15 +62,6 @@ export class TranscodeCache {
 
     const maxCoveredTime = maxIndex < 0 ? 0 : startPosition + (maxIndex + 1) * SEGMENT_DURATION;
 
-    return { newestSegmentTime, maxCoveredTime };
-  }
-
-  static getSegmentCount(dir: string): number {
-    try {
-      const files = fs.readdirSync(dir);
-      return files.filter(f => f.endsWith('.ts')).length;
-    } catch {
-      return 0;
-    }
+    return { newestSegmentTime, maxCoveredTime, segmentCount };
   }
 }

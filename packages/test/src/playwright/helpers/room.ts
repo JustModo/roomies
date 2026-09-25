@@ -1,13 +1,14 @@
 import { Page, expect } from '@playwright/test';
 
-/** Inject JWT and land on the lobby (Login does not auto-redirect after localStorage write). */
-export async function setAuthToken(page: Page, token: string) {
-  await page.goto('/login');
-  await page.evaluate((t) => {
-    localStorage.setItem('token', t);
-  }, token);
+export async function loginAs(page: Page, username: string, password: string): Promise<string> {
+  const res = await page.request.post('/api/auth/login', { data: { username, password } });
+  if (!res.ok()) {
+    throw new Error(`login ${username} failed: ${res.status()} ${await res.text()}`);
+  }
+  const { token } = await res.json();
   await page.goto('/');
   await expect(page.getByRole('button', { name: /JOIN ROOM/i })).toBeVisible({ timeout: 20000 });
+  return token;
 }
 
 export async function joinRoomViaLobby(page: Page) {
@@ -28,7 +29,7 @@ export async function exitRoom(page: Page) {
 }
 
 export async function openSidebarTab(page: Page, tab: 'PARTY' | 'SETTINGS') {
-  const tabBtn = page.getByRole('button', { name: new RegExp(`^${tab}$`, 'i') });
+  const tabBtn = page.getByRole('button', { name: tab, exact: true });
   if (!(await tabBtn.isVisible().catch(() => false))) {
     const toggle = page.locator('button[title="Toggle chat"]');
     if (await toggle.isVisible().catch(() => false)) {
@@ -47,10 +48,14 @@ export async function openSettingsTab(page: Page) {
   await openSidebarTab(page, 'SETTINGS');
 }
 
+export function memberMenuButton(page: Page, label: 'Lock controls' | 'Unlock controls') {
+  return page.locator('button:not([title])').filter({ hasText: new RegExp(`^${label}$`) });
+}
+
 export async function lockGuestControls(adminPage: Page, guestUsername: string) {
   await openPartyTab(adminPage);
   await adminPage.getByRole('button', { name: new RegExp(guestUsername, 'i') }).click();
-  const lockBtn = adminPage.getByRole('button', { name: /^Lock controls$/i });
+  const lockBtn = memberMenuButton(adminPage, 'Lock controls');
   await expect(lockBtn).toBeVisible({ timeout: 10000 });
   await lockBtn.click();
 }
@@ -61,7 +66,7 @@ export async function unlockGuestControls(adminPage: Page, guestUsername: string
   if (await memberBtn.isVisible().catch(() => false)) {
     await memberBtn.click();
   }
-  const unlockBtn = adminPage.getByRole('button', { name: /^Unlock controls$/i });
+  const unlockBtn = memberMenuButton(adminPage, 'Unlock controls');
   await expect(unlockBtn).toBeVisible({ timeout: 10000 });
   await unlockBtn.click();
 }

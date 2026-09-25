@@ -20,6 +20,10 @@
 
     # HLS media delivery
     handle /hls/* {
+        forward_auth 127.0.0.1:3000 {
+            uri /api/auth/media
+        }
+
         root * /cache
         uri strip_prefix /hls
         file_server

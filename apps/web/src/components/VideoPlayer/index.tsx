@@ -31,7 +31,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onStatusChange,
   onReportTime,
   onReportResolution,
-  onVolumeChange,
   showChat = false,
   onToggleChat,
   isFullscreen = false,
@@ -69,8 +68,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) {
       videoRef.current.volume = volume;
     }
-    onVolumeChange?.(volume);
-  }, [volume, onVolumeChange]);
+  }, [volume]);
 
   const activeOffsetRef = useRef<number>(0);
   const pendingReinitRef = useRef<boolean>(false);
@@ -121,7 +119,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (emojiMuted) return;
       const { userId, username, emoji, timestamp } = e.detail;
       const id = `${userId}-${timestamp}`;
-      console.log(`[VideoPlayer] Received emoji event:`, { userId, username, emoji, timestamp, id });
       setFloatingEmojis(prev => [...prev, { id, emoji, username }]);
     };
 
@@ -130,12 +127,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [emojiMuted]);
 
   const removeFloatingEmoji = useCallback((id: string) => {
-    console.log(`[VideoPlayer] removeFloatingEmoji called for id="${id}"`);
-    setFloatingEmojis(prev => {
-      const next = prev.filter(e => e.id !== id);
-      console.log(`[VideoPlayer] Floating emojis: ${prev.length} -> ${next.length}`);
-      return next;
-    });
+    setFloatingEmojis(prev => prev.filter(e => e.id !== id));
   }, []);
 
   // ── Idle / Controls Visibility ─────────────────────────────────────────────
@@ -175,7 +167,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // ── HLS Player ────────────────────────────────────────────────────────────
 
-  const { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange } = useHlsPlayer({
+  const { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange, playbackError } = useHlsPlayer({
     videoRef,
     mediaInfo,
     seekKey,
@@ -183,7 +175,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     roomPlaybackState,
     reportStatus,
     setIsPlaying,
-    isAsyncMode,
     activeOffsetRef,
     pendingReinitRef,
     onReportResolution,
@@ -394,6 +385,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         isPlaying={isPlaying}
         isDragging={isDragging}
         isAsyncMode={isAsyncMode}
+        errorText={playbackError}
       />
 
       {/* Top Bar Container passed as children */}

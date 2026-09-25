@@ -11,6 +11,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="unsupported-browser" style="position:fixed;top:0;right:0;bottom:0;left:0;display:none;align-items:center;justify-content:center;padding:16px;background:#000;color:#fff;font-family:sans-serif;font-size:16px;line-height:1.5;text-align:center">
+      This browser is not supported. Please update to Safari 15 or later, or use a current version of Chrome or Firefox.
+    </div>
+    <script>
+      window.addEventListener('load', function () {
+        var notice = document.getElementById('unsupported-browser');
+        if (notice) notice.style.display = 'flex';
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -3,18 +3,20 @@ import type {
   Application as OpusApplication,
   Signal as OpusSignal,
 } from "libopus-wasm";
+import type { JitterBufferOptions } from "./audio/JitterBuffer";
 
 export interface VoiceConfig {
   sampleRate: 48000;
   channels: 1;
   frameSize: number;
-  captureWarmupFrames: number;
   preprocessor: {
     dcBlockerR: number;
   };
   playback: {
-    jitterLookaheadSeconds: number;
     gainRampSeconds: number;
+    scheduleAheadSeconds: number;
+    tickMs: number;
+    jitter: JitterBufferOptions;
   };
   opus: {
     application: OpusApplication;
@@ -32,15 +34,20 @@ export const DEFAULT_VOICE_CONFIG: VoiceConfig = {
   sampleRate: 48000,
   channels: 1,
   frameSize: 960,
-  captureWarmupFrames: 0,
 
   preprocessor: {
     dcBlockerR: 0.995,
   },
 
   playback: {
-    jitterLookaheadSeconds: 0.12,
     gainRampSeconds: 0.1,
+    scheduleAheadSeconds: 0.04,
+    tickMs: 10,
+    jitter: {
+      targetDepthFrames: 3,
+      maxDepthFrames: 6,
+      maxConcealFrames: 5,
+    },
   },
 
   opus: {

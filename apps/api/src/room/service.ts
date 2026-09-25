@@ -4,7 +4,7 @@ import { roomStore } from './store';
 import { SocketEmitter } from '../websocket/emitter';
 import { coordinator } from '../playback/coordinator';
 import { prisma } from '../database/sqlite';
-import { getMasterPlaylistUrl } from '../playback/service';
+import { buildMediaChangedPayload } from '../playback/helpers';
 import { SyncService } from '../sync/service';
 
 type RoomJoinPayload = Extract<IncomingSocketMessage, { event: 'room.join' }>['payload'];
@@ -26,7 +26,7 @@ export class RoomService {
         micMuted: true,
         videoMuted: true
       }
-    });
+    }, ctx.socketId);
 
     SyncService.reconcileRoomBufferingState(ctx);
 
@@ -83,15 +83,16 @@ export class RoomService {
         // and buffers forever.
         SocketEmitter.sendToUser(ctx.app, member.userId, {
           event: 'media.changed',
-          payload: {
-            mediaFileId: state.mediaId!,
+          payload: buildMediaChangedPayload({
+            mediaFileId: state.mediaId,
             title: state.mediaTitle || 'Unknown Media',
-            hlsUrl: getMasterPlaylistUrl(state.mediaId!, 'sync'),
             duration: state.duration,
             transcodeOffset: state.transcodeOffset,
             sessionScope: 'room',
+            sessionId: 'sync',
             subtitles: state.subtitles,
-          }
+            audioTracks: state.audioTracks,
+          })
         });
 
         SocketEmitter.broadcastToRoom(ctx.app, {
@@ -116,7 +117,7 @@ export class RoomService {
     const member = state.members.find(m => m.userId === ctx.userId);
     const wasAsync = member?.status === 'async';
 
-    const wasRemoved = roomStore.removeMember(ctx.userId);
+    const wasRemoved = roomStore.removeMember(ctx.userId, ctx.socketId);
     if (!wasRemoved) return;
 
     if (wasAsync) {

@@ -72,14 +72,17 @@ function formatTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+let notificationAudioCtx: AudioContext | null = null;
+
 const playNotificationSound = () => {
   try {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return;
 
-    const audioCtx = new AudioContextClass();
+    notificationAudioCtx ??= new AudioContextClass();
+    const audioCtx = notificationAudioCtx;
 
-    // Many browsers suspend new audio contexts until explicitly resumed
+    // Many browsers suspend audio contexts until explicitly resumed
     if (audioCtx.state === 'suspended') {
       audioCtx.resume();
     }
@@ -372,6 +375,17 @@ export function ChatProvider({
     }
   }, [storageKey]);
 
+  const addLocalSystemMessage = useCallback((body: string, type: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate' = 'chat') => {
+    const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    appendMessage({
+      id: `system-local-${Date.now()}-${Math.random()}`,
+      timestamp: timestampStr,
+      body,
+      isSystem: true,
+      eventType: type,
+    });
+  }, [appendMessage]);
+
   const userAsyncStatesRef = useRef<Map<string, boolean>>(new Map());
 
   // Listen to WebSocket events
@@ -496,13 +510,19 @@ export function ChatProvider({
           break;
         }
 
+        case 'error': {
+          console.error('[chat] Server error:', msg.payload.message);
+          addLocalSystemMessage(msg.payload.message);
+          break;
+        }
+
         default:
           break;
       }
     });
 
     return () => unsubscribe();
-  }, [addMessageHandler, appendMessage]);
+  }, [addMessageHandler, appendMessage, addLocalSystemMessage]);
 
   const sendMessage = useCallback((body: string) => {
     sendSocketMessage({
@@ -517,17 +537,6 @@ export function ChatProvider({
       payload: { emoji },
     });
   }, [sendSocketMessage]);
-
-  const addLocalSystemMessage = useCallback((body: string, type: 'chat' | 'join' | 'leave' | 'play' | 'pause' | 'seek' | 'rate' = 'chat') => {
-    const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    appendMessage({
-      id: `system-local-${Date.now()}-${Math.random()}`,
-      timestamp: timestampStr,
-      body,
-      isSystem: true,
-      eventType: type,
-    });
-  }, [appendMessage]);
 
   return (
     <ChatContext.Provider value={{

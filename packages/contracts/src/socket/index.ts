@@ -21,8 +21,6 @@ import {
 import {
   ClientPartyUpdateSchema,
   ServerPartyUpdatedSchema,
-  ClientAudioChunkSchema,
-  ServerAudioChunkSchema,
 } from './PartyEvents';
 
 export {
@@ -68,7 +66,6 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
   ClientUpdateRoomSettingsSchema,
 
   ClientPartyUpdateSchema,
-  ClientAudioChunkSchema,
 
   ClientPlaybackPlaySchema,
   ClientPlaybackPauseSchema,
@@ -88,7 +85,6 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
   ServerUserLeftSchema,
 
   ServerPartyUpdatedSchema,
-  ServerAudioChunkSchema,
 
   ServerPlaybackStateSchema,
   ServerMediaChangedSchema,

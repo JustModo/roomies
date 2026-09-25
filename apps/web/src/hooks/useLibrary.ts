@@ -42,6 +42,7 @@ export function useLibrary() {
 
   return {
     library,
+    setLibrary,
     isLoading,
     error,
     isScanning,

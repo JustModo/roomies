@@ -12,56 +12,33 @@ type StatusPayload = Extract<IncomingSocketMessage, { event: 'sync.status' }>['p
 export class SyncService {
   private static userStatusLocks = new Map<string, Promise<void>>();
 
-  static async handleHeartbeat(payload: HeartbeatPayload, ctx: SocketContext) {
-    if (payload.timestamp !== undefined) {
+  static async handleHeartbeat(rawPayload: HeartbeatPayload, ctx: SocketContext) {
+    if (rawPayload.timestamp !== undefined) {
       SocketEmitter.sendToClient(ctx.socket, {
         event: 'sync.heartbeat_ack',
-        payload: { timestamp: payload.timestamp }
+        payload: { timestamp: rawPayload.timestamp }
       });
     }
 
     const state = roomStore.getState();
+    const payload = { ...rawPayload, playbackRate: rawPayload.playbackRate ?? state.playback.playbackRate };
     const member = state.members.find(m => m.userId === ctx.userId);
 
-    let shouldBroadcastStatus = false;
-    const updates: Partial<Parameters<typeof roomStore.updateMember>[1]> = {};
+    const statusChanged = !!member && payload.status !== undefined && payload.status !== member.status;
+    const pingChanged = !!member && payload.pingQuality !== undefined && payload.pingQuality !== member.pingQuality;
 
-    if (payload.pingQuality !== undefined && payload.pingQuality !== member?.pingQuality) {
-      updates.pingQuality = payload.pingQuality;
-      shouldBroadcastStatus = true;
-    }
-
-    if (payload.status !== undefined && payload.status !== member?.status) {
-      updates.status = payload.status;
-      shouldBroadcastStatus = true;
-    }
-
-    if (Object.keys(updates).length > 0) {
-      roomStore.updateMember(ctx.userId, updates);
-    }
-
-    if (shouldBroadcastStatus) {
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'user.status_changed',
-        payload: { 
-          userId: ctx.userId, 
-          status: payload.status ?? member?.status ?? 'buffering', 
-          pingQuality: payload.pingQuality ?? member?.pingQuality 
-        }
-      });
-    }
-
-    // Call status handlers if status changed
-    if (payload.status !== undefined && payload.status !== member?.status) {
-      const isNowAsync = payload.status === 'async';
-      const wasAsync = member?.status === 'async';
-      
-      if (isNowAsync && !wasAsync) {
-        await this.handleEnterAsyncMode(ctx, payload as any, state, member);
-      } else if (!isNowAsync && wasAsync) {
-        this.handleExitAsyncMode(ctx, payload as any, state);
+    if (member && pingChanged) {
+      roomStore.updateMember(ctx.userId, { pingQuality: payload.pingQuality });
+      if (!statusChanged) {
+        SocketEmitter.broadcastToRoom(ctx.app, {
+          event: 'user.status_changed',
+          payload: { userId: ctx.userId, status: member.status, pingQuality: payload.pingQuality }
+        });
       }
-      this.reconcileRoomBufferingState(ctx);
+    }
+
+    if (statusChanged) {
+      await this.handleStatus({ status: payload.status! }, ctx);
     }
 
     const updatedMember = roomStore.getState().members.find(m => m.userId === ctx.userId);
@@ -125,16 +102,16 @@ export class SyncService {
         position: payload.position,
         activeResolution: payload.resolution 
       });
-      coordinator.updateSyncPlayhead(ctx.userId, payload.position, payload.resolution);
+      coordinator.updateSyncPlayhead(ctx.userId, payload.position);
       return;
     }
 
     // NOTE: Cooldown check for hard seeks to prevent feedback loops.
     const lastSeekTime = ctx.socket.lastSeekTime || 0;
     const now = Date.now();
-    const isSeekingCooldown = (now - lastSeekTime) < 8000;
+    const isSeekingCooldown = (now - lastSeekTime) < SYNC_CONFIG.HARD_SEEK_COOLDOWN_MS;
 
-    if (driftMs > HARD_THRESHOLD_MS && !isSeekingCooldown) {
+    if (driftMs > HARD_THRESHOLD_MS && !isSeekingCooldown && playback.state === 'playing') {
       this.applyHardCorrection(ctx, expectedPosition, driftMs, now);
     } else if (driftMs > SOFT_THRESHOLD_MS && playback.state === 'playing') {
       this.applySoftCorrection(ctx, payload, playback, expectedPosition, driftMs);
@@ -147,7 +124,7 @@ export class SyncService {
       activeResolution: payload.resolution 
     });
 
-    coordinator.updateSyncPlayhead(ctx.userId, payload.position, payload.resolution);
+    coordinator.updateSyncPlayhead(ctx.userId, payload.position);
   }
 
   private static calculateExpectedPosition(playback: ReturnType<typeof roomStore.getState>['playback']): number {
@@ -179,7 +156,8 @@ export class SyncService {
       const isBehind = payload.position < expectedPosition;
       
       // Make correction relative to the current room playback rate
-      const correctionRate = isBehind ? playback.playbackRate * 1.1 : playback.playbackRate * 0.9;
+      const delta = SYNC_CONFIG.SOFT_CORRECTION_RATE_DELTA;
+      const correctionRate = playback.playbackRate * (isBehind ? 1 + delta : 1 - delta);
       
       const speedDelta = Math.abs(correctionRate - playback.playbackRate);
       const correctionDurationMs = Math.round(driftMs / speedDelta);
@@ -219,6 +197,10 @@ export class SyncService {
       }
     });
     this.userStatusLocks.set(ctx.userId, nextPromise);
+    await nextPromise;
+    if (this.userStatusLocks.get(ctx.userId) === nextPromise) {
+      this.userStatusLocks.delete(ctx.userId);
+    }
   }
 
   private static async executeHandleStatus(payload: StatusPayload, ctx: SocketContext) {
@@ -243,9 +225,9 @@ export class SyncService {
 
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'user.status_changed',
-      payload: { userId: ctx.userId, status: payload.status }
+      payload: { userId: ctx.userId, status: payload.status, pingQuality: member?.pingQuality }
     });
-    
+
     this.reconcileRoomBufferingState(ctx);
   }
 
@@ -256,7 +238,7 @@ export class SyncService {
     member: ReturnType<typeof roomStore.getState>['members'][0] | undefined
   ) {
     // ENTERING ASYNC: Compute offset based on actual current playhead
-    const position = member?.position || state.playback.anchorPosition;
+    const position = member?.position ?? state.playback.anchorPosition;
     
     const { effectiveOffset } = await coordinator.resolveSeek(
       { type: 'user', userId: ctx.userId },

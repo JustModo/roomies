@@ -1,7 +1,44 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { PlaybackController } from './controller';
 import { ChangeMediaRequestSchema } from '@roomies/contracts';
-import { verifyJwt, requireRole } from '../auth/middleware';
+import { isResolution, Resolution } from '@roomies/transcoding';
+import { verifyJwt, verifyMediaAccess, requireRole } from '../auth/middleware';
+import { roomStore } from '../room/store';
+
+const HlsParamsSchema = z.object({
+  mediaId: z.string(),
+  sessionId: z.enum(['sync', 'async']),
+  resolution: z.custom<Resolution>((value) => typeof value === 'string' && isResolution(value)).optional(),
+  trackId: z.string().optional(),
+});
+
+const HlsQuerySchema = z.object({
+  offset: z.coerce.number().nonnegative().optional(),
+});
+
+export type HlsParams = z.infer<typeof HlsParamsSchema>;
+export type HlsQuery = z.infer<typeof HlsQuerySchema>;
+
+const validateHlsRequest = async (req: FastifyRequest, reply: FastifyReply) => {
+  const params = HlsParamsSchema.safeParse(req.params);
+  const query = HlsQuerySchema.safeParse(req.query);
+  if (!params.success || !query.success) {
+    return reply.status(400).send({ error: 'Invalid HLS request' });
+  }
+
+  const room = roomStore.getState();
+  const { mediaId, trackId } = params.data;
+  if (mediaId !== room.mediaId) {
+    return reply.status(404).send({ error: 'Media is not playing' });
+  }
+  if (trackId !== undefined && !room.audioTracks.some((track) => track.id === trackId)) {
+    return reply.status(404).send({ error: 'Audio track not found' });
+  }
+
+  req.params = params.data;
+  req.query = query.data;
+};
 
 export const playbackRoutes = async (app: FastifyInstance) => {
   // NOTE: Retrieve active playback state for any authenticated user.
@@ -25,11 +62,14 @@ export const playbackRoutes = async (app: FastifyInstance) => {
     return PlaybackController.stopMedia(req as any, reply);
   });
 
-  app.get('/hls/:mediaId/:sessionId/master.m3u8', PlaybackController.getMasterPlaylist);
+  type HlsRoute = { Params: HlsParams; Querystring: HlsQuery };
+  const hlsGuard = { preHandler: [verifyMediaAccess, validateHlsRequest] };
+
+  app.get<HlsRoute>('/hls/:mediaId/:sessionId/master.m3u8', hlsGuard, PlaybackController.getMasterPlaylist);
 
   // NOTE: Ensure FFmpeg is running before redirecting variant requests to Caddy.
-  app.get('/hls/:mediaId/:sessionId/:resolution/stream.m3u8', PlaybackController.getVariantStream);
+  app.get<HlsRoute>('/hls/:mediaId/:sessionId/:resolution/stream.m3u8', hlsGuard, PlaybackController.getVariantStream);
 
   // Alternate-audio-track rendition route for multi-audio media files.
-  app.get('/hls/:mediaId/:sessionId/audio/:trackId/stream.m3u8', PlaybackController.getAudioStream);
+  app.get<HlsRoute>('/hls/:mediaId/:sessionId/audio/:trackId/stream.m3u8', hlsGuard, PlaybackController.getAudioStream);
 };

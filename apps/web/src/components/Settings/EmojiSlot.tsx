@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import EmojiPicker, { EmojiStyle, Theme } from 'emoji-picker-react';
-import type { EmojiClickData } from 'emoji-picker-react';
+import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { EmojiClickData, EmojiStyle, Theme } from 'emoji-picker-react';
 import { createPortal } from 'react-dom';
+
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
 interface EmojiSlotProps {
   index: number;
@@ -132,20 +133,22 @@ export const EmojiSlot: React.FC<EmojiSlotProps> = ({ index, emoji, onChange }) 
           }}
         >
           <div className="h-full w-full overflow-hidden rounded-[20px] border border-white/10 bg-[#111417]/95 shadow-[0_20px_60px_rgba(0,0,0,0.58)] backdrop-blur-xl">
-            <EmojiPicker
-              theme={Theme.DARK}
-              emojiStyle={EmojiStyle.NATIVE}
-              searchPlaceHolder="Search emoji"
-              previewConfig={{ showPreview: false }}
-              width={pickerWidth}
-              height={pickerHeight}
-              onEmojiClick={(data: EmojiClickData) => {
-                onChange(data.emoji);
-                setShowPicker(false);
-              }}
-              customEmojis={[]}
-              reactions={[]}
-            />
+            <Suspense fallback={null}>
+              <EmojiPicker
+                theme={'dark' as Theme}
+                emojiStyle={'native' as EmojiStyle}
+                searchPlaceHolder="Search emoji"
+                previewConfig={{ showPreview: false }}
+                width={pickerWidth}
+                height={pickerHeight}
+                onEmojiClick={(data: EmojiClickData) => {
+                  onChange(data.emoji);
+                  setShowPicker(false);
+                }}
+                customEmojis={[]}
+                reactions={[]}
+              />
+            </Suspense>
           </div>
         </div>,
         document.body

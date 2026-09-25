@@ -70,6 +70,11 @@ export class PlayerPOM {
     await this.page.keyboard.press('KeyK');
   }
 
+  async pressWhileLocked(key: string) {
+    await this.page.locator('body').click({ position: { x: 10, y: 10 } }).catch(() => undefined);
+    await this.page.keyboard.press(key);
+  }
+
   async seekForward10() {
     await this.ensureUnlocked();
     await this.page.keyboard.press('ArrowRight');
@@ -116,12 +121,7 @@ export class PlayerPOM {
     await volumeBtn.hover();
     const slider = this.page.locator('input[type="range"][min="0"][max="1"]');
     await slider.waitFor({ state: 'visible', timeout: 5000 });
-    await slider.evaluate((el, v) => {
-      const input = el as HTMLInputElement;
-      input.value = String(v);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }, value);
+    await slider.fill(String(value));
   }
 
   async cyclePlaybackRate() {
@@ -136,8 +136,11 @@ export class PlayerPOM {
 
   async openSubtitlesMenu() {
     await this.revealControls();
-    await this.page.locator('button[title="Subtitles"]').click();
-    await expect(this.page.getByText('Subtitles', { exact: true }).first()).toBeVisible();
+    const off = this.page.getByRole('button', { name: /^Off$/i });
+    if (await off.isVisible().catch(() => false)) return;
+    await this.page.locator('button[title="Settings"]').click();
+    await this.page.getByRole('button', { name: /^Subtitles/ }).click();
+    await expect(off).toBeVisible();
   }
 
   async selectSubtitleTrack(label: string | RegExp) {

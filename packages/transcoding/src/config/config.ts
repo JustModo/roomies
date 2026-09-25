@@ -55,6 +55,8 @@ export const LOOK_AHEAD_SEGMENTS = 4;
 /** Probe timeout in milliseconds to prevent hung ffprobe processes. */
 export const PROBE_TIMEOUT_MS = 10000;
 
+export const READY_TIMEOUT_MS = 60000;
+
 /** Timeout threshold to sweep inactive playheads after dropped socket connections. */
 export const PLAYHEAD_STALE_MS = 30000;
 
@@ -68,7 +70,7 @@ export const AUDIO_BITRATE = '160k';
 /** Upper bound for the source-aware audio bitrate floor (matches the top rung's preset). */
 export const AUDIO_BITRATE_CEILING = 192000;
 
-/** Upper bound on concurrent FFmpeg variant processes per session. */
+/** Upper bound on concurrent FFmpeg processes across all sessions. */
 export const MAX_CONCURRENT_VARIANTS = CONFIG_MAX_CONCURRENT_VARIANTS ?? Math.max(4, os.cpus().length * 2);
 
 export const FFMPEG_PATH = CONFIG_FFMPEG_PATH;
@@ -78,3 +80,5 @@ export const CACHE_DIR = CONFIG_CACHE_DIR;
 export const HLS_BASE_URL = '/hls';
 
 export const VIDEO_CODEC = CONFIG_VIDEO_CODEC;
+
+export const RENDER_NODE = '/dev/dri/renderD128';

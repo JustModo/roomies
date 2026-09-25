@@ -1,6 +1,5 @@
 import { SocketContext } from '../websocket/router';
 import { IncomingSocketMessage } from '@roomies/contracts';
-import { chatStore, ChatMessage } from '@roomies/chat';
 import { SocketEmitter } from '../websocket/emitter';
 import { checkRateLimit } from '../websocket/middleware';
 
@@ -12,26 +11,13 @@ const EMOJI_RATE_LIMIT_WINDOW_MS = 500;
 
 export class ChatService {
   static async handleSend(payload: ChatPayload, ctx: SocketContext) {
-    console.log(`[chat] Chat event received from ${ctx.userId}: ${payload.message}`);
-
-    const timestamp = new Date();
-
-    // 1. Persist to the in-memory chat store
-    chatStore.append({
-      userId: ctx.userId,
-      username: ctx.username,
-      message: payload.message,
-      timestamp,
-    });
-
-    // 2. Broadcast to the party room
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'chat.message',
       payload: {
         userId: ctx.userId,
         username: ctx.username,
         message: payload.message,
-        timestamp: timestamp.toISOString(),
+        timestamp: new Date().toISOString(),
       },
     });
   }
@@ -43,8 +29,6 @@ export class ChatService {
       return; // Silently drop
     }
 
-    console.log(`[chat] Emoji event received from ${ctx.userId}: ${payload.emoji}`);
-
     // Broadcast to the party room (including sender for confirmation)
     SocketEmitter.broadcastToRoom(ctx.app, {
       event: 'emoji.reaction',
@@ -55,9 +39,5 @@ export class ChatService {
         timestamp: Date.now(),
       },
     });
-  }
-
-  static getHistory(): ChatMessage[] {
-    return chatStore.getHistory();
   }
 }

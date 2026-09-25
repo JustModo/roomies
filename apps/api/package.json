@@ -12,19 +12,19 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "cross-env DATABASE_URL=file:../../config/roomies.db prisma generate && cross-env DATABASE_URL=file:../../config/roomies.db prisma db push --accept-data-loss && tsx watch src/index.ts",
+    "dev": "cross-env DATABASE_URL=file:../../config/roomies.db prisma generate && cross-env DATABASE_URL=file:../../config/roomies.db prisma migrate dev && tsx watch src/index.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.0.3",
     "@fastify/websocket": "^11.2.0",
     "@libsql/client": "^0.6.0",
     "@prisma/adapter-libsql": "^7.8.0",
     "@prisma/client": "^7.8.0",
-    "@roomies/chat": "workspace:*",
     "@roomies/config": "workspace:*",
     "@roomies/contracts": "workspace:*",
     "@roomies/library": "workspace:*",

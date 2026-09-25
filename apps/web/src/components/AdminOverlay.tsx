@@ -5,7 +5,9 @@ import { Input } from './ui/Input';
 import { IconButton } from './ui/IconButton';
 import { Button } from './ui/Button';
 import { SubtitleManager } from './SubtitleManager';
-import { Movie, MediaFile, UserProfile, Library, Subtitle } from '@roomies/contracts';
+import { Movie, MediaFile, UserProfile, Subtitle } from '@roomies/contracts';
+import { fetchApi } from '../api/client';
+import { useLibrary } from '../hooks/useLibrary';
 
 
 import { AdminOverlayProps, AdminTab as Tab } from '../types';
@@ -18,12 +20,7 @@ export const AdminOverlay: React.FC<AdminOverlayProps> = ({ isOpen, onClose, med
 
   const handleStop = async () => {
     try {
-      await fetch('/api/playback/stop', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      await fetchApi('/playback/stop', { method: 'POST' });
     } catch (err) {
       console.error('Failed to stop media', err);
     }
@@ -111,10 +108,7 @@ const UsersTab = () => {
 
   const fetchUsers = () => {
     setIsLoading(true);
-    fetch('/api/users', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-      .then(res => res.json())
+    fetchApi('/users')
       .then(data => {
         if (Array.isArray(data)) setUsers(data);
       })
@@ -126,12 +120,10 @@ const UsersTab = () => {
     fetchUsers();
   }, []);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (user: UserProfile) => {
+    if (!confirm(`Remove ${user.username}? This cannot be undone.`)) return;
     try {
-      await fetch(`/api/users/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
+      await fetchApi(`/users/${user.id}`, { method: 'DELETE' });
       fetchUsers();
     } catch (err) {
       console.error('[library] Failed to delete user:', err);
@@ -146,19 +138,10 @@ const UsersTab = () => {
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/users/guest', {
+      await fetchApi('/users/guest', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword })
+        body: { username: newUsername.trim(), password: newPassword }
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to create user');
-      }
 
       setIsCreating(false);
       setNewUsername('');
@@ -223,7 +206,7 @@ const UsersTab = () => {
                 <div className="flex items-center gap-4 pr-2">
                   {u.role !== 'root' && (
                     <button
-                      onClick={() => handleDelete(u.id)}
+                      onClick={() => handleDelete(u)}
                       className="text-12 font-medium tracking-wider text-fog group-hover:text-red-400 uppercase opacity-0 group-hover:opacity-100 transition-all duration-300 hover:scale-105"
                     >
                       REMOVE
@@ -244,9 +227,7 @@ const UsersTab = () => {
 };
 
 const MediaTab = ({ onClose }: { onClose: () => void }) => {
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isScanning, setIsScanning] = useState(false);
+  const { library: movies, setLibrary: setMovies, isLoading, isScanning, scanLibrary } = useLibrary();
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [subtitleTarget, setSubtitleTarget] = useState<MediaFile | null>(null);
@@ -271,59 +252,9 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const fetchLibrary = () => {
-    setIsLoading(true);
-    fetch('/api/library', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          const allMovies: Movie[] = (data as Library[]).flatMap((lib) => lib.movies || []);
-
-          setMovies(allMovies);
-        }
-      })
-      .catch(err => console.error('[library] Failed to fetch library:', err))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(() => {
-    fetchLibrary();
-  }, []);
-
-  const handleScan = async () => {
-    setIsScanning(true);
-    try {
-      await fetch('/api/library/scan', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({})
-      });
-      fetchLibrary();
-    } catch (err) {
-      console.error('[library] Failed to scan library:', err);
-    } finally {
-      setIsScanning(false);
-    }
-  };
-
   const handleStart = async (mediaFileId: string) => {
     try {
-      const res = await fetch('/api/playback/change-media', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ mediaFileId })
-      });
-      if (!res.ok) {
-        throw new Error('Failed to change media');
-      }
+      await fetchApi('/playback/change-media', { method: 'POST', body: { mediaFileId } });
       // NOTE: Close overlay. The media.changed event will update the player.
       onClose();
     } catch (err) {
@@ -342,7 +273,8 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
 
   if (selectedMovie) {
     const sortedEpisodes = [...selectedMovie.mediaFiles].sort((a, b) =>
-      a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
+      (a.number ?? Infinity) - (b.number ?? Infinity)
+      || a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
     );
 
     return (
@@ -421,7 +353,7 @@ const MediaTab = ({ onClose }: { onClose: () => void }) => {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
-        <Button onClick={handleScan} disabled={isScanning} className="w-full sm:w-auto min-w-[140px] flex-shrink-0">
+        <Button onClick={scanLibrary} disabled={isScanning} className="w-full sm:w-auto min-w-[140px] flex-shrink-0">
           {isScanning ? 'RESCANNING...' : 'RESCAN'}
         </Button>
       </div>

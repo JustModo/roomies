@@ -32,12 +32,10 @@ export function startSegmentReadyWatcher(options: SegmentReadyWatcherOptions): {
   let pollInterval: NodeJS.Timeout | null = null;
 
   const checkTarget = (target: SegmentReadyTarget) => {
-    if (target.onStats) {
-      target.onStats(TranscodeCache.getVariantCacheStats(target.dir, startPosition));
-    }
+    const stats = TranscodeCache.getVariantCacheStats(target.dir, startPosition);
+    target.onStats?.(stats);
     if (target.isReady()) return;
-    const tsCount = TranscodeCache.getSegmentCount(target.dir);
-    if (tsCount >= LOOK_AHEAD_SEGMENTS || (!isRunning() && tsCount > 0)) {
+    if (stats.segmentCount >= LOOK_AHEAD_SEGMENTS || (!isRunning() && stats.segmentCount > 0)) {
       target.onReady();
     }
   };

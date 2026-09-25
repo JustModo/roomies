@@ -1,5 +1,4 @@
-export { TranscodeSessionManager, TranscodeSessionManagerClass, createTranscodeSessionManager } from './core/manager';
-export type { TranscodeManagerOptions } from './core/manager';
+export { TranscodeSessionManager } from './core/manager';
 export { TranscodeSession } from './core/session';
 
 export { TranscodeWorker } from './core/worker';
@@ -16,12 +15,13 @@ export {
   SEGMENT_DURATION,
   HLS_LIST_SIZE,
   MAX_CONCURRENT_VARIANTS,
+  READY_TIMEOUT_MS,
   CACHE_DIR,
   HLS_BASE_URL,
   AUDIO_BITRATE,
 } from './config/config';
 export { SyncPolicy, AsyncPolicy, policyForSessionId, variantsForSource, scaledResolution } from './config/policy';
-export type { PlaybackPolicy, SeekNotifyPolicy } from './config/policy';
+export type { PlaybackPolicy } from './config/policy';
 export { buildHlsMuxArgs, buildSeparateAudioEncodeArgs, appendAudioTrackHlsOutput, audioBitrateFor, AUDIO_TIMESTAMP_FIX } from './ffmpeg/hlsArgs';
 export { startSegmentReadyWatcher } from './fs/readyWatcher';
 export type { SegmentReadyTarget, SegmentReadyWatcherOptions } from './fs/readyWatcher';

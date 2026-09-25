@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../database/sqlite';
@@ -5,7 +6,8 @@ import { SetupRootRequest, CreateGuestRequest, LoginRequest } from '@roomies/con
 import { Config } from '../config';
 
 const BCRYPT_ROUNDS = 12;
-const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const ACCESS_TOKEN_TTL_S = 60 * 60;
+export const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // NOTE: Dummy hash for bcrypt comparisons to prevent user-enumeration timing attacks.
 const DUMMY_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO/pF5X3XG5pXHIe9Rq3z1e6nS3s3z3sK';
@@ -25,6 +27,23 @@ async function rotateSession(userId: string, refreshToken: string) {
       },
     });
   });
+}
+
+const signRefreshToken = (userId: string) =>
+  jwt.sign({ userId }, Config.JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_TTL_MS / 1000, jwtid: randomUUID() });
+
+const signAccessToken = (user: { id: string; username: string; role: string }, sessionId: string) =>
+  jwt.sign(
+    { userId: user.id, username: user.username, role: user.role, sessionId },
+    Config.JWT_SECRET,
+    { expiresIn: ACCESS_TOKEN_TTL_S }
+  );
+
+async function startSession(user: { id: string; username: string; role: string }) {
+  const refreshToken = signRefreshToken(user.id);
+  const session = await rotateSession(user.id, refreshToken);
+  const token = signAccessToken(user, session.id);
+  return { token, refreshToken, user: { id: user.id, username: user.username, role: user.role } };
 }
 
 export const AuthService = {
@@ -56,19 +75,7 @@ export const AuthService = {
       throw err;
     }
 
-    const refreshToken = jwt.sign(
-      { userId: user.id },
-      Config.JWT_REFRESH_SECRET,
-      { expiresIn: '7d' }
-    );
-    const session = await rotateSession(user.id, refreshToken);
-    const token = jwt.sign(
-      { userId: user.id, username: user.username, role: user.role, sessionId: session.id },
-      Config.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
-
-    return { token, refreshToken, user: { id: user.id, username: user.username, role: user.role } };
+    return startSession(user);
   },
 
   async createGuest(data: CreateGuestRequest) {
@@ -81,13 +88,21 @@ export const AuthService = {
     }
 
     const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
-    const user = await prisma.user.create({
-      data: {
-        username: data.username,
-        password: hashedPassword,
-        role: 'guest',
-      },
-    });
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          username: data.username,
+          password: hashedPassword,
+          role: 'guest',
+        },
+      });
+    } catch (err: any) {
+      if (err.code === 'P2002') {
+        throw new Error('User already exists');
+      }
+      throw err;
+    }
 
     return { id: user.id, username: user.username, role: user.role };
   },
@@ -103,18 +118,35 @@ export const AuthService = {
       throw new Error('Invalid credentials');
     }
 
-    const refreshToken = jwt.sign(
-      { userId: user.id },
-      Config.JWT_REFRESH_SECRET,
-      { expiresIn: '7d' }
-    );
-    const session = await rotateSession(user.id, refreshToken);
-    const token = jwt.sign(
-      { userId: user.id, username: user.username, role: user.role, sessionId: session.id },
-      Config.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
+    return startSession(user);
+  },
 
-    return { token, refreshToken, user: { id: user.id, username: user.username, role: user.role } };
+  async refresh(refreshToken: string) {
+    const { userId } = jwt.verify(refreshToken, Config.JWT_REFRESH_SECRET, { algorithms: ['HS256'] }) as { userId: string };
+
+    const session = await prisma.refreshToken.findUnique({ where: { token: refreshToken }, include: { user: true } });
+    if (!session || session.userId !== userId || session.expiresAt <= new Date()) {
+      throw new Error('Invalid refresh token');
+    }
+
+    const nextRefreshToken = signRefreshToken(userId);
+    const rotated = await prisma.refreshToken.updateMany({
+      where: { id: session.id, token: refreshToken },
+      data: { token: nextRefreshToken, expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS) },
+    });
+    if (rotated.count === 0) {
+      throw new Error('Invalid refresh token');
+    }
+
+    const { user } = session;
+    return {
+      token: signAccessToken(user, session.id),
+      refreshToken: nextRefreshToken,
+      user: { id: user.id, username: user.username, role: user.role },
+    };
+  },
+
+  async logout(refreshToken: string) {
+    await prisma.refreshToken.deleteMany({ where: { token: refreshToken } });
   },
 };

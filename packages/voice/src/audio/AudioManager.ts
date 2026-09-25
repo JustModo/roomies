@@ -52,8 +52,8 @@ export class AudioManager {
             audio: {
                 channelCount: { ideal: 1 },
                 echoCancellation: { ideal: true },
-                noiseSuppression: { exact: false },
-                autoGainControl: { exact: false },
+                noiseSuppression: { ideal: false },
+                autoGainControl: { ideal: false },
                 sampleRate: this.config.sampleRate,
                 // Chromium-only today; ignored by browsers that do not support it.
                 suppressLocalAudioPlayback: { ideal: true },

@@ -1,17 +1,18 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
-import { WebSocket } from '@fastify/websocket';
+import { FastifyInstance } from 'fastify';
 import { IncomingSocketMessageSchema, OutgoingSocketMessage } from '@roomies/contracts';
 import { authenticateWebSocket } from '../auth/websocket';
 import { dispatchSocketEvent, SocketContext, RoomSocket } from './router';
 import { createRateLimiter } from './middleware';
-import { socketSessionStore } from './store';
+import { voiceManager } from '../voice/manager';
 
 const MESSAGE_WINDOW_MS = 1000;
 const MAX_MESSAGES_PER_WINDOW = 20;
 
-/** Force-closes any existing WebSocket connections for a user, e.g. after a new login elsewhere. */
-export const kickUserConnections = (app: FastifyInstance, userId: string): void => {
-  const message: OutgoingSocketMessage = { event: 'auth.kicked', payload: { reason: 'logged_in_elsewhere' } };
+type KickReason = Extract<OutgoingSocketMessage, { event: 'auth.kicked' }>['payload']['reason'];
+
+/** Force-closes every room and voice WebSocket of a user, e.g. after a new login elsewhere or account deletion. */
+export const kickUserConnections = (app: FastifyInstance, userId: string, reason: KickReason = 'logged_in_elsewhere'): void => {
+  const message: OutgoingSocketMessage = { event: 'auth.kicked', payload: { reason } };
   for (const connection of app.room) {
     if ((connection as RoomSocket).userId !== userId) continue;
     try {
@@ -21,6 +22,8 @@ export const kickUserConnections = (app: FastifyInstance, userId: string): void 
     }
     connection.close();
   }
+
+  voiceManager.kickUser(userId);
 };
 
 /** Decorates the Fastify instance with a room registry and sets up the /ws route. */
@@ -57,8 +60,7 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
       roomSocket.socketId = socketId;
       app.room.add(roomSocket);
 
-
-      await dispatchSocketEvent('system.connect', null, ctx);
+      const withinRateLimit = createRateLimiter(MESSAGE_WINDOW_MS, MAX_MESSAGES_PER_WINDOW);
 
       const handleMessage = async (message: string) => {
         try {
@@ -70,21 +72,20 @@ export const setupWebsocketGateway = (app: FastifyInstance) => {
             return;
           }
 
+          if (parsedData.data.event !== 'sync.status' && !withinRateLimit()) return;
+
           await dispatchSocketEvent(parsedData.data.event, parsedData.data.payload, ctx);
         } catch (e) {
           console.error('[sync] Failed to parse WS message JSON:', e);
         }
       };
 
-      const rateLimiter = createRateLimiter(MESSAGE_WINDOW_MS, MAX_MESSAGES_PER_WINDOW);
-      connection.on('message', rateLimiter(handleMessage));
+      connection.on('message', handleMessage);
 
       connection.on('close', async () => {
         console.log(`[sync] User disconnected from WebSocket: ${userId}`);
 
         app.room.delete(connection);
-        
-        socketSessionStore.remove(socketId);
 
         await dispatchSocketEvent('room.leave', {}, ctx);
       });

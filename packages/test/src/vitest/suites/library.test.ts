@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { detectMediaType, processMovie, processShow } from '@roomies/library';
+import { detectMediaType, processMovie, processShow, scanLibraryFolder } from '@roomies/library';
 import { createMockMediaDir, MockMediaDir } from '../helpers/mockMedia';
 import { createTestDatabase, TestDbContext } from '../helpers/testDatabase';
 
@@ -79,5 +79,29 @@ describe('Library Scanner & Media Detection', () => {
     const ep1 = showResult!.episodes.find((e) => e.path === ep1Path);
     expect(ep1!.number).toBe(1);
     expect(ep1!.title).toBe('Sparks of Tomorrow S01E01');
+  });
+
+  it('keeps a movie with a sample clip classified as a movie, playing the real file', async () => {
+    const root = createMockMediaDir();
+    root.createFile('Dune/Dune.2021.mkv');
+    root.createFile('Dune/Dune.2021.sample.mkv');
+    root.createFile('Dune/Extras/trailer.mp4');
+
+    const [scanned] = await scanLibraryFolder(root.dirPath);
+
+    expect(scanned.type).toBe('movie');
+    expect(scanned.episodes).toHaveLength(1);
+    expect(scanned.episodes[0].path.endsWith('Dune.2021.mkv')).toBe(true);
+    root.cleanup();
+  });
+
+  it('only treats an "e" at a word start as an episode marker', () => {
+    const ep5 = mockMedia.createFile('Rage 2/Rage 2 - 05.mkv');
+    const ep6 = mockMedia.createFile('Rage 2/Rage 2 - 06.mkv');
+
+    const show = processShow(mockMedia.dirPath, 'Rage 2', [ep5, ep6]);
+
+    expect(show!.episodes.map((e) => e.number)).toEqual([5, 6]);
+    expect(show!.episodes[0].title).toBe('Rage 2 Episode 5');
   });
 });

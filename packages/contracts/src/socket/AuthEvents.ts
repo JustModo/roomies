@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const ServerAuthKickedSchema = z.object({
   event: z.literal('auth.kicked'),
   payload: z.object({
-    reason: z.literal('logged_in_elsewhere'),
+    reason: z.enum(['logged_in_elsewhere', 'account_deleted']),
   }),
 });
 

@@ -10,7 +10,8 @@
     "types": ["node"],
     "paths": {
       "@roomies/web/*": ["../../apps/web/*"],
-      "@roomies/server/*": ["../../apps/api/*"]
+      "@roomies/server/*": ["../../apps/api/*"],
+      "@roomies/voice/*": ["../voice/*"]
     }
   },
   "include": ["src/**/*", "../../apps/api/src/types.d.ts"]

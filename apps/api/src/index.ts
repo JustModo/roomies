@@ -4,16 +4,17 @@ import { PORT } from '@roomies/config';
 export { createApp } from './app';
 export { createAppContext } from './context';
 export type { CreateAppOptions } from './app';
-export type { AppContext, AppContextOptions } from './context';
+export type { AppContext } from './context';
+export { getPrisma, resetPrismaClient } from './database/sqlite';
+export { roomStore } from './room/store';
+export { SYNC_CONFIG } from './config';
 
 const start = async () => {
   try {
     const app = await createApp();
-    const port = (app as any).ctx?.config?.PORT || PORT;
+    await app.listen({ port: PORT, host: '0.0.0.0' });
 
-    await app.listen({ port, host: '0.0.0.0' });
-
-    console.log(`[system] Server listening at http://localhost:${port}`);
+    console.log(`[system] Server listening at http://localhost:${PORT}`);
 
     const shutdown = async (signal: string) => {
       console.log(`[system] Received ${signal}, starting graceful shutdown...`);

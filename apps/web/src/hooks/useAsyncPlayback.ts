@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
 import { RoomState } from '@roomies/contracts';
-import { WEB_CONFIG } from '../config';
 
 /**
  * Owns async-local play / pause / rate / status only.
@@ -9,19 +8,15 @@ import { WEB_CONFIG } from '../config';
  */
 
 interface UseAsyncPlaybackParams {
-  isConnected: boolean;
   sendMessage: (msg: any) => void;
   localTimeRef: MutableRefObject<number>;
-  activeResolutionRef: MutableRefObject<string | undefined>;
   roomPlaybackState?: RoomState['playback'];
   allowAsyncMode?: boolean;
 }
 
 export function useAsyncPlayback({
-  isConnected,
   sendMessage,
   localTimeRef,
-  activeResolutionRef,
   roomPlaybackState,
   allowAsyncMode = true,
 }: UseAsyncPlaybackParams) {
@@ -35,28 +30,6 @@ export function useAsyncPlayback({
   useEffect(() => {
     asyncPlaybackStateRef.current = asyncPlaybackState;
   }, [asyncPlaybackState]);
-
-  // Periodic heartbeat so the transcoder knows where the async user is.
-  useEffect(() => {
-    if (!isConnected) return;
-
-    const interval = setInterval(() => {
-      if (!isAsyncModeRef.current) return;
-      const ps = asyncPlaybackStateRef.current;
-      sendMessage({
-        event: 'sync.heartbeat',
-        payload: {
-          position: localTimeRef.current,
-          playing: ps?.state === 'playing',
-          playbackRate: ps?.playbackRate ?? 1,
-          resolution: activeResolutionRef.current as any,
-          status: 'async' as const,
-        }
-      });
-    }, WEB_CONFIG.ASYNC_HEARTBEAT_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [isConnected, sendMessage, localTimeRef, activeResolutionRef]);
 
   const forceAsyncMode = useCallback((enabled: boolean) => {
     if (enabled && !allowAsyncMode) return;
@@ -129,19 +102,7 @@ export function useAsyncPlayback({
       event: 'playback.seek',
       payload: { position, scope: 'user', forceNewOffset }
     });
-
-    // Immediate heartbeat so the transcoder starts ASAP.
-    sendMessage({
-      event: 'sync.heartbeat',
-      payload: {
-        position,
-        playing: false,
-        playbackRate: asyncPlaybackStateRef.current?.playbackRate ?? 1,
-        resolution: activeResolutionRef.current as any,
-        status: 'async' as const,
-      }
-    });
-  }, [sendMessage, activeResolutionRef]);
+  }, [sendMessage]);
 
   const setStatus = useCallback((status: 'ready' | 'buffering') => {
     setAsyncPlaybackState(prev => {
@@ -170,6 +131,7 @@ export function useAsyncPlayback({
     isAsyncMode,
     isAsyncModeRef,
     asyncPlaybackState,
+    asyncPlaybackStateRef,
     toggleAsyncMode,
     forceAsyncMode,
     play,

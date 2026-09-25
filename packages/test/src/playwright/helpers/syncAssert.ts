@@ -26,7 +26,7 @@ export async function getVideoState(page: Page) {
     return {
       exists: true,
       paused: video.paused,
-      currentTime: video.currentTime,
+      currentTime: Number(video.dataset.absTime ?? video.currentTime),
       playbackRate: video.playbackRate,
       muted: video.muted,
       volume: video.volume,

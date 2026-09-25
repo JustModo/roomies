@@ -1,5 +1,4 @@
 import { registerSocketEvent, SocketContext } from '../websocket/router';
-import { createDebouncer } from '../websocket/middleware';
 import { withPlaybackLock, withControlsCheck } from './middleware';
 import { PlaybackService } from './service';
 import { IncomingSocketMessage } from '@roomies/contracts';

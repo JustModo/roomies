@@ -4,7 +4,7 @@ import { LobbyPOM } from '../pom/LobbyPOM';
 import { RoomPOM } from '../pom/RoomPOM';
 import { ADMIN_USER, GUEST_PASSWORD, obtainAdminAndGuest } from '../helpers/auth';
 import { stopMedia } from '../helpers/media';
-import { joinRoomViaLobby, setAuthToken } from '../helpers/room';
+import { joinRoomViaLobby, loginAs } from '../helpers/room';
 
 test.describe('Auth & Lobby', () => {
   test('01. root login lands on lobby', async ({ page }) => {
@@ -37,7 +37,7 @@ test.describe('Auth & Lobby', () => {
   test('04. lobby shows WAITING when no media', async ({ page, request }) => {
     const tokens = await obtainAdminAndGuest();
     await stopMedia(request, tokens.adminToken).catch(() => undefined);
-    await setAuthToken(page, tokens.adminToken);
+    await loginAs(page, ADMIN_USER.username, ADMIN_USER.password);
     const lobby = new LobbyPOM(page);
     await lobby.goto();
     await lobby.expectStatus('WAITING');
@@ -45,7 +45,7 @@ test.describe('Auth & Lobby', () => {
 
   test('05. JOIN ROOM enters room and shows room chrome', async ({ page }) => {
     const tokens = await obtainAdminAndGuest();
-    await setAuthToken(page, tokens.adminToken);
+    await loginAs(page, ADMIN_USER.username, ADMIN_USER.password);
     await joinRoomViaLobby(page);
     const room = new RoomPOM(page);
     await room.expectInRoom();
@@ -54,7 +54,7 @@ test.describe('Auth & Lobby', () => {
 
   test('06. direct /room without join interaction redirects to lobby', async ({ page }) => {
     const tokens = await obtainAdminAndGuest();
-    await setAuthToken(page, tokens.adminToken);
+    await loginAs(page, ADMIN_USER.username, ADMIN_USER.password);
     await page.goto('/room');
     await expect(page).toHaveURL(/\/($|\?)/);
     const lobby = new LobbyPOM(page);
@@ -70,8 +70,8 @@ test.describe('Auth & Lobby', () => {
     const adminPage = await adminContext.newPage();
     const guestPage = await guestContext.newPage();
 
-    await setAuthToken(adminPage, tokens.adminToken);
-    await setAuthToken(guestPage, tokens.guestToken);
+    await loginAs(adminPage, ADMIN_USER.username, ADMIN_USER.password);
+    await loginAs(guestPage, tokens.guestUsername, GUEST_PASSWORD);
     await joinRoomViaLobby(adminPage);
     await joinRoomViaLobby(guestPage);
 

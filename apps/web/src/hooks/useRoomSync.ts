@@ -3,6 +3,7 @@ import { useWebSocket } from './useWebSocket';
 import { RoomState, MediaInfo, SyncStatus } from '@roomies/contracts';
 import { useAsyncPlayback } from './useAsyncPlayback';
 import { SeekCommand } from '../components/VideoPlayer/types';
+import { WEB_CONFIG } from '../config';
 
 export function useRoomSync() {
   const { isConnected, authError, sendMessage, addMessageHandler } = useWebSocket();
@@ -26,15 +27,11 @@ export function useRoomSync() {
   const localStatusRef = useRef<SyncStatus>('ready');
 
   // Refs for values used in intervals/callbacks that must stay fresh.
-  const playbackStateRef = useRef<RoomState['playback']['state']>();
-  const playbackRateRef = useRef<number>();
   const activeRateRef = useRef(1);
 
   const asyncPlayback = useAsyncPlayback({
-    isConnected,
     sendMessage,
     localTimeRef,
-    activeResolutionRef,
     roomPlaybackState: roomState?.playback,
     allowAsyncMode: roomState?.settings?.allowAsyncMode ?? true,
   });
@@ -104,12 +101,10 @@ export function useRoomSync() {
     }
   }, [asyncPlayback.isAsyncMode]);
 
-  // Keep rate refs in sync.
+  // Keep the rate ref in sync.
   useEffect(() => {
-    playbackStateRef.current = roomState?.playback.state;
-    playbackRateRef.current = roomState?.playback.playbackRate;
     activeRateRef.current = localCorrectionRate ?? roomState?.playback.playbackRate ?? 1;
-  }, [roomState?.playback.state, roomState?.playback.playbackRate, localCorrectionRate]);
+  }, [roomState?.playback.playbackRate, localCorrectionRate]);
 
   // ── Message Handler ────────────────────────────────────────────────────────
 
@@ -327,11 +322,6 @@ export function useRoomSync() {
             }
           }
         }
-
-      // ── error (e.g. transcode failures) ────────────────────────────────
-      } else if (msg.event === 'error') {
-        console.error('[sync] Server error:', msg.payload.message);
-        window.dispatchEvent(new CustomEvent('roomies:server-error', { detail: msg.payload }));
       }
     });
 
@@ -340,25 +330,27 @@ export function useRoomSync() {
 
   // ── Heartbeat ──────────────────────────────────────────────────────────────
 
+  const { isAsyncModeRef, asyncPlaybackStateRef } = asyncPlayback;
+  const sendHeartbeat = useCallback((position: number = localTimeRef.current) => {
+    const isAsync = isAsyncModeRef.current;
+    sendMessage({
+      event: 'sync.heartbeat',
+      payload: {
+        position,
+        playbackRate: isAsync ? asyncPlaybackStateRef.current?.playbackRate ?? 1 : activeRateRef.current,
+        resolution: activeResolutionRef.current as any,
+        timestamp: Date.now(),
+        pingQuality: pingQualityRef.current,
+        status: isAsync ? 'async' : localStatusRef.current,
+      },
+    });
+  }, [sendMessage, isAsyncModeRef, asyncPlaybackStateRef]);
+
   useEffect(() => {
     if (!isConnected) return;
-    const interval = setInterval(() => {
-      if (asyncPlayback.isAsyncModeRef.current) return; // Async heartbeat handled by useAsyncPlayback.
-      sendMessage({
-        event: 'sync.heartbeat',
-        payload: {
-          position: localTimeRef.current,
-          playing: playbackStateRef.current === 'playing',
-          playbackRate: activeRateRef.current,
-          resolution: activeResolutionRef.current as any,
-          timestamp: Date.now(),
-          pingQuality: pingQualityRef.current,
-          status: localStatusRef.current,
-        },
-      });
-    }, 5000);
+    const interval = setInterval(() => sendHeartbeat(), WEB_CONFIG.HEARTBEAT_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [isConnected, sendMessage, asyncPlayback.isAsyncModeRef]);
+  }, [isConnected, sendHeartbeat]);
 
   useEffect(() => {
     if (!isConnected) {
@@ -385,6 +377,7 @@ export function useRoomSync() {
     if (asyncPlayback.isAsyncModeRef.current) {
       // Async seek: update local video immediately and let server handle the HLS offset.
       asyncPlayback.seek(position, forceNewOffset);
+      sendHeartbeat(position);
       issueSeekCommand(position);
       return;
     }
@@ -394,7 +387,7 @@ export function useRoomSync() {
     // because if the server debounces this request, we will be stuck in a stale buffering state.
     issueSeekCommand(position);
     sendMessage({ event: 'playback.seek', payload: { position, forceNewOffset } });
-  }, [sendMessage, asyncPlayback, issueSeekCommand]);
+  }, [sendMessage, asyncPlayback, issueSeekCommand, sendHeartbeat]);
 
   const setStatus = useCallback((status: SyncStatus) => {
     localStatusRef.current = status;
@@ -415,29 +408,12 @@ export function useRoomSync() {
   const reportActiveResolution = useCallback((resolution: string) => {
     if (activeResolutionRef.current !== resolution) {
       activeResolutionRef.current = resolution;
-      if (isConnected) {
-        sendMessage({
-          event: 'sync.heartbeat',
-          payload: {
-            position: localTimeRef.current,
-            playing: playbackStateRef.current === 'playing',
-            playbackRate: activeRateRef.current,
-            resolution: resolution as any,
-            timestamp: Date.now(),
-            pingQuality: pingQualityRef.current,
-            status: asyncPlayback.isAsyncModeRef.current ? 'async' : localStatusRef.current,
-          },
-        });
-      }
+      if (isConnected) sendHeartbeat();
     }
-  }, [isConnected, sendMessage, asyncPlayback.isAsyncModeRef]);
+  }, [isConnected, sendHeartbeat]);
 
   const updatePartyState = useCallback((updates: { isJoined?: boolean; micMuted?: boolean; videoMuted?: boolean }) => {
     sendMessage({ event: 'party.update', payload: updates });
-  }, [sendMessage]);
-
-  const sendEmoji = useCallback((emoji: string) => {
-    sendMessage({ event: 'emoji.send', payload: { emoji } });
   }, [sendMessage]);
 
   const setControlLock = useCallback((userId: string, locked: boolean) => {
@@ -477,6 +453,5 @@ export function useRoomSync() {
     updatePartyState,
     setControlLock,
     updateSettings,
-    sendEmoji,
   };
 }

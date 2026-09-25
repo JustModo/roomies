@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import WebSocket from 'ws';
 import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
 
@@ -77,5 +78,24 @@ describe('WebSocket Real-Time Gateway & Event Synchronizer', () => {
 
     await client1.close();
     await client2.close();
+  });
+
+  it('authenticates a connection that carries the token in a bearer.<jwt> subprotocol', async () => {
+    const ws = new WebSocket(`${env.server.wsUrl}/ws`, [`bearer.${env.admin.token}`]);
+    const messages: any[] = [];
+    ws.on('message', (d) => messages.push(JSON.parse(d.toString())));
+    await new Promise((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+
+    ws.send(JSON.stringify({ event: 'room.join', payload: {} }));
+    await vi.waitFor(() => expect(messages.some((m) => m.event === 'room.state')).toBe(true));
+    expect(messages.some((m) => m.event === 'auth.unauthorized')).toBe(false);
+
+    await new Promise<void>((resolve) => {
+      ws.once('close', () => resolve());
+      ws.close();
+    });
   });
 });

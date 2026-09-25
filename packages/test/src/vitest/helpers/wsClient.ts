@@ -7,13 +7,15 @@ export interface TestWsClient {
   waitForEvent: <T = any>(eventName: string, timeoutMs?: number) => Promise<T>;
   waitForEventMatching: <T = any>(eventName: string, predicate: (msg: any) => boolean, timeoutMs?: number) => Promise<T>;
   getAllReceived: () => OutgoingSocketMessage[];
+  flush: () => Promise<void>;
   close: () => Promise<void>;
 }
 
+let flushSeq = 0;
+
 export function createTestWsClient(url: string, token?: string): Promise<TestWsClient> {
   return new Promise((resolve, reject) => {
-    const fullUrl = token ? `${url}?token=${token}` : url;
-    const ws = new WebSocket(fullUrl);
+    const ws = token ? new WebSocket(url, [`bearer.${token}`]) : new WebSocket(url);
 
     const receivedMessages: OutgoingSocketMessage[] = [];
     const messageListeners: Array<(msg: OutgoingSocketMessage) => boolean> = [];
@@ -64,6 +66,11 @@ export function createTestWsClient(url: string, token?: string): Promise<TestWsC
           return client.waitForEventMatching<T>(eventName, () => true, timeoutMs);
         },
         getAllReceived: () => [...receivedMessages],
+        flush: async () => {
+          const timestamp = ++flushSeq;
+          client.send('sync.heartbeat', { timestamp });
+          await client.waitForEventMatching('sync.heartbeat_ack', (msg) => msg.payload.timestamp === timestamp);
+        },
         close: () => {
           return new Promise((res) => {
             if (ws.readyState === WebSocket.CLOSED) {

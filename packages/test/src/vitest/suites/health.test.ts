@@ -20,6 +20,10 @@ describe('Health endpoint', () => {
     const res = await fetch(`${server.baseUrl}/api/health`);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: 'ok' });
+    expect(await res.json()).toEqual({
+      status: 'ok',
+      ffmpeg: { preset: expect.any(String), hwAccelMode: expect.any(String), encoder: 'cpu' },
+      cache: { freeBytes: expect.any(Number) },
+    });
   });
 });

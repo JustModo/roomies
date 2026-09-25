@@ -61,6 +61,7 @@ export interface RoomState {
 export class RoomStore {
     private state!: RoomState;
     private lockedUserIds = new Set<string>();
+    private memberSockets = new Map<string, string>();
 
     constructor() {
         this.resetStore();
@@ -68,6 +69,7 @@ export class RoomStore {
 
     public resetStore(): void {
         this.lockedUserIds.clear();
+        this.memberSockets.clear();
         this.state = {
             settings: {
                 allowAsyncMode: true,
@@ -138,10 +140,6 @@ export class RoomStore {
         };
     }
 
-    public setPlaybackState(status: RoomPlaybackState['state']): void {
-        this.updatePlayback({ state: status, anchorTime: Date.now() });
-    }
-
     public resetAllMembers(): void {
         for (const member of this.state.members) {
             if (member.status !== 'async') {
@@ -150,14 +148,17 @@ export class RoomStore {
         }
     }
 
-    public addMember(member: MemberState): void {
+    public addMember(member: MemberState, socketId: string): void {
+        this.memberSockets.set(member.userId, socketId);
         if (!this.state.members.some(m => m.userId === member.userId)) {
             member.controlsLocked = this.lockedUserIds.has(member.userId);
             this.state.members.push(member);
         }
     }
 
-    public removeMember(userId: string): boolean {
+    public removeMember(userId: string, socketId: string): boolean {
+        if (this.memberSockets.get(userId) !== socketId) return false;
+        this.memberSockets.delete(userId);
         const initialLength = this.state.members.length;
         this.state.members = this.state.members.filter(m => m.userId !== userId);
         return this.state.members.length < initialLength;

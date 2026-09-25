@@ -39,4 +39,4 @@ export const parseVoiceClientControlMessage = (raw: string): VoiceClientControlM
 };
 
 export const isValidOpusPacket = (message: Buffer): boolean =>
-  message.length > 0 && message.length <= VOICE_PROTOCOL.maxOpusPacketBytes;
+  message.length > 2 && message.length <= VOICE_PROTOCOL.maxOpusPacketBytes + 2;

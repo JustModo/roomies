@@ -2,6 +2,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { UsersService } from './service';
 import { CreateGuestSchema } from '@roomies/contracts';
 import { AuthService } from '../auth/service';
+import { kickUserConnections } from '../websocket/gateway';
 
 export const UsersController = {
   async getMe(req: FastifyRequest, reply: FastifyReply) {
@@ -38,6 +39,7 @@ export const UsersController = {
         return reply.status(403).send({ error: 'Forbidden' });
       }
       await UsersService.deleteUser(req.params.id);
+      kickUserConnections(req.server, req.params.id, 'account_deleted');
       return reply.status(204).send();
     } catch (e: unknown) {
       const err = e as Error;

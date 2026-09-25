@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { FFPROBE_PATH } from '@roomies/config';
+import { PROBE_TIMEOUT_MS } from './config';
 
 const execFileAsync = promisify(execFile);
 
@@ -10,7 +11,7 @@ export const getMediaDuration = async (filePath: string): Promise<number> => {
     '-show_entries', 'format=duration',
     '-of', 'default=noprint_wrappers=1:nokey=1',
     filePath,
-  ]);
+  ], { timeout: PROBE_TIMEOUT_MS });
   const duration = parseFloat(stdout.trim());
   return isNaN(duration) ? 0 : Math.floor(duration);
 };
@@ -30,7 +31,7 @@ export const getEmbeddedTextSubtitleStreams = async (filePath: string): Promise<
     '-show_entries', 'stream=index,codec_name:stream_tags=language',
     '-of', 'json',
     filePath,
-  ]);
+  ], { timeout: PROBE_TIMEOUT_MS });
   const parsed = JSON.parse(stdout) as { streams?: { index: number; codec_name: string; tags?: { language?: string } }[] };
   return (parsed.streams ?? [])
     .filter((s) => TEXT_SUBTITLE_CODECS.has(s.codec_name))
@@ -53,7 +54,7 @@ export const getEmbeddedAudioStreams = async (filePath: string): Promise<Embedde
     '-show_entries', 'stream=index,channels:stream_tags=language,title:stream_disposition=default',
     '-of', 'json',
     filePath,
-  ]);
+  ], { timeout: PROBE_TIMEOUT_MS });
   const parsed = JSON.parse(stdout) as {
     streams?: {
       index: number;

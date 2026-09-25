@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 
 // Node's built-in child_process module exports aren't configurable, so vi.spyOn can't
 // redefine `spawn` directly — mock the module instead (still calls the real spawn under
@@ -8,7 +8,8 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 
-import { TranscodeCache, TranscodeSession, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, audioBitrateFor, buildSeparateAudioEncodeArgs, variantsForSource, scaledResolution, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
+import { EventEmitter } from 'events';
+import { TranscodeCache, TranscodeSession, TranscodeWorker, READY_TIMEOUT_MS, RESOLUTION_PRESETS, SUPPORTED_RESOLUTIONS, SEGMENT_DURATION, MAX_CONCURRENT_VARIANTS, buildHlsMuxArgs, audioBitrateFor, buildSeparateAudioEncodeArgs, variantsForSource, scaledResolution, SyncPolicy, AsyncPolicy, policyForSessionId } from '@roomies/transcoding';
 import fs from 'fs';
 import { spawn as mockedSpawn } from 'child_process';
 
@@ -150,7 +151,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
     // Fire all 3 resolution requests roughly concurrently, like coordinator.ts's
     // Promise.allSettled prewarm does for a room-scope seek. Requests never resolve under
-    // the 'echo' FFMPEG_PATH stub (no real segments get written), so don't await them.
+    // the fake-ffmpeg stub (no real segments get written), so don't await them.
     session.ensureVariantReady('360p', 0).catch(() => {});
     session.ensureVariantReady('720p', 0).catch(() => {});
     session.ensureVariantReady('1080p', 0).catch(() => {});
@@ -163,9 +164,9 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     );
     expect(ffmpegLikeCalls).toHaveLength(1);
 
-    // All 3 resolutions should have been mapped into that single invocation's filter graph.
     const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
-    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(3); // video-only map x 3 legs (no audio tracks in this fixture)
+    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(6);
+    expect(groupArgs.filter((a) => a === '0:a:0?')).toHaveLength(3);
 
     await session.stop();
   });
@@ -213,7 +214,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
 
     // A second (and third) resolution request at the same offset is no longer refused —
     // every offset always carries the full ladder, so these just await the same worker.
-    // Requests never resolve under the 'echo' FFMPEG_PATH stub (no real segments get
+    // Requests never resolve under the fake-ffmpeg stub (no real segments get
     // written), so don't await them — same as the sync test above.
     session.ensureVariantReady('720p', 0).catch(() => {});
     session.ensureVariantReady('360p', 0).catch(() => {});
@@ -227,7 +228,8 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(ffmpegLikeCalls).toHaveLength(1);
 
     const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
-    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(3); // video-only map x 3 legs (no audio tracks in this fixture)
+    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(6);
+    expect(groupArgs.filter((a) => a === '0:a:0?')).toHaveLength(3);
 
     await session.stop();
   });
@@ -302,5 +304,146 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(variantGroups.has(0)).toBe(true);    // active offset kept
 
     await session.stop();
+  });
+
+  describe('worker lifecycle', () => {
+    const spawnMock = mockedSpawn as unknown as ReturnType<typeof vi.fn>;
+    let realSpawn: typeof import('child_process').spawn;
+
+    const fakeChild = () => {
+      const proc: any = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.kill = (signal: string) => {
+        if (signal === 'SIGTERM' || signal === 'SIGKILL') setImmediate(() => proc.emit('exit', null, signal));
+        return true;
+      };
+      return proc;
+    };
+
+    const groupsOf = (session: TranscodeSession) => (session as any).variantGroups as Map<number, TranscodeWorker>;
+
+    beforeAll(async () => {
+      realSpawn = (await vi.importActual<typeof import('child_process')>('child_process')).spawn;
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      spawnMock.mockImplementation(realSpawn);
+    });
+
+    it('rejects a pending variant request when FFmpeg exits before producing segments', async () => {
+      spawnMock.mockImplementationOnce((_cmd: string, _args: string[], opts: any) =>
+        realSpawn(process.execPath, ['-e', 'process.exit(0)'], opts)
+      );
+      const session = new TranscodeSession('sync', 'media-exit', '/dev/null', `${process.env.CACHE_DIR}/exit-before-ready`);
+
+      await expect(session.ensureVariantReady('720p', 0)).rejects.toThrow(/produced no output/);
+      expect(groupsOf(session).has(0)).toBe(false);
+
+      await session.stop();
+    });
+
+    it('rejects and stops the group when no segment appears within READY_TIMEOUT_MS', async () => {
+      const before = TranscodeWorker.liveProcessCount;
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const session = new TranscodeSession('sync', 'media-timeout', '/dev/null', `${process.env.CACHE_DIR}/ready-timeout`);
+
+      const pending = session.ensureVariantReady('720p', 0);
+      const outcome = expect(pending).rejects.toThrow(/Timed out/);
+      await vi.waitFor(() => expect(groupsOf(session).has(0)).toBe(true));
+      await Promise.resolve();
+
+      vi.advanceTimersByTime(READY_TIMEOUT_MS);
+      await outcome;
+      expect(groupsOf(session).has(0)).toBe(false);
+
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(TranscodeWorker.liveProcessCount).toBe(before));
+      await session.stop();
+    });
+
+    it('does not register a worker whose FFmpeg failed to spawn, so the next request retries', async () => {
+      const before = TranscodeWorker.liveProcessCount;
+      spawnMock.mockImplementationOnce(() => {
+        throw new Error('spawn EACCES');
+      });
+      const session = new TranscodeSession('sync', 'media-spawn-fail', '/dev/null', `${process.env.CACHE_DIR}/spawn-fail`);
+
+      await expect(session.ensureVariantReady('720p', 0)).rejects.toThrow('spawn EACCES');
+      expect(groupsOf(session).has(0)).toBe(false);
+      expect(TranscodeWorker.liveProcessCount).toBe(before);
+
+      spawnMock.mockImplementation(fakeChild);
+      session.ensureVariantReady('720p', 0).catch(() => {});
+      await vi.waitFor(() => expect(groupsOf(session).has(0)).toBe(true));
+      expect(TranscodeWorker.liveProcessCount).toBe(before + 1);
+
+      await session.stop();
+      expect(TranscodeWorker.liveProcessCount).toBe(before);
+    });
+
+    it('counts live FFmpeg processes across workers and refuses new workers at MAX_CONCURRENT_VARIANTS', async () => {
+      spawnMock.mockImplementation(fakeChild);
+      const before = TranscodeWorker.liveProcessCount;
+      const workers = Array.from({ length: MAX_CONCURRENT_VARIANTS - before }, (_, i) => {
+        const worker = new TranscodeWorker(['360p'], new Map([['360p', `${process.env.CACHE_DIR}/cap/${i}`]]), 'cap');
+        worker.start('/dev/null');
+        return worker;
+      });
+      expect(TranscodeWorker.liveProcessCount).toBe(MAX_CONCURRENT_VARIANTS);
+
+      const session = new TranscodeSession('sync', 'media-cap', '/dev/null', `${process.env.CACHE_DIR}/cap-session`);
+      await expect(session.ensureVariantReady('720p', 0)).rejects.toThrow(/Maximum concurrent/);
+      expect(groupsOf(session).size).toBe(0);
+
+      await Promise.all(workers.map((w) => w.stop()));
+      expect(TranscodeWorker.liveProcessCount).toBe(before);
+      await session.stop();
+      TranscodeCache.cleanDirectory(`${process.env.CACHE_DIR}/cap`);
+    });
+  });
+
+  describe('hardware encoder argument building', () => {
+    const argsFor = (hw: 'qsv' | 'vaapi') => {
+      const worker = new TranscodeWorker(['720p'], new Map([['720p', '/tmp/hw-args/720p']]), 'sync');
+      (worker as any).inputPath = '/media/in.mkv';
+      return (worker as any).buildArgs(hw) as string[];
+    };
+
+    it('initialises the QSV device globally before the input and encodes with h264_qsv', () => {
+      const args = argsFor('qsv');
+      const inputAt = args.indexOf('-i');
+
+      expect(args.indexOf('-init_hw_device')).toBeLessThan(inputAt);
+      expect(args[args.indexOf('-init_hw_device') + 1]).toMatch(/^qsv=hw:hw,child_device=\/dev\/dri\/renderD\d+$/);
+      expect(args.indexOf('-filter_hw_device')).toBeLessThan(inputAt);
+      expect(args[args.indexOf('-filter_hw_device') + 1]).toBe('hw');
+      expect(args[args.indexOf('-filter_complex') + 1]).toContain('format=nv12,hwupload=extra_hw_frames=64');
+      expect(args[args.indexOf('-c:v') + 1]).toBe('h264_qsv');
+    });
+
+    it('sets the VAAPI device globally before the input and encodes with h264_vaapi', () => {
+      const args = argsFor('vaapi');
+
+      expect(args.indexOf('-vaapi_device')).toBeLessThan(args.indexOf('-i'));
+      expect(args[args.indexOf('-filter_complex') + 1]).toContain('format=nv12,hwupload[');
+      expect(args[args.indexOf('-c:v') + 1]).toBe('h264_vaapi');
+      expect(args).not.toContain('-init_hw_device');
+    });
+  });
+
+  it('counts demuxed audio_*.ts segments alongside video segments', () => {
+    const testDir = `${process.env.CACHE_DIR}/audio-cache-stats`;
+    TranscodeCache.ensureDirectory(testDir);
+    for (let i = 0; i < 3; i++) {
+      fs.writeFileSync(`${testDir}/audio_${String(i).padStart(5, '0')}.ts`, '');
+    }
+    fs.writeFileSync(`${testDir}/playlist.m3u8`, '');
+
+    const stats = TranscodeCache.getVariantCacheStats(testDir, 10);
+    expect(stats.segmentCount).toBe(3);
+    expect(stats.maxCoveredTime).toBe(10 + 3 * SEGMENT_DURATION);
+
+    TranscodeCache.cleanDirectory(testDir);
   });
 });

@@ -10,13 +10,8 @@ const MASTER_VOLUME_STORAGE_KEY = 'roomies_voice_master_volume';
 
 interface VoiceContextValue {
   joinVoice: () => Promise<void>;
-  setVolume: (userId: string, volume: number) => void;
   masterVolume: number;
   setMasterVolume: (volume: number) => void;
-  /** Feeds the video's current volume (0–1) into the auto-ducking system. */
-  setVideoVolume: (volume: number) => void;
-  setPeerMuted: (userId: string, muted: boolean) => void;
-  removePeer: (userId: string) => void;
   localStates: Record<string, LocalMemberState>;
   updateLocalState: (userId: string, updates: Partial<LocalMemberState>) => void;
   inputDevices: AudioDeviceInfo[];
@@ -143,11 +138,6 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
   // Local state for peers (volume, mute)
   const [localStates, setLocalStates] = useState<Record<string, LocalMemberState>>({});
 
-  // VideoPlayer can report its volume before the relay is created (it's a
-  // child effect, which fires before this provider's own mount effect), so
-  // remember the last value to prime the relay once it actually exists.
-  const videoVolumeRef = useRef(1);
-
   const [masterVolume, setMasterVolumeState] = useState<number>(() => {
     const saved = localStorage.getItem(MASTER_VOLUME_STORAGE_KEY);
     const parsed = saved ? parseInt(saved, 10) : NaN;
@@ -256,7 +246,6 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
       setActiveSpeakers(speakers);
     };
     relay.setMasterVolume(masterVolume);
-    relay.setDuckLevel(videoVolumeRef.current);
     relayRef.current = relay;
     isComponentMounted.current = true;
     return () => {
@@ -282,10 +271,11 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/ws/voice?token=${token}`;
-    const ws = new WebSocket(url);
+    const url = `${protocol}//${window.location.host}/ws/voice`;
+    const ws = new WebSocket(url, [`bearer.${token}`]);
     ws.binaryType = 'arraybuffer';
     voiceWsRef.current = ws;
+    let authFailed = false;
 
     ws.onopen = () => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -346,6 +336,9 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
           case 'joined':
             break;
           case 'error':
+            if (msg.payload === 'Unauthorized' || msg.payload === 'Session replaced by a new connection') {
+              authFailed = true;
+            }
             break;
         }
       }
@@ -356,6 +349,7 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     ws.onclose = () => {
       if (!isComponentMounted.current) return;
       voiceWsRef.current = null;
+      if (authFailed) return;
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
       }, 2000);
@@ -430,11 +424,6 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     }
   }, [fallbackToDefaultInput, refreshDevices]);
 
-  /** Sets playback volume (0–200) for a specific peer. */
-  const setVolume = useCallback((userId: string, volume: number) => {
-    relayRef.current?.setVolume(userId, volume);
-  }, []);
-
   /** Sets the master voice volume (0–100) applied on top of every peer's individual volume. */
   const setMasterVolume = useCallback((volume: number) => {
     setMasterVolumeState(volume);
@@ -442,35 +431,10 @@ export function VoiceProvider({ children, isJoined, isMicMuted }: VoiceProviderP
     relayRef.current?.setMasterVolume(volume);
   }, []);
 
-  /** Feeds the video's current volume (0–1) into the auto-ducking system. */
-  const setVideoVolume = useCallback((volume: number) => {
-    videoVolumeRef.current = volume;
-    relayRef.current?.setDuckLevel(volume);
-  }, []);
-
-  /** Locally mutes or unmutes a specific peer. */
-  const setPeerMuted = useCallback((userId: string, muted: boolean) => {
-    relayRef.current?.setPeerMuted(userId, muted);
-  }, []);
-
-  /** Removes a peer's audio player when they leave the voice channel. */
-  const removePeer = useCallback((userId: string) => {
-    relayRef.current?.removePeer(userId);
-    const sessionId = userToSessionRef.current.get(userId);
-    if (sessionId !== undefined) {
-      userToSessionRef.current.delete(userId);
-      sessionToUserRef.current.delete(sessionId);
-    }
-  }, []);
-
   const value: VoiceContextValue = {
     joinVoice,
-    setVolume,
     masterVolume,
     setMasterVolume,
-    setVideoVolume,
-    setPeerMuted,
-    removePeer,
     localStates,
     updateLocalState,
     inputDevices: inputs,

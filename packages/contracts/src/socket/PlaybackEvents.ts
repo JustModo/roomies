@@ -13,7 +13,7 @@ export const ClientPlaybackPauseSchema = z.object({
 export const ClientPlaybackSeekSchema = z.object({
   event: z.literal('playback.seek'),
   payload: z.object({
-    position: z.number(),
+    position: z.number().nonnegative(),
     scope: z.enum(['room', 'user']).optional(),
     forceNewOffset: z.boolean().optional(),
   }),
@@ -22,7 +22,7 @@ export const ClientPlaybackSeekSchema = z.object({
 export const ClientPlaybackSetRateSchema = z.object({
   event: z.literal('playback.set_rate'),
   payload: z.object({
-    rate: z.number(),
+    rate: z.number().positive().max(4),
   }),
 });
 

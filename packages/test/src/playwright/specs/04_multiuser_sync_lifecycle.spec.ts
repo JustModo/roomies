@@ -8,8 +8,9 @@ import {
   waitForMediaReady,
   getVideoState,
 } from '../helpers/syncAssert';
-import { joinRoomViaLobby, exitRoom, setAuthToken } from '../helpers/room';
+import { joinRoomViaLobby, exitRoom, loginAs } from '../helpers/room';
 import { startMedia, stopMedia } from '../helpers/media';
+import { GUEST_PASSWORD } from '../helpers/auth';
 
 test.describe('Multi-User Sync Lifecycle', () => {
   test('01. admin play syncs guest to playing', async ({ room }) => {
@@ -50,7 +51,7 @@ test.describe('Multi-User Sync Lifecycle', () => {
   });
 
   test('06. mid-play guest join matches playing + playhead', async ({ room, browser, request }) => {
-    const { adminPage, adminPlayer, adminToken, guestToken } = room;
+    const { adminPage, adminPlayer } = room;
     await adminPlayer.playViaButton();
     await waitForPlaying(adminPage);
 
@@ -58,7 +59,7 @@ test.describe('Multi-User Sync Lifecycle', () => {
     await exitRoom(room.guestPage);
     const ctx = await browser.newContext();
     const lateGuest = await ctx.newPage();
-    await setAuthToken(lateGuest, guestToken);
+    await loginAs(lateGuest, room.guestUsername, GUEST_PASSWORD);
     await joinRoomViaLobby(lateGuest);
     await waitForMediaReady(lateGuest);
     await waitForPlaying(lateGuest);
@@ -67,7 +68,7 @@ test.describe('Multi-User Sync Lifecycle', () => {
   });
 
   test('07. mid-pause guest join matches paused timestamp', async ({ room, browser }) => {
-    const { adminPage, adminPlayer, guestToken } = room;
+    const { adminPage, adminPlayer } = room;
     await adminPlayer.playViaButton();
     await adminPlayer.seekForward10();
     await adminPlayer.pauseViaButton();
@@ -76,7 +77,7 @@ test.describe('Multi-User Sync Lifecycle', () => {
     await exitRoom(room.guestPage);
     const ctx = await browser.newContext();
     const lateGuest = await ctx.newPage();
-    await setAuthToken(lateGuest, guestToken);
+    await loginAs(lateGuest, room.guestUsername, GUEST_PASSWORD);
     await joinRoomViaLobby(lateGuest);
     await waitForMediaReady(lateGuest);
     await waitForPaused(lateGuest);

@@ -7,8 +7,3 @@ export interface AdminOverlayProps {
 }
 
 export type AdminTab = 'USERS' | 'MEDIA';
-
-export interface PlayerGestureState {
-  isHolding: boolean;
-  holdRate: number;
-}

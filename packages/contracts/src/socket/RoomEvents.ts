@@ -38,7 +38,8 @@ export const ServerRoomStateSchema = z.object({
         username: z.string(),
         status: z.enum(['ready', 'buffering', 'async']),
         position: z.number(),
-        asyncTranscodeOffset: z.number().optional(),
+        activeResolution: z.enum(['360p', '720p', '1080p']).optional(),
+        asyncSession: z.object({ transcodeOffset: z.number() }).optional(),
         controlsLocked: z.boolean(),
         party: z.object({
           isJoined: z.boolean(),

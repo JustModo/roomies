@@ -1,10 +1,7 @@
 export const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm'];
-export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
+export const SUBTITLE_EXTENSIONS = ['.srt', '.vtt', '.ass', '.ssa'];
 
 export const SCAN_CONCURRENCY = 4;
 
-export const LIBRARY_CONFIG = {
-  VIDEO_EXTENSIONS,
-  IMAGE_EXTENSIONS,
-  SCAN_CONCURRENCY,
-} as const;
+export const PROBE_CONCURRENCY = 4;
+export const PROBE_TIMEOUT_MS = 30_000;

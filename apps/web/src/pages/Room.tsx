@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2, Lock, Unlock, Mic, MicOff } from 'lucide-react';
 import { useRoomSync } from '../hooks/useRoomSync';
 import { hasUserInteracted } from '../userInteraction';
@@ -8,6 +8,7 @@ const AdminOverlay = lazy(() => import('../components/AdminOverlay').then(m => (
 
 import { RoomState, MediaInfo, SyncStatus } from '@roomies/contracts';
 import { useAuth } from '../contexts/AuthContext';
+import { applySession } from '../api/client';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
 import { VoiceProvider, useVoice } from '../contexts/VoiceContext';
 import { ChatToasts } from '../components/Chat';
@@ -51,20 +52,17 @@ function useVisualViewportHeight(): string {
 }
 
 export default function Room() {
+  if (!hasUserInteracted) {
+    return <Navigate to="/" replace />;
+  }
+  return <RoomBody />;
+}
+
+function RoomBody() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [viewersCount, setViewersCount] = useState<number>(0);
   const [showAdmin, setShowAdmin] = useState(false);
-
-  useEffect(() => {
-    if (!hasUserInteracted) {
-      navigate('/', { replace: true });
-    }
-  }, [navigate]);
-
-  if (!hasUserInteracted) {
-    return null;
-  }
 
   const {
     roomState,
@@ -98,10 +96,10 @@ export default function Room() {
 
   useEffect(() => {
     if (!authError) return;
-    logout();
-    const reason = authError === 'kicked' ? 'kicked' : 'disconnected';
+    applySession(null);
+    const reason = authError === 'kicked' || authError === 'account_deleted' ? authError : 'disconnected';
     navigate(`/login?reason=${reason}`, { replace: true });
-  }, [authError, logout, navigate]);
+  }, [authError, navigate]);
 
   const handleExit = () => {
     sendMessage({ event: 'room.leave', payload: {} });
@@ -138,8 +136,6 @@ export default function Room() {
           updatePartyState={updatePartyState}
           setControlLock={setControlLock}
           updateSettings={updateSettings}
-          addMessageHandler={addMessageHandler}
-          sendMessage={sendMessage}
         />
       </VoiceProvider>
     </ChatProvider>
@@ -169,8 +165,6 @@ interface RoomInnerProps {
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
   setControlLock: (userId: string, locked: boolean) => void;
   updateSettings?: (settings: { allowAsyncMode?: boolean }) => void;
-  addMessageHandler: (handler: (msg: any) => void) => () => void;
-  sendMessage: (msg: any) => void;
 }
 
 function RoomInner({
@@ -196,11 +190,9 @@ function RoomInner({
   updatePartyState,
   setControlLock,
   updateSettings,
-  addMessageHandler,
-  sendMessage
 }: RoomInnerProps) {
   const { user } = useAuth();
-  const { activeSpeakers, setVideoVolume } = useVoice();
+  const { activeSpeakers } = useVoice();
   const vpHeight = useVisualViewportHeight();
   const { isOpen, setIsOpen, addLocalSystemMessage, setActiveTab, focusChatInput } = useChat();
 
@@ -341,7 +333,6 @@ function RoomInner({
           onStatusChange={setStatus}
           onReportTime={reportLocalTime}
           onReportResolution={reportActiveResolution}
-          onVolumeChange={setVideoVolume}
           showChat={isOpen}
           onToggleChat={() => setIsOpen(!isOpen)}
           isFullscreen={isFullscreen}
@@ -424,8 +415,6 @@ function RoomInner({
         updatePartyState={updatePartyState} 
         setControlLock={setControlLock} 
         updateSettings={updateSettings}
-        addMessageHandler={addMessageHandler}
-        sendMessage={sendMessage}
       />
 
       {user?.role === 'root' && (

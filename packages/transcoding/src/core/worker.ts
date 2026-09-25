@@ -10,6 +10,7 @@ import {
   VIDEO_CODEC,
   CACHE_SUSPEND_AHEAD_SECONDS,
   CACHE_RESUME_AHEAD_SECONDS,
+  RENDER_NODE,
 } from '../config/config';
 import { getDetectedHardwareEncoder, downgradeToCpu } from '../ffmpeg/hwaccel';
 import { TranscodeCache } from '../fs/cache';
@@ -25,6 +26,16 @@ const NVENC_PRESET_MAP: Record<FfmpegPreset, string> = {
   slow: 'p6',
 };
 
+const QSV_PRESET_MAP: Record<FfmpegPreset, string> = {
+  ultrafast: 'veryfast',
+  veryfast: 'veryfast',
+  fast: 'fast',
+  medium: 'medium',
+  slow: 'slow',
+};
+
+const STDERR_TAIL_LINES = 50;
+
 interface LegState {
   isReady: boolean;
   newestSegmentTime: number;
@@ -33,13 +44,17 @@ interface LegState {
 
 /** Manages a shared FFmpeg process encoding all configured resolutions via filter_complex split. */
 export class TranscodeWorker extends EventEmitter {
+  private static liveProcesses = 0;
+
+  static get liveProcessCount(): number {
+    return TranscodeWorker.liveProcesses;
+  }
+
   public readonly resolutions: Resolution[];
   public readonly sessionId: string;
   public readonly audioTracks: AudioTrackDescriptor[];
   /** Enables separate audio-only HLS outputs when multiple audio tracks exist. */
   public readonly hasSeparateAudio: boolean;
-  /** Omits audio mapping options when zero audio tracks are present in source. */
-  public readonly hasMuxedAudio: boolean;
 
   private readonly legDirs: Map<Resolution, string>;
   private readonly legs: Map<Resolution, LegState>;
@@ -59,6 +74,7 @@ export class TranscodeWorker extends EventEmitter {
   private sourceAudioBitrate: number | undefined;
   private stopRequested = false;
   private stopPromise: Promise<void> | null = null;
+  private stderrTail: string[] = [];
 
   constructor(
     resolutions: Resolution[],
@@ -75,7 +91,6 @@ export class TranscodeWorker extends EventEmitter {
     this.legs = new Map(resolutions.map(res => [res, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
     this.audioTracks = audioTracks;
     this.hasSeparateAudio = audioTracks.length > 1;
-    this.hasMuxedAudio = audioTracks.length === 1;
     this.audioLegDirs = audioLegDirs;
     this.audioLegs = new Map(audioTracks.map(t => [t.id, { isReady: false, newestSegmentTime: 0, maxCoveredTime: 0 }]));
   }
@@ -110,10 +125,6 @@ export class TranscodeWorker extends EventEmitter {
 
   isAudioLegReady(trackId: string): boolean {
     return this.audioLegs.get(trackId)?.isReady ?? false;
-  }
-
-  audioLegMaxCoveredTime(trackId: string): number {
-    return this.audioLegs.get(trackId)?.maxCoveredTime ?? 0;
   }
 
   start(
@@ -153,7 +164,7 @@ export class TranscodeWorker extends EventEmitter {
       // bakes black bars into every frame of a non-16:9 source, which the player then
       // letterboxes again whenever its container is not 16:9. See scaledResolution().
       const scaleFilter = `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p`;
-      const hwSuffix = (hw === 'vaapi' || hw === 'qsv') ? ',format=nv12,hwupload' : '';
+      const hwSuffix = hw === 'vaapi' ? ',format=nv12,hwupload' : hw === 'qsv' ? ',format=nv12,hwupload=extra_hw_frames=64' : '';
       filterParts.push(`[${splitLabels[i]}]${scaleFilter}${hwSuffix}[${outLabels[i]}]`);
     });
 
@@ -163,6 +174,7 @@ export class TranscodeWorker extends EventEmitter {
     // sc_threshold, so scene cuts still emit IDRs and segments drift (0.4s-3.9s observed).
     const forceKeyframes = ['-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`];
 
+    const muxedAudioMap = this.audioTracks[0] ? `0:${this.audioTracks[0].streamIndex}` : '0:a:0?';
     const outputArgs: string[] = [];
     this.resolutions.forEach((res, i) => {
       const preset = RESOLUTION_PRESETS[res];
@@ -171,15 +183,17 @@ export class TranscodeWorker extends EventEmitter {
       const segmentPattern = path.join(dir, 'seg_%05d.ts');
 
       let videoArgs: string[];
-      if (hw === 'vaapi' || hw === 'qsv') {
-        videoArgs = ['-vaapi_device', '/dev/dri/renderD128', '-c:v', 'h264_vaapi', '-g', String(gopSize), ...forceKeyframes];
+      if (hw === 'vaapi') {
+        videoArgs = ['-c:v', 'h264_vaapi', '-g', String(gopSize), ...forceKeyframes];
+      } else if (hw === 'qsv') {
+        videoArgs = ['-c:v', 'h264_qsv', '-preset', QSV_PRESET_MAP[this.preset], '-g', String(gopSize), ...forceKeyframes];
       } else if (hw === 'nvenc') {
         videoArgs = ['-c:v', 'h264_nvenc', '-preset', NVENC_PRESET_MAP[this.preset], '-g', String(gopSize), ...forceKeyframes];
       } else {
         videoArgs = [
           '-c:v', VIDEO_CODEC,
           '-preset', this.preset,
-          '-tune', 'zerolatency',
+          ...(VIDEO_CODEC === 'libx264' ? ['-tune', 'zerolatency'] : []),
           '-g', String(gopSize),
           '-keyint_min', String(gopSize),
           ...forceKeyframes,
@@ -189,15 +203,15 @@ export class TranscodeWorker extends EventEmitter {
       outputArgs.push(
         '-map', `[${outLabels[i]}]`,
         // Audio is demuxed into sibling HLS outputs when multiple tracks exist.
-        ...(this.hasMuxedAudio ? ['-map', '0:a'] : []),
+        ...(this.hasSeparateAudio ? [] : ['-map', muxedAudioMap]),
         ...videoArgs,
         '-b:v', preset.videoBitrate,
         '-maxrate', preset.maxRate,
         '-bufsize', preset.bufSize,
 
-        ...(this.hasMuxedAudio
-          ? [...AUDIO_TIMESTAMP_FIX, '-c:a', 'aac', '-b:a', audioBitrateFor(preset.audioBitrate, this.sourceAudioBitrate), '-ac', '2']
-          : []),
+        ...(this.hasSeparateAudio
+          ? []
+          : [...AUDIO_TIMESTAMP_FIX, '-c:a', 'aac', '-b:a', audioBitrateFor(preset.audioBitrate, this.sourceAudioBitrate), '-ac', '2']),
 
         ...buildHlsMuxArgs(segmentPattern),
         playlistPath,
@@ -217,11 +231,15 @@ export class TranscodeWorker extends EventEmitter {
       }
     }
 
+    const hwDeviceArgs =
+      hw === 'vaapi' ? ['-vaapi_device', RENDER_NODE]
+      : hw === 'qsv' ? ['-init_hw_device', `qsv=hw:hw,child_device=${RENDER_NODE}`, '-filter_hw_device', 'hw']
+      : [];
+
     return [
+      ...hwDeviceArgs,
       ...(this.startPosition > 0 ? ['-ss', this.startPosition.toString()] : []),
       '-i', this.inputPath,
-      ...(this.startPosition > 0 ? ['-avoid_negative_ts', 'make_zero'] : []),
-      '-threads', '0',
       '-filter_complex', filterParts.join(';'),
       ...outputArgs,
     ];
@@ -244,10 +262,22 @@ export class TranscodeWorker extends EventEmitter {
 
     this.process = proc;
     this._isRunning = true;
+    this.stderrTail = [];
+    TranscodeWorker.liveProcesses++;
+    let settled = false;
+    const settle = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      TranscodeWorker.liveProcesses--;
+      return true;
+    };
 
     proc.stderr?.on('data', (data: Buffer) => {
-      const line = data.toString().trim();
-      if (line) {
+      for (const raw of data.toString().split(/\r?\n|\r/)) {
+        const line = raw.trim();
+        if (!line) continue;
+        this.stderrTail.push(line);
+        if (this.stderrTail.length > STDERR_TAIL_LINES) this.stderrTail.shift();
         if (line.toLowerCase().includes('error') || line.toLowerCase().includes('fatal')) {
           console.error(`[transcode] worker [${this.resolutions.join(',')}] error: ${line}`);
         }
@@ -255,12 +285,14 @@ export class TranscodeWorker extends EventEmitter {
     });
 
     proc.on('error', (err) => {
+      if (!settle()) return;
       this._isRunning = false;
       this.stopWatchers();
       this.handleFailure(hw, err);
     });
 
     proc.on('exit', (code, signal) => {
+      if (!settle()) return;
       this._isRunning = false;
 
       // Mark leg ready on exit if segments exist; flag starved legs on unexpected exit.
@@ -268,7 +300,7 @@ export class TranscodeWorker extends EventEmitter {
       for (const res of this.resolutions) {
         const leg = this.legs.get(res)!;
         if (!leg.isReady) {
-          const tsCount = TranscodeCache.getSegmentCount(this.legOutputDir(res));
+          const tsCount = TranscodeCache.getVariantCacheStats(this.legOutputDir(res), this._startPosition).segmentCount;
           if (tsCount > 0 && (code === 0 || this.stopRequested)) {
             leg.isReady = true;
             this.emit('ready', res);
@@ -281,7 +313,7 @@ export class TranscodeWorker extends EventEmitter {
         for (const track of this.audioTracks) {
           const leg = this.audioLegs.get(track.id)!;
           if (!leg.isReady) {
-            const tsCount = TranscodeCache.getSegmentCount(this.audioLegOutputDir(track.id));
+            const tsCount = TranscodeCache.getVariantCacheStats(this.audioLegOutputDir(track.id), this._startPosition).segmentCount;
             if (tsCount > 0 && (code === 0 || this.stopRequested)) {
               leg.isReady = true;
               this.emit('audio-ready', track.id);
@@ -295,7 +327,10 @@ export class TranscodeWorker extends EventEmitter {
       this.stopWatchers();
       // FFmpeg traps SIGTERM to flush segments and exit cleanly.
       if (!this.stopRequested && (anyLegStarved || (code !== 0 && signal !== 'SIGTERM'))) {
-        this.handleFailure(hw, new Error(`FFmpeg exited with code ${code}, signal ${signal}, produced no output for one or more legs`));
+        this.handleFailure(hw, new Error(
+          `FFmpeg exited with code ${code}, signal ${signal}, produced no output for one or more legs`,
+          { cause: this.stderrTail.join('\n') },
+        ));
         return;
       }
       this.emit('exit', code, signal);
@@ -312,8 +347,12 @@ export class TranscodeWorker extends EventEmitter {
       console.error(`[transcode] worker [${this.resolutions.join(',')}] hardware encoder (${hw}) failed, falling back to CPU:`, err.message);
       // Downgrade shared detection cache so subsequent workers skip hardware encoder.
       downgradeToCpu();
-      this.spawnProcess(null);
-      return;
+      try {
+        this.spawnProcess(null);
+        return;
+      } catch (spawnErr) {
+        err = spawnErr instanceof Error ? spawnErr : new Error(String(spawnErr));
+      }
     }
     this.emit('error', err);
   }

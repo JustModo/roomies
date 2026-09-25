@@ -6,10 +6,11 @@ import {
   unlockGuestControls,
   joinRoomViaLobby,
   exitRoom,
-  setAuthToken,
+  loginAs,
+  memberMenuButton,
 } from '../helpers/room';
 import { waitForPaused, waitForPlaying, getVideoState, waitForMediaReady } from '../helpers/syncAssert';
-import { createGuest } from '../helpers/auth';
+import { createGuest, GUEST_PASSWORD } from '../helpers/auth';
 import { startMedia } from '../helpers/media';
 
 test.describe('Room Settings & Control Locks', () => {
@@ -32,7 +33,7 @@ test.describe('Room Settings & Control Locks', () => {
     await lockGuestControls(adminPage, guestUsername);
     await waitForPaused(adminPage);
     await waitForPaused(guestPage);
-    await guestPlayer.toggleViaSpace();
+    await guestPlayer.pressWhileLocked('Space');
     await pageWait(500);
     await waitForPaused(adminPage);
     await waitForPaused(guestPage);
@@ -43,7 +44,7 @@ test.describe('Room Settings & Control Locks', () => {
     await lockGuestControls(adminPage, guestUsername);
     const adminBefore = (await getVideoState(adminPage)).currentTime;
     const guestBefore = (await getVideoState(guestPage)).currentTime;
-    await guestPlayer.seekForward10();
+    await guestPlayer.pressWhileLocked('ArrowRight');
     await pageWait(1000);
     const adminAfter = (await getVideoState(adminPage)).currentTime;
     const guestAfter = (await getVideoState(guestPage)).currentTime;
@@ -86,7 +87,7 @@ test.describe('Room Settings & Control Locks', () => {
     const { guestRoom, guestPage, adminUsername } = room;
     await guestRoom.openParty();
     await guestPage.getByRole('button', { name: new RegExp(adminUsername, 'i') }).click();
-    await expect(guestPage.getByRole('button', { name: /^Lock controls$/i })).toHaveCount(0);
+    await expect(memberMenuButton(guestPage, 'Lock controls')).toHaveCount(0);
   });
 
   test('09. Allow Async persists across guest rejoin', async ({ room }) => {
@@ -113,7 +114,7 @@ test.describe('Room Settings & Control Locks', () => {
     const guest2 = await createGuest(adminToken);
     const ctx = await browser.newContext();
     const page2 = await ctx.newPage();
-    await setAuthToken(page2, guest2.token);
+    await loginAs(page2, guest2.username, GUEST_PASSWORD);
     await joinRoomViaLobby(page2);
     await startMedia(request, adminToken).catch(() => undefined);
     await waitForMediaReady(page2).catch(() => undefined);
@@ -121,19 +122,19 @@ test.describe('Room Settings & Control Locks', () => {
     // Original guest still locked — re-check via admin party UI
     await room.adminRoom.openParty();
     await adminPage.getByRole('button', { name: new RegExp(guestUsername, 'i') }).click();
-    await expect(adminPage.getByRole('button', { name: /^Unlock controls$/i })).toBeVisible();
+    await expect(memberMenuButton(adminPage, 'Unlock controls')).toBeVisible();
 
     await ctx.close();
   });
 
-  test('12. locked guest leave clears lock on rejoin', async ({ room }) => {
+  test('12. admin lock persists across guest leave and rejoin', async ({ room }) => {
     const { adminPage, guestPage, guestRoom, guestPlayer, guestUsername } = room;
     await lockGuestControls(adminPage, guestUsername);
     await guestRoom.expectControlsLockedByAdmin();
     await exitRoom(guestPage);
     await joinRoomViaLobby(guestPage);
-    await guestRoom.expectControlsUnlocked();
-    await guestPlayer.expectControlsEnabled();
+    await guestRoom.expectControlsLockedByAdmin();
+    await guestPlayer.expectControlsDisabled();
   });
 });
 

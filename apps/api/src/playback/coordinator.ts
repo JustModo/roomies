@@ -24,7 +24,7 @@ export class SessionPlaybackCoordinator {
     const session = TranscodeSessionManager.getSession('async');
     if (!session) return null;
 
-    const swappedOffset = session.updatePlayhead(userId, position, resolution);
+    const swappedOffset = session.updatePlayhead(userId, position);
 
     if (swappedOffset !== null) {
       roomStore.updateMember(userId, { asyncSession: { transcodeOffset: swappedOffset } });
@@ -60,10 +60,10 @@ export class SessionPlaybackCoordinator {
     }
   }
 
-  updateSyncPlayhead(userId: string, position: number, resolution?: string) {
+  updateSyncPlayhead(userId: string, position: number) {
     const session = TranscodeSessionManager.getSession('sync');
     if (session) {
-      session.updatePlayhead(userId, position, resolution);
+      session.updatePlayhead(userId, position);
     }
   }
 

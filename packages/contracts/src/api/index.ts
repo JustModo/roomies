@@ -23,7 +23,6 @@ export type CreateGuestRequest = z.infer<typeof CreateGuestSchema>;
 
 export const AuthResponseSchema = z.object({
   token: z.string(),
-  refreshToken: z.string(),
   user: z.object({
     id: z.string(),
     username: z.string(),
@@ -43,7 +42,6 @@ export type UserProfile = z.infer<typeof UserProfileSchema>;
 export const SubtitleSchema = z.object({
   id: z.string(),
   mediaFileId: z.string(),
-  path: z.string(),
   language: z.string().nullable(),
 });
 export type Subtitle = z.infer<typeof SubtitleSchema>;
@@ -63,7 +61,6 @@ export const MediaFileSchema = z.object({
   id: z.string(),
   movieId: z.string(),
   title: z.string(),
-  path: z.string(),
   duration: z.number(),
   number: z.number().nullable(),
   createdAt: z.string(),
@@ -77,7 +74,6 @@ export const MovieSchema = z.object({
   libraryId: z.string(),
   type: z.enum(['movie', 'show']),
   name: z.string(),
-  path: z.string(),
   mediaFiles: z.array(MediaFileSchema),
 });
 export type Movie = z.infer<typeof MovieSchema>;
@@ -85,7 +81,6 @@ export type Movie = z.infer<typeof MovieSchema>;
 export const LibrarySchema = z.object({
   id: z.string(),
   name: z.string(),
-  path: z.string(),
   movies: z.array(MovieSchema),
 });
 export type Library = z.infer<typeof LibrarySchema>;
@@ -131,18 +126,6 @@ export const ActivePlaybackResponseSchema = z.object({
   audioTracks: z.array(AudioTrackInfoSchema).optional(),
 });
 export type ActivePlaybackResponse = z.infer<typeof ActivePlaybackResponseSchema>;
-
-export const ChatMessageResponseSchema = z.object({
-  userId: z.string(),
-  username: z.string(),
-  message: z.string(),
-  timestamp: z.string(),
-});
-
-export type ChatMessageResponse = z.infer<typeof ChatMessageResponseSchema>;
-
-export const ChatHistoryResponseSchema = z.array(ChatMessageResponseSchema);
-export type ChatHistoryResponse = z.infer<typeof ChatHistoryResponseSchema>;
 
 export interface JWTPayload {
   userId: string;

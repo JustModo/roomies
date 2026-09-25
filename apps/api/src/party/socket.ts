@@ -9,7 +9,4 @@ export const registerPartySocketEvents = () => {
   registerSocketEvent('party.update', async (payload: unknown, ctx: SocketContext) => {
     await PartyService.handlePartyUpdate(payload as PartyUpdatePayload, ctx);
   });
-
-  // party.audio_chunk is handled entirely in the voice gateway (/ws/voice).
-  // No handler registered here — audio never touches the main message router.
 };

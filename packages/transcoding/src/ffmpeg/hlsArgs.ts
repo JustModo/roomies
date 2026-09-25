@@ -27,9 +27,11 @@ export function audioBitrateFor(rungBitrate: string, sourceBitrate?: number): st
  *  with genuine gaps stays in sync instead of drifting (which `asetpts` would cause). */
 export const AUDIO_TIMESTAMP_FIX = ['-af', 'aresample=async=1'];
 
-/** Common HLS muxer flags used by both single-variant and grouped encodes. */
+/** Common per-output HLS flags used by both single-variant and grouped encodes. */
 export function buildHlsMuxArgs(segmentPattern: string): string[] {
   return [
+    '-threads', '0',
+    '-avoid_negative_ts', 'make_zero',
     '-f', 'hls',
     // mpegts defaults to a 0.7s muxdelay/0.5s muxpreload offset, which makes audio PTS
     // jump backwards ~40ms at nearly every segment cut (audible glitch every segment).

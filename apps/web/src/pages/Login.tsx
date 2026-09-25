@@ -11,10 +11,11 @@ export default function Login() {
   const [error, setError] = useState(() => {
     const reason = searchParams.get('reason');
     if (reason === 'kicked') return 'You were logged out because you signed in elsewhere.';
+    if (reason === 'account_deleted') return 'Your account was deleted.';
     if (reason === 'disconnected') return 'Your session ended. Please log in again.';
     return '';
   });
-  const { setToken } = useAuth();
+  const { setSession } = useAuth();
   const navigate = useNavigate();
 
   React.useEffect(() => {
@@ -43,8 +44,7 @@ export default function Login() {
         throw new Error('Incorrect username or password.');
       }
       
-      const data = await res.json();
-      setToken(data.token);
+      setSession(await res.json());
       navigate('/');
     } catch (err) {
       setError('Incorrect username or password.');

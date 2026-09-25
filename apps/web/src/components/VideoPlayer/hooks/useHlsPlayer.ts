@@ -3,6 +3,9 @@ import Hls, { Level, Events, ErrorData, ManifestParsedData, MediaPlaylist } from
 import { MediaInfo, RoomState } from '@roomies/contracts';
 import { buildHlsMasterUrl, relativeStartPosition } from '../hlsOffset';
 
+const MAX_FATAL_RECOVERIES = 3;
+const PLAYBACK_ERROR_MESSAGE = 'PLAYBACK FAILED';
+
 interface NativeAudioTrackList {
   length: number;
   [index: number]: { label?: string; language?: string; enabled: boolean };
@@ -16,7 +19,6 @@ interface UseHlsPlayerParams {
   roomPlaybackState?: RoomState['playback'];
   reportStatus: (status: 'ready' | 'buffering') => void;
   setIsPlaying: (playing: boolean) => void;
-  isAsyncMode: boolean;
   activeOffsetRef: MutableRefObject<number>;
   pendingReinitRef: MutableRefObject<boolean>;
   onReportResolution?: (resolution: string) => void;
@@ -30,7 +32,6 @@ export function useHlsPlayer({
   roomPlaybackState,
   reportStatus,
   setIsPlaying,
-  isAsyncMode,
   activeOffsetRef,
   pendingReinitRef,
   onReportResolution,
@@ -46,9 +47,11 @@ export function useHlsPlayer({
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number>(-1);
   const mediaFileIdRef = useRef<string | undefined>();
   const lastMediaIdRef = useRef<string | undefined>();
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!videoRef.current) return;
+    setPlaybackError(null);
 
     // A reinit is proceeding — release the freeze useVideoEvents applied while
     // waiting for this (offset/media change), so time/buffer reporting resumes
@@ -167,15 +170,23 @@ export function useHlsPlayer({
         }
       });
 
+      let recoveries = 0;
       hls.on(Events.ERROR, (_event: Events.ERROR, data: ErrorData) => {
-        if (data.fatal) {
-          console.error('[playback] HLS fatal error:', data.type, data.details);
+        if (!data.fatal) return;
+        console.error('[playback] HLS fatal error:', data.type, data.details);
+        const recoverable = data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR;
+        if (recoverable && recoveries < MAX_FATAL_RECOVERIES) {
+          recoveries += 1;
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad(videoRef.current?.currentTime ?? -1);
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          } else {
             hls.recoverMediaError();
           }
+          return;
         }
+        hls.destroy();
+        if (hlsRef.current === hls) hlsRef.current = null;
+        setPlaybackError(PLAYBACK_ERROR_MESSAGE);
       });
 
       hlsRef.current = hls;
@@ -235,13 +246,21 @@ export function useHlsPlayer({
 
         reportStatus('ready');
       };
+      const onError = () => {
+        console.error('[playback] Native HLS error:', videoEl.error?.code, videoEl.error?.message);
+        setPlaybackError(PLAYBACK_ERROR_MESSAGE);
+      };
       videoEl.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+      videoEl.addEventListener('error', onError);
 
       // { once: true } only detaches on fire, so without this the listener
       // leaks whenever the effect re-runs before metadata arrives.
-      return () => videoEl.removeEventListener('loadedmetadata', onLoadedMetadata);
+      return () => {
+        videoEl.removeEventListener('loadedmetadata', onLoadedMetadata);
+        videoEl.removeEventListener('error', onError);
+      };
     }
-  }, [mediaInfo?.mediaFileId, mediaInfo?.transcodeOffset, seekKey, reportStatus, isAsyncMode, onReportResolution]);
+  }, [mediaInfo?.mediaFileId, mediaInfo?.transcodeOffset, mediaInfo?.hlsUrl, seekKey, reportStatus]);
 
   const handleQualityChange = (index: number) => {
     if (hlsRef.current) {
@@ -279,5 +298,5 @@ export function useHlsPlayer({
     }
   };
 
-  return { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange };
+  return { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange, playbackError };
 }

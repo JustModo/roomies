@@ -43,6 +43,7 @@ export class PlaybackService {
     const audioTrackDescriptors: AudioTrackDescriptor[] = mediaFile.audioTracks.map((a) => ({ id: a.id, streamIndex: a.streamIndex }));
     const audioTracks = mediaFile.audioTracks.map((a) => ({ id: a.id, language: a.language, title: a.title, channels: a.channels }));
 
+    await TranscodeSessionManager.stopSession('async');
     const session = TranscodeSessionManager.startSession('sync', mediaFileId, mediaFile.path, audioTrackDescriptors);
     const hlsUrl = getMasterPlaylistUrl(mediaFileId);
 
@@ -79,7 +80,7 @@ export class PlaybackService {
   }
 
   static async stopMedia(server: FastifyInstance) {
-    TranscodeSessionManager.stopAll();
+    await TranscodeSessionManager.stopAll();
     roomStore.updateMedia('', '', '', 0, 0, [], []);
     roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorPosition: 0, anchorTime: Date.now() });
     roomStore.resetAllMembers();
@@ -133,6 +134,7 @@ export class PlaybackService {
     const hasSeparateAudio = audioTracks.length > 1;
 
     const lines = ['#EXTM3U'];
+    const quoted = (value: string) => `"${value.replace(/["\r\n]/g, '')}"`;
 
     if (hasSeparateAudio) {
       audioTracks.forEach((track, i) => {
@@ -141,8 +143,8 @@ export class PlaybackService {
         const attrs = [
           'TYPE=AUDIO',
           'GROUP-ID="audio"',
-          `NAME="${label}"`,
-          ...(track.language ? [`LANGUAGE="${track.language}"`] : []),
+          `NAME=${quoted(label)}`,
+          ...(track.language ? [`LANGUAGE=${quoted(track.language)}`] : []),
           'AUTOSELECT=YES',
           `DEFAULT=${track.isDefault ? 'YES' : 'NO'}`,
           `URI="${url}"`,
@@ -253,7 +255,7 @@ export class PlaybackService {
     await PlaybackService.applySeekResult(result, scope, payload, ctx, state);
   }
 
-  /** Apply seek result: room broadcasts + buffering; user unicasts only on needsReinit. */
+  /** Apply seek result: room state broadcasts + buffering; media.changed only on needsReinit. */
   private static async applySeekResult(
     result: Awaited<ReturnType<typeof coordinator.resolveSeek>>,
     scope: SessionScope,
@@ -271,19 +273,21 @@ export class PlaybackService {
       roomStore.updateTranscodeOffset(effectiveOffset);
       roomStore.resetAllMembers();
 
-      SocketEmitter.broadcastToRoom(ctx.app, {
-        event: 'media.changed',
-        payload: buildMediaChangedPayload({
-          mediaFileId: state.mediaId!,
-          title: state.mediaTitle || 'Unknown Media',
-          duration: state.duration,
-          sessionScope: 'room',
-          sessionId: 'sync',
-          transcodeOffset: effectiveOffset,
-          subtitles: state.subtitles,
-          audioTracks: state.audioTracks,
-        }),
-      });
+      if (needsReinit) {
+        SocketEmitter.broadcastToRoom(ctx.app, {
+          event: 'media.changed',
+          payload: buildMediaChangedPayload({
+            mediaFileId: state.mediaId!,
+            title: state.mediaTitle || 'Unknown Media',
+            duration: state.duration,
+            sessionScope: 'room',
+            sessionId: 'sync',
+            transcodeOffset: effectiveOffset,
+            subtitles: state.subtitles,
+            audioTracks: state.audioTracks,
+          }),
+        });
+      }
 
       SocketEmitter.broadcastToRoom(ctx.app, {
         event: 'playback.state',

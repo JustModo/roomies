@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { MediaInfo } from '@roomies/contracts';
 import type { SubtitleCue } from '../types/subtitle.ts';
 import { parseSubtitleContent } from '../utils/subtitleParser.ts';
+import { fetchApi } from '../../../api/client';
 
 const capitalize = (str: string): string => {
   try {
@@ -127,19 +128,17 @@ export function useSubtitles({ mediaInfo, currentTime }: UseSubtitlesProps) {
   useEffect(() => {
     if (!activeSubtitleId || parsedTracksRef.current[activeSubtitleId]) return;
 
-    let cancelled = false;
+    const controller = new AbortController();
 
-    fetch(`/api/library/subtitles/${activeSubtitleId}?offset=0`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    }).then(async (res) => {
-      if (!res.ok || cancelled) return;
-      const text = await res.text();
-      const cues = parseSubtitleContent(text);
-      if (cancelled) return;
-      setParsedTracks((prev) => ({ ...prev, [activeSubtitleId]: cues }));
-    }).catch(() => { });
+    fetchApi(`/library/subtitles/${activeSubtitleId}?offset=0`, { signal: controller.signal })
+      .then((text: string) => {
+        setParsedTracks((prev) => ({ ...prev, [activeSubtitleId]: parseSubtitleContent(text) }));
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) console.error('[subtitles] Failed to load subtitle track:', err);
+      });
 
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, [activeSubtitleId]);
 
   const activeCues = useMemo(() => {

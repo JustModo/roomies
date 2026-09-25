@@ -44,4 +44,20 @@ describe('Login rate limiting', () => {
     // Correct credentials are refused too, otherwise the limit is trivially bypassed.
     expect((await login('password123')).status).toBe(429);
   });
+
+  it('counts a concurrent burst before any handler finishes, so only the limit gets through', async () => {
+    const burst = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        fetch(`${server.baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '10.0.0.42' },
+          body: JSON.stringify({ username: 'admin', password: 'wrong-password' }),
+        })
+      )
+    );
+    const statuses = burst.map((r) => r.status);
+
+    expect(statuses.filter((s) => s === 401)).toHaveLength(5);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(5);
+  });
 });

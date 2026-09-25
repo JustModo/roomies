@@ -24,6 +24,7 @@ interface ProbeStream {
   r_frame_rate?: string;
   width?: number;
   height?: number;
+  disposition?: { default?: number };
 }
 
 /** Parses an ffprobe r_frame_rate value (e.g. "24000/1001" or "25/1") into a float. */
@@ -40,14 +41,15 @@ export const getSourceVideoInfo = async (filePath: string): Promise<SourceVideoI
   try {
     const { stdout } = await execFileAsync(FFPROBE_PATH, [
       '-v', 'error',
-      '-show_entries', 'stream=codec_type,bit_rate,r_frame_rate,width,height',
+      '-show_entries', 'stream=codec_type,bit_rate,r_frame_rate,width,height:stream_disposition=default',
       '-of', 'json',
       filePath,
     ], { timeout: PROBE_TIMEOUT_MS });
 
     const streams: ProbeStream[] = JSON.parse(stdout).streams ?? [];
     const video = streams.find(s => s.codec_type === 'video');
-    const audio = streams.find(s => s.codec_type === 'audio');
+    const audioStreams = streams.filter(s => s.codec_type === 'audio');
+    const audio = audioStreams.find(s => s.disposition?.default === 1) ?? audioStreams[0];
 
     const fps = parseFrameRate(video?.r_frame_rate ?? '');
     const width = Number(video?.width);

@@ -1,9 +1,9 @@
 import { test as base, Page, BrowserContext, APIRequestContext } from '@playwright/test';
 import { PlayerPOM } from '../pom/PlayerPOM';
 import { RoomPOM } from '../pom/RoomPOM';
-import { obtainAdminAndGuest } from '../helpers/auth';
+import { ADMIN_USER, GUEST_PASSWORD, obtainAdminAndGuest } from '../helpers/auth';
 import { startMedia, stopMedia } from '../helpers/media';
-import { joinRoomViaLobby, setAuthToken } from '../helpers/room';
+import { joinRoomViaLobby, loginAs } from '../helpers/room';
 import { waitForMediaReady } from '../helpers/syncAssert';
 
 export interface MultiUserRoom {
@@ -41,8 +41,8 @@ async function buildRoom(
   const adminPage = await adminContext.newPage();
   const guestPage = await guestContext.newPage();
 
-  await setAuthToken(adminPage, tokens.adminToken);
-  await setAuthToken(guestPage, tokens.guestToken);
+  const adminToken = await loginAs(adminPage, ADMIN_USER.username, ADMIN_USER.password);
+  const guestToken = await loginAs(guestPage, tokens.guestUsername, GUEST_PASSWORD);
 
   if (joinBoth) {
     await joinRoomViaLobby(adminPage);
@@ -61,8 +61,8 @@ async function buildRoom(
     guestRoom: new RoomPOM(guestPage),
     adminContext,
     guestContext,
-    adminToken: tokens.adminToken,
-    guestToken: tokens.guestToken,
+    adminToken,
+    guestToken,
     guestUsername: tokens.guestUsername,
     adminUsername: tokens.adminUsername,
     request,

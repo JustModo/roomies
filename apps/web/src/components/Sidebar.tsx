@@ -12,11 +12,9 @@ interface SidebarProps {
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
   setControlLock: (userId: string, locked: boolean) => void;
   updateSettings?: (settings: { allowAsyncMode?: boolean }) => void;
-  addMessageHandler: (handler: (msg: any) => void) => () => void;
-  sendMessage: (msg: any) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, updateSettings, setControlLock, addMessageHandler, sendMessage }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, updateSettings, setControlLock }) => {
   const { isOpen, setIsOpen, unreadCount, activeTab, setActiveTab } = useChat();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -101,8 +99,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ roomState, updatePartyState, u
         roomState={roomState} 
         updatePartyState={updatePartyState} 
         setControlLock={setControlLock} 
-        addMessageHandler={addMessageHandler}
-        sendMessage={sendMessage}
       />}
       {activeTab === 'settings' && <SettingsSection roomState={roomState} updateSettings={updateSettings} />}
     </div>

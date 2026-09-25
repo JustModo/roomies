@@ -11,11 +11,6 @@
         "dist-tsc/**"
       ]
     },
-    "lint": {
-      "dependsOn": [
-        "^lint"
-      ]
-    },
     "typecheck": {
       "dependsOn": [
         "^typecheck"

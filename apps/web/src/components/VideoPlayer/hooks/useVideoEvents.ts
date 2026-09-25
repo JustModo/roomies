@@ -1,6 +1,7 @@
 import { useEffect, MutableRefObject, useRef } from 'react';
 import { RoomState, SyncStatus } from '@roomies/contracts';
 import { BufferedRange, SeekCommand } from '../types';
+import { absolutePlaybackTime, relativeStartPosition } from '../hlsOffset';
 
 interface UseVideoEventsParams {
   videoRef: MutableRefObject<HTMLVideoElement | null>;
@@ -141,7 +142,8 @@ export function useVideoEvents({
 
     // If the video source isn't loaded yet, defer the seek to loadedmetadata.
     if (video.readyState === 0) {
-      pendingSeekRef.current = targetRelative;
+      pendingSeekRef.current = seekCommand.position;
+      reportStatus('buffering');
       return;
     }
 
@@ -202,9 +204,10 @@ export function useVideoEvents({
 
     const handleLoadedMetadata = () => {
       if (pendingSeekRef.current !== null) {
-        console.log(`[playback] Executing deferred seek to rel=${pendingSeekRef.current.toFixed(2)}`);
-        video.currentTime = pendingSeekRef.current;
-        setCurrentTime(pendingSeekRef.current + activeOffsetRef.current);
+        const targetRelative = relativeStartPosition(pendingSeekRef.current, activeOffsetRef.current);
+        console.log(`[playback] Executing deferred seek to rel=${targetRelative.toFixed(2)}`);
+        video.currentTime = targetRelative;
+        setCurrentTime(targetRelative + activeOffsetRef.current);
         pendingSeekRef.current = null;
       }
     };
@@ -296,7 +299,8 @@ export function useVideoEvents({
       // A reinit is pending — this source is stale; reporting its position would
       // clobber the seek target useHlsPlayer is about to consume.
       if (pendingReinitRef.current) return;
-      const absTime = video.currentTime + activeOffsetRef.current;
+      const absTime = absolutePlaybackTime(video.currentTime, activeOffsetRef.current);
+      video.dataset.absTime = String(absTime);
       if (!isDragging && !video.seeking) {
         setCurrentTime(absTime);
         onReportTime(absTime);

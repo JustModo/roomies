@@ -10,11 +10,14 @@ export default defineConfig({
       'node:module': path.resolve(__dirname, 'src/shims/node-module.ts'),
     },
   },
+  css: {
+    lightningcss: {
+      targets: { safari: 15 << 16 },
+    },
+  },
   build: {
-    // Tailwind v4 emits ungated @property / oklch() / color-mix(), which floors
-    // us at Safari 16.4 regardless of what JS targets. Stated explicitly so the
-    // JS output does not imply support the CSS cannot deliver.
-    target: ['es2022', 'safari16.4', 'chrome111', 'firefox128'],
+    target: ['es2022', 'safari15', 'chrome111', 'firefox128'],
+    cssMinify: 'lightningcss',
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
@@ -22,6 +25,8 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-hls': ['hls.js'],
           'vendor-icons': ['lucide-react'],
+          'vendor-voice': ['@roomies/voice'],
+          'vendor-emoji': ['emoji-picker-react'],
         },
       },
     },

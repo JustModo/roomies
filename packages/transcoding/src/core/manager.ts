@@ -4,19 +4,11 @@ import { TranscodeSession } from './session';
 import { CACHE_DIR as DEFAULT_CACHE_DIR } from '../config/config';
 import { TranscodeCache } from '../fs/cache';
 
-export interface TranscodeManagerOptions {
-  cacheDir?: string;
-}
-
 /** Manager for active transcoding sessions. Manages one sync session and isolated async sessions. */
-export class TranscodeSessionManagerClass {
+class TranscodeSessionManagerClass {
   private sessions = new Map<string, TranscodeSession>();
   private errorCallbacks: TranscodeErrorCallback[] = [];
-  private baseCacheDir: string;
-
-  constructor(options?: TranscodeManagerOptions) {
-    this.baseCacheDir = options?.cacheDir || DEFAULT_CACHE_DIR;
-  }
+  private baseCacheDir = DEFAULT_CACHE_DIR;
 
   getCacheDir(): string {
     return this.baseCacheDir;
@@ -48,19 +40,16 @@ export class TranscodeSessionManagerClass {
     return this.sessions.get(sessionId) || null;
   }
 
-  stopSession(sessionId: string): void {
+  async stopSession(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      console.log(`[transcode] Stopping session ${sessionId} for media ${session.mediaFileId}`);
-      session.stop();
-      this.sessions.delete(sessionId);
-    }
+    if (!session) return;
+    console.log(`[transcode] Stopping session ${sessionId} for media ${session.mediaFileId}`);
+    this.sessions.delete(sessionId);
+    await session.stop();
   }
 
-  stopAll(): void {
-    for (const sessionId of [...this.sessions.keys()]) {
-      this.stopSession(sessionId);
-    }
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.sessions.keys()].map(sessionId => this.stopSession(sessionId)));
   }
 
   onError(callback: TranscodeErrorCallback): void {
@@ -68,8 +57,5 @@ export class TranscodeSessionManagerClass {
   }
 }
 
-export function createTranscodeSessionManager(options?: TranscodeManagerOptions): TranscodeSessionManagerClass {
-  return new TranscodeSessionManagerClass(options);
-}
 
 export const TranscodeSessionManager = new TranscodeSessionManagerClass();

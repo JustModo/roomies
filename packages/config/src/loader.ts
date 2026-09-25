@@ -51,9 +51,9 @@ export function loadConfig(): Config {
     HWACCEL_MODE: parsedConf.HWACCEL_MODE,
     MAX_CONCURRENT_VARIANTS: parsedConf.MAX_CONCURRENT_VARIANTS,
     TZ: parsedConf.TZ,
+    CORS_ORIGIN: process.env.CORS_ORIGIN || parsedConf.CORS_ORIGIN || defaults.CORS_ORIGIN,
 
-    PORT: 3000,
-    CORS_ORIGIN: process.env.CORS_ORIGIN || defaults.CORS_ORIGIN,
+    PORT: process.env.PORT,
     MEDIA_ROOT: process.env.MEDIA_ROOT || defaults.MEDIA_ROOT,
     CACHE_DIR: process.env.CACHE_DIR || defaults.CACHE_DIR,
     SUBTITLE_DATA_DIR: process.env.SUBTITLE_DATA_DIR || subtitleDataDir,
@@ -68,6 +68,8 @@ export function loadConfig(): Config {
     console.error(parsed.error.format());
     throw new Error('Invalid server configuration.');
   }
+
+  process.env.TZ ??= parsed.data.TZ;
 
   return parsed.data;
 }

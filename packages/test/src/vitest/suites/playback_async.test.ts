@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
-import { roomStore } from '@roomies/server/src/room/store';
+import { roomStore } from '@roomies/server';
 
 describe('Playback & Room Sync (Async Mode)', () => {
   let env: TestEnvironmentContext;
@@ -45,9 +45,11 @@ describe('Playback & Room Sync (Async Mode)', () => {
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'async' });
-    const statusMsg = await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
+    const changed = await wsClient.waitForEvent('media.changed');
 
-    expect(statusMsg.payload.status).toBe('async');
+    expect(changed.payload.mediaFileId).toBe(env.media.mediaFile.id);
+    expect(changed.payload.transcodeOffset).toBe(0);
+    expect(changed.payload.duration).toBe(600);
     await wsClient.close();
   });
 
@@ -57,12 +59,14 @@ describe('Playback & Room Sync (Async Mode)', () => {
     await wsClient.waitForEvent('room.state');
 
     wsClient.send('sync.status', { status: 'async' });
-    const statusMsg = await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
-    expect(statusMsg.payload.status).toBe('async');
+    const enter = await wsClient.waitForEvent('media.changed');
+    expect(enter.payload.hlsUrl).toBe(`/api/playback/hls/${env.media.mediaFile.id}/async/master.m3u8`);
+    expect(enter.payload.sessionScope).toBe('user');
 
     wsClient.send('sync.status', { status: 'ready' });
-    const exitStatus = await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
-    expect(exitStatus.payload.status).toBe('ready');
+    const exit = await wsClient.waitForEvent('media.changed');
+    expect(exit.payload.hlsUrl).toBe(`/api/playback/hls/${env.media.mediaFile.id}/sync/master.m3u8`);
+    expect(exit.payload.sessionScope).toBe('room');
 
     await wsClient.close();
   });
@@ -429,6 +433,7 @@ describe('Playback & Room Sync (Async Mode)', () => {
     await guestClient.waitForEvent('room.state');
 
     guestClient.send('room.update_settings', { settings: { allowAsyncMode: false } });
+    await guestClient.flush();
 
     const state = roomStore.getState();
     expect(state.settings.allowAsyncMode).toBe(true);

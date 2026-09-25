@@ -35,7 +35,7 @@ export const parseEpisodeFilename = (filename: string): ParsedEpisode => {
   }
 
   // 3. Match Episode 01 or E01
-  const epMatch = lowerBase.match(/(?:ep(?:isode)?|e)[\s\._-]*(\d+)/i);
+  const epMatch = lowerBase.match(/\b(?:ep(?:isode)?|e)[\s._-]*(\d+)/i);
   if (epMatch) {
     const episode = parseInt(epMatch[1], 10);
     return {

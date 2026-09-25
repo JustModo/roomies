@@ -96,7 +96,7 @@ function generateBlackMovie(mp4Path) {
   );
 }
 
-function pushPrismaSchema(databaseUrl) {
+function migrateDatabase(databaseUrl) {
   const repoRoot = findRepoRoot();
   const apiDir = path.join(repoRoot, 'apps/api');
   const localPrismaJs = path.join(apiDir, 'node_modules', 'prisma', 'build', 'index.js');
@@ -115,7 +115,7 @@ function pushPrismaSchema(databaseUrl) {
     if (fs.existsSync(f)) fs.rmSync(f, { force: true });
   }
 
-  execSync(`${prismaCmd} db push --accept-data-loss`, {
+  execSync(`${prismaCmd} migrate deploy`, {
     cwd: apiDir,
     env: {
       ...process.env,
@@ -133,7 +133,7 @@ function seedGeneratedMedia() {
   fs.mkdirSync(destMovie, { recursive: true });
 
   const mp4Path = path.join(destMovie, 'movie.mp4');
-  const srtPath = path.join(destMovie, 'movie.srt');
+  const srtPath = path.join(destMovie, 'movie.en.srt');
   writeDummySrt(srtPath);
   generateBlackMovie(mp4Path);
   console.log('[e2e] generated media:', { mp4Path, srtPath });
@@ -157,7 +157,7 @@ export function prepareSandbox() {
   );
 
   const databaseUrl = `file://${e2eDbPath}`;
-  pushPrismaSchema(databaseUrl);
+  migrateDatabase(databaseUrl);
 
   const env = {
     MEDIA_ROOT: e2eMediaDir,

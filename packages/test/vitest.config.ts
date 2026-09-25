@@ -13,7 +13,7 @@ export default defineConfig({
     globalSetup: path.resolve(__dirname, 'src/vitest/setup/global.ts'),
     testTimeout: 10000,
     hookTimeout: 8000,
-    include: ['src/vitest/**/*.test.ts'],
+    include: ['src/vitest/suites/**/*.test.ts'],
     fileParallelism: true,
     pool: 'forks',
 

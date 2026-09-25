@@ -8,6 +8,7 @@ export interface VoiceClient {
 
 export class VoiceManager {
   private clients = new Map<string, VoiceClient>();
+  private connections = new Map<string, Set<WebSocket>>();
   private nextSessionId = 1;
 
   /**
@@ -29,9 +30,13 @@ export class VoiceManager {
       existing.socket.close();
     }
 
-    const sessionId = this.nextSessionId++;
-    // Keep it within 16-bit unsigned range (1 - 65535)
-    if (this.nextSessionId > 65535) this.nextSessionId = 1;
+    const inUse = new Set<number>();
+    for (const client of this.clients.values()) {
+      if (client.userId !== userId) inUse.add(client.sessionId);
+    }
+    while (inUse.has(this.nextSessionId)) this.advanceSessionId();
+    const sessionId = this.nextSessionId;
+    this.advanceSessionId();
 
     const client: VoiceClient = { userId, socket, sessionId };
     this.clients.set(userId, client);
@@ -60,6 +65,33 @@ export class VoiceManager {
       totalClients: this.clients.size,
     });
     return true;
+  }
+
+  public trackConnection(userId: string, socket: WebSocket) {
+    const sockets = this.connections.get(userId) ?? new Set<WebSocket>();
+    sockets.add(socket);
+    this.connections.set(userId, sockets);
+  }
+
+  public untrackConnection(userId: string, socket: WebSocket) {
+    const sockets = this.connections.get(userId);
+    if (!sockets) return;
+    sockets.delete(socket);
+    if (sockets.size === 0) this.connections.delete(userId);
+  }
+
+  public kickUser(userId: string) {
+    for (const socket of this.connections.get(userId) ?? []) {
+      if (socket.readyState === 1 /* OPEN */) {
+        socket.send(JSON.stringify({ event: "error", payload: "Unauthorized" }));
+      }
+      socket.close();
+    }
+  }
+
+  // Keep it within 16-bit unsigned range (1 - 65535)
+  private advanceSessionId() {
+    this.nextSessionId = this.nextSessionId >= 65535 ? 1 : this.nextSessionId + 1;
   }
 
   public getRoomClients(): IterableIterator<VoiceClient> {

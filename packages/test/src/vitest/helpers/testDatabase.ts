@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import type { PrismaClient } from '@prisma/client';
-import { getPrisma, resetPrismaClient } from '../../../../../apps/api/src/database/sqlite';
+import { getPrisma, resetPrismaClient } from '@roomies/server';
 
 export interface TestDatabaseOptions {
   skipPush?: boolean;
@@ -44,7 +44,7 @@ export async function createTestDatabase(options: TestDatabaseOptions = {}): Pro
     }
 
     try {
-      execSync(`${prismaCmd} db push --accept-data-loss`, {
+      execSync(`${prismaCmd} migrate deploy`, {
         cwd: apiDir,
         env: {
           ...process.env,

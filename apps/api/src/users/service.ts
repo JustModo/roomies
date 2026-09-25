@@ -19,21 +19,13 @@ export const UsersService = {
   },
 
   async getUsers(): Promise<UserProfile[]> {
-    const users = await prisma.user.findMany({
+    return prisma.user.findMany({
       select: {
         id: true,
         username: true,
         role: true,
-        createdAt: true,
       }
     });
-
-    return users.map(user => ({
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      joined: user.createdAt.toISOString().split('T')[0],
-    }));
   },
 
   async deleteUser(userId: string): Promise<void> {

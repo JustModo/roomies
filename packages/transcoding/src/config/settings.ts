@@ -7,7 +7,6 @@ export type HwAccelMode = 'auto' | 'cpu';
 export interface TranscodeSettings {
   ffmpegPreset: FfmpegPreset;
   hwAccelMode: HwAccelMode;
-  detectedHardware?: string;
 }
 
 const DEFAULT_SETTINGS: TranscodeSettings = {
@@ -26,12 +25,11 @@ const isHwAccelMode = (value: string): value is HwAccelMode =>
 /** Initializes and caches transcode settings from config and hardware detection. */
 export const initTranscodeSettings = async (): Promise<TranscodeSettings> => {
   await assertFfmpegAvailable();
-  const detectedHardware = await detectHardwareEncoder();
+  await detectHardwareEncoder();
 
   cache = {
     ffmpegPreset: isFfmpegPreset(FFMPEG_PRESET) ? FFMPEG_PRESET : DEFAULT_SETTINGS.ffmpegPreset,
     hwAccelMode: isHwAccelMode(HWACCEL_MODE) ? HWACCEL_MODE : DEFAULT_SETTINGS.hwAccelMode,
-    detectedHardware,
   };
 
   return cache;

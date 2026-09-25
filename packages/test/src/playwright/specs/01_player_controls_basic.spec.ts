@@ -50,8 +50,10 @@ test.describe('Player Controls & Basic Scrubbing', () => {
 
   test('06. ArrowLeft seeks about -10s', async ({ room }) => {
     const { adminPlayer } = room;
+    const { adminPage } = room;
     await adminPlayer.seekForward10();
     await adminPlayer.seekForward10();
+    await waitForTimeWithin(adminPage, 20, 3);
     const before = await adminPlayer.getCurrentTime();
     await adminPlayer.seekBackward10();
     await expect

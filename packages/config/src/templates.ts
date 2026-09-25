@@ -15,6 +15,9 @@ FFMPEG_PRESET=veryfast
 # Hardware acceleration mode (auto, cpu)
 HWACCEL_MODE=auto
 
-# Maximum concurrent FFmpeg transcode processes (default: 2x CPU cores, minimum 4)
+# Allowed browser origins, comma separated (the CORS_ORIGIN environment variable takes priority)
+# CORS_ORIGIN=http://localhost
+
+# Maximum FFmpeg transcode processes running at once across the whole server (default: 2x CPU cores, minimum 4)
 # MAX_CONCURRENT_VARIANTS=24
 `.trim() + '\n';

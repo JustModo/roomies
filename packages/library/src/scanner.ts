@@ -4,7 +4,7 @@ import { Dirent } from 'fs';
 import { VIDEO_EXTENSIONS } from './config';
 import type { ScannedMedia } from './types';
 import { detectMediaType } from './detectors/mediaDetector';
-import { processMovie } from './handlers/movieHandler';
+import { processMovie, isSampleOrTrailer } from './handlers/movieHandler';
 import { processShow } from './handlers/showHandler';
 
 const listDir = async (dir: string): Promise<Dirent[]> => {
@@ -48,7 +48,8 @@ export const scanLibraryFolder = async (rootPath: string): Promise<ScannedMedia[
       continue;
     }
 
-    const type = detectMediaType(entry.name, videoFiles);
+    const countableVideos = videoFiles.filter((p) => !isSampleOrTrailer(p));
+    const type = detectMediaType(entry.name, countableVideos.length > 0 ? countableVideos : videoFiles);
     const scanned = type === 'movie'
       ? processMovie(titleFolder, entry.name, videoFiles)
       : processShow(titleFolder, entry.name, videoFiles);

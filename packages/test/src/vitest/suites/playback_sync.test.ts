@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { setupTestEnvironment, TestEnvironmentContext } from '../helpers/testFixtures';
+import { setupTestEnvironment, createGuestAccount, TestEnvironmentContext } from '../helpers/testFixtures';
 import { createTestWsClient } from '../helpers/wsClient';
-import { roomStore } from '@roomies/server/src/room/store';
-import { SYNC_CONFIG } from '@roomies/server/src/config';
+import { roomStore, SYNC_CONFIG } from '@roomies/server';
 
 describe('Playback & Room Sync (Sync Mode)', () => {
   let env: TestEnvironmentContext;
@@ -280,15 +279,32 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('reconciles multi-client buffering state across 3 clients', async () => {
-    const client1 = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
-    client1.send('room.join', {});
-    await client1.waitForEvent('room.state');
+    const third = await createGuestAccount(env.server.baseUrl, env.admin.token, 'thirduser');
+    const clients = await Promise.all([env.admin.token, env.guest.token, third.token].map((t) => createTestWsClient(`${env.server.wsUrl}/ws`, t)));
+    const [client1, client2, client3] = clients;
 
-    client1.send('sync.status', { status: 'ready' });
-    const status = await client1.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
+    for (const c of clients) {
+      c.send('room.join', {});
+      await c.waitForEvent('room.state');
+    }
+    for (const c of clients) {
+      c.send('sync.status', { status: 'ready' });
+    }
+    for (const id of [env.admin.user.id, env.guest.user.id, third.user.id]) {
+      await client1.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === id && msg.payload.status === 'ready');
+    }
 
-    expect(status.payload.status).toBe('ready');
-    await client1.close();
+    client1.send('playback.play', {});
+    await client3.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+
+    client3.send('sync.status', { status: 'buffering' });
+    await client2.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'buffering');
+
+    client3.send('sync.status', { status: 'ready' });
+    const resumed = await client2.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+    expect(resumed.payload.intendedState).toBe('playing');
+
+    await Promise.all(clients.map((c) => c.close()));
   });
 
   it('recovers buffering state when a disconnected member leaves', async () => {
@@ -411,6 +427,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     );
 
     guestClient.send('playback.play', { currentTime: 10 });
+    await guestClient.flush();
 
     const adminState = roomStore.getState();
     expect(adminState.playback.state).toBe('paused');
@@ -426,6 +443,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
 
     const member = state.payload.room.members[0];
     guestClient.send('room.set_control_lock', { userId: member.userId, locked: true });
+    await guestClient.flush();
 
     const currentState = roomStore.getState();
     const currentMember = currentState.members.find((m) => m.userId === member.userId);
@@ -490,6 +508,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     await guestClient.waitForEvent('room.state');
 
     guestClient.send('room.update_settings', { settings: { allowAsyncMode: false } });
+    await guestClient.flush();
 
     const state = roomStore.getState();
     expect(state.settings.allowAsyncMode).toBe(true);

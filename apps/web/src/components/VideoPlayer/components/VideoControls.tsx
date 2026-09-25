@@ -7,6 +7,7 @@ import { useActiveMenu } from '../../../hooks/useActiveMenu';
 import { useChat } from '../../../contexts/ChatContext';
 import { ControlPopover, PopoverItem, PopoverEmpty, PopoverSection } from './ControlPopover';
 import { displaySubtitleLabel as defaultDisplaySubtitleLabel } from '../hooks/useSubtitles';
+import { nextPlaybackRate } from '../utils/playbackRate';
 import { BAR_EDGE_X, ICON_BTN_PADDING, ICON_PRIMARY, ICON_SECONDARY, ACTIVE_TICK, CONTROLS_GAP, TIME_PAIR_WIDTH } from '../styleTokens';
 
 interface VideoControlsProps {
@@ -236,9 +237,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
 
   const handleCycleSpeed = () => {
     if (isLocked) return;
-    const rates = [0.5, 1, 1.25, 1.5, 2];
-    const next = rates[(rates.indexOf(playbackRate) + 1) % rates.length];
-    onSetRate(next);
+    onSetRate(nextPlaybackRate(playbackRate));
   };
 
   return (
