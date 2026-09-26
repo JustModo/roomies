@@ -20,6 +20,7 @@ export class RoomService {
         userId: ctx.userId,
         username: ctx.username,
         status: 'buffering',
+        catchingUp: true,
         position: 0,
         pingQuality: 0,
         controlsLocked: false,

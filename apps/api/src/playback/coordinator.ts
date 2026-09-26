@@ -108,10 +108,12 @@ export class PlaybackCoordinator {
     }
 
     // Not covered, forced, or no session yet — compute aligned offset and begin recreation.
+    const effectiveOffset = getAlignedPosition(position);
+    if (scope.type === 'room') session.stopIdleGroups(effectiveOffset);
     session.seek(position, currentOffset).catch((err) => {
       this.log.error({ err, sessionId, mediaFileId }, 'Session seek failed');
     });
-    return { effectiveOffset: getAlignedPosition(position), needsReinit: true };
+    return { effectiveOffset, needsReinit: true };
   }
 
   /** Read the current transcode offset for a given scope from the room store. */

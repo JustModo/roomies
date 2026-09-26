@@ -182,7 +182,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
   });
 
   it('evaluates negative hard drift configuration', () => {
-    expect(SYNC_CONFIG.HARD_THRESHOLD_MS).toBe(4000);
+    expect(SYNC_CONFIG.HARD_THRESHOLD_MS).toBe(2500);
   });
 
   it('asserts zero drift stable playback state', async () => {
@@ -213,14 +213,14 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     await wsClient.close();
   });
 
-  it('evaluates boundary hard drift test (exactly 4000ms)', async () => {
+  it('evaluates boundary hard drift test (exactly 2500ms)', async () => {
     const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
     wsClient.send('room.join', {});
     await wsClient.waitForEvent('room.state');
     wsClient.send('sync.status', { status: 'ready' });
     await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
 
-    wsClient.send('sync.heartbeat', { position: 4.0, playbackRate: 1.0, timestamp: Date.now() });
+    wsClient.send('sync.heartbeat', { position: 2.5, playbackRate: 1.0, timestamp: Date.now() });
     const ack = await wsClient.waitForEvent('sync.heartbeat_ack');
 
     expect(ack).toBeDefined();
@@ -239,6 +239,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     const ack = await wsClient.waitForEvent('sync.heartbeat_ack');
 
     expect(ack.payload.timestamp).toBe(ts);
+    expect(ack.payload.serverTime).toBeGreaterThanOrEqual(ts);
     await wsClient.close();
   });
 
@@ -349,7 +350,7 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     client2.send('room.join', {});
     const state2 = await client2.waitForEvent('room.state');
 
-    expect(['playing', 'buffering']).toContain(state2.payload.room.playback.state);
+    expect(state2.payload.room.playback.state).toBe('playing');
 
     await client1.close();
     await client2.close();
@@ -553,5 +554,150 @@ describe('Playback & Room Sync (Sync Mode)', () => {
     expect(pauseState.payload.state).toBe('paused');
 
     await client.close();
+  });
+
+  it('clamps a seek past the end to the last segment', async () => {
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    wsClient.send('room.join', {});
+    await wsClient.waitForEvent('room.state');
+    wsClient.send('sync.status', { status: 'ready' });
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
+
+    wsClient.send('playback.seek', { position: 10000 });
+    const state = await wsClient.waitForEventMatching('playback.state', (msg) => msg.payload.action === 'seek');
+
+    expect(state.payload.anchorPosition).toBe(598);
+    await wsClient.close();
+  });
+
+  it('clamps the room clock to the media duration', () => {
+    roomStore.updatePlayback({ state: 'playing', intendedState: 'playing', anchorPosition: 590, anchorTime: Date.now() - 60_000, playbackRate: 1 });
+    expect(roomStore.getCurrentPosition()).toBe(600);
+  });
+
+  it('pauses the room at the end of the media on the next heartbeat', async () => {
+    const wsClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    wsClient.send('room.join', {});
+    await wsClient.waitForEvent('room.state');
+    wsClient.send('sync.status', { status: 'ready' });
+    await wsClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
+
+    roomStore.updatePlayback({ state: 'playing', intendedState: 'playing', anchorPosition: 599.5, anchorTime: Date.now() - 1000, playbackRate: 1 });
+    wsClient.send('sync.heartbeat', { position: 600 });
+    const state = await wsClient.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'paused');
+
+    expect(state.payload.anchorPosition).toBe(600);
+    expect(roomStore.getState().playback.intendedState).toBe('paused');
+    await wsClient.close();
+  });
+
+  const joinReady = async (token: string, userId: string) => {
+    const client = await createTestWsClient(`${env.server.wsUrl}/ws`, token);
+    client.send('room.join', {});
+    await client.waitForEvent('room.state');
+    client.send('sync.status', { status: 'ready' });
+    await client.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === userId && msg.payload.status === 'ready');
+    return client;
+  };
+
+  const stallRoomOnGuest = async () => {
+    const admin = await joinReady(env.admin.token, env.admin.user.id);
+    admin.send('playback.play', {});
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+    const guest = await joinReady(env.guest.token, env.guest.user.id);
+    guest.send('sync.status', { status: 'buffering' });
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'buffering');
+    return { admin, guest };
+  };
+
+  it('lets a late joiner buffer without stalling a playing room', async () => {
+    const admin = await joinReady(env.admin.token, env.admin.user.id);
+    admin.send('playback.play', {});
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+
+    const guest = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
+    guest.send('room.join', {});
+    await guest.waitForEvent('room.state');
+    guest.send('sync.status', { status: 'buffering' });
+    await admin.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.guest.user.id);
+
+    expect(roomStore.getState().playback.state).toBe('playing');
+    await admin.close();
+    await guest.close();
+  });
+
+  it('resumes the room once buffering exceeds the cap', async () => {
+    const { admin, guest } = await stallRoomOnGuest();
+
+    roomStore.updatePlayback({ anchorTime: Date.now() - SYNC_CONFIG.BUFFERING_CAP_MS - 1000 });
+    admin.send('sync.heartbeat', { position: 0 });
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+
+    expect(roomStore.getMember(env.guest.user.id)?.catchingUp).toBe(true);
+    await admin.close();
+    await guest.close();
+  });
+
+  it('keeps waiting past the cap while every member is still buffering', async () => {
+    const admin = await joinReady(env.admin.token, env.admin.user.id);
+    admin.send('playback.play', {});
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+    admin.send('sync.status', { status: 'buffering' });
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'buffering');
+
+    roomStore.updatePlayback({ anchorTime: Date.now() - SYNC_CONFIG.BUFFERING_CAP_MS - 1000 });
+    admin.send('sync.heartbeat', { position: 0 });
+    await admin.flush();
+
+    expect(roomStore.getState().playback.state).toBe('buffering');
+    await admin.close();
+  });
+
+  it('lets root force the room to resume without laggards', async () => {
+    const { admin, guest } = await stallRoomOnGuest();
+
+    admin.send('sync.force_resume', {});
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+
+    await admin.close();
+    await guest.close();
+  });
+
+  it('ignores force resume from non-root users', async () => {
+    const { admin, guest } = await stallRoomOnGuest();
+
+    guest.send('sync.force_resume', {});
+    await guest.flush();
+
+    expect(roomStore.getState().playback.state).toBe('buffering');
+    await admin.close();
+    await guest.close();
+  });
+
+  it('accepts a pause while buffering and applies it once everyone is ready', async () => {
+    const { admin, guest } = await stallRoomOnGuest();
+
+    admin.send('playback.pause', {});
+    const pending = await admin.waitForEventMatching('playback.state', (msg) => msg.payload.action === 'pause');
+    expect(pending.payload.state).toBe('buffering');
+    expect(pending.payload.intendedState).toBe('paused');
+
+    guest.send('sync.status', { status: 'ready' });
+    await admin.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'paused');
+
+    await admin.close();
+    await guest.close();
+  });
+
+  it('accepts a seek while buffering', async () => {
+    const { admin, guest } = await stallRoomOnGuest();
+
+    admin.send('playback.seek', { position: 200 });
+    const seek = await admin.waitForEventMatching('playback.state', (msg) => msg.payload.action === 'seek');
+
+    expect(seek.payload.anchorPosition).toBe(200);
+    expect(seek.payload.intendedState).toBe('playing');
+    await admin.close();
+    await guest.close();
   });
 });

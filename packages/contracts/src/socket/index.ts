@@ -13,6 +13,7 @@ import {
 import {
   ClientSyncHeartbeatSchema,
   ClientSyncStatusSchema,
+  ClientSyncForceResumeSchema,
   ServerSyncCorrectSchema,
   ServerUserStatusChangedSchema,
   ServerSyncHeartbeatAckSchema,
@@ -23,6 +24,7 @@ import { ClientPartyUpdateSchema, ServerPartyUpdatedSchema } from './PartyEvents
 export {
   ClientSyncHeartbeatSchema,
   ClientSyncStatusSchema,
+  ClientSyncForceResumeSchema,
   ServerSyncCorrectSchema,
   ServerUserStatusChangedSchema,
   ServerSyncHeartbeatAckSchema,
@@ -41,15 +43,12 @@ import {
 
 import { ClientChatSendSchema, ServerChatMessageSchema, ClientEmojiSendSchema, ServerEmojiReactionSchema } from './ChatEvents';
 
-import { ServerErrorSchema } from './ErrorEvents';
-
 import { ServerAuthKickedSchema, ServerAuthUnauthorizedSchema } from './AuthEvents';
 
 export * from './RoomEvents';
 export * from './PlaybackEvents';
 export * from './SyncEvents';
 export * from './ChatEvents';
-export * from './ErrorEvents';
 export * from './AuthEvents';
 
 export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
@@ -67,6 +66,7 @@ export const IncomingSocketMessageSchema = z.discriminatedUnion('event', [
 
   ClientSyncHeartbeatSchema,
   ClientSyncStatusSchema,
+  ClientSyncForceResumeSchema,
 
   ClientChatSendSchema,
   ClientEmojiSendSchema,
@@ -88,8 +88,6 @@ export const OutgoingSocketMessageSchema = z.discriminatedUnion('event', [
 
   ServerChatMessageSchema,
   ServerEmojiReactionSchema,
-
-  ServerErrorSchema,
 
   ServerAuthKickedSchema,
   ServerAuthUnauthorizedSchema,

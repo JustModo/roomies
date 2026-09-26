@@ -11,8 +11,6 @@ export interface ResolutionConfig {
   bufSize: string;
 }
 
-export type TranscodeErrorCallback = (resolution: Resolution, error: Error) => void;
-
 export type HardwareEncoder = 'vaapi' | 'nvenc' | 'qsv' | 'cpu';
 
 export type FfmpegPreset = Config['FFMPEG_PRESET'];

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
-import { RoomState } from '@roomies/contracts';
+import { RoomState, SyncStatus } from '@roomies/contracts';
 
 /**
  * Owns async-local play / pause / rate / status only.
@@ -38,7 +38,7 @@ export function useAsyncPlayback({
       isAsyncModeRef.current = enabled;
 
       if (enabled) {
-        sendMessage({ event: 'sync.status', payload: { status: 'async' as any } });
+        sendMessage({ event: 'sync.status', payload: { status: 'async' } });
         const snap = roomPlaybackState ? {
           ...roomPlaybackState,
           anchorPosition: localTimeRef.current,
@@ -47,7 +47,7 @@ export function useAsyncPlayback({
         setAsyncPlaybackState(snap);
         asyncPlaybackStateRef.current = snap;
       } else {
-        sendMessage({ event: 'sync.status', payload: { status: 'buffering' as any } });
+        sendMessage({ event: 'sync.status', payload: { status: 'buffering' } });
         setAsyncPlaybackState(null);
         asyncPlaybackStateRef.current = null;
       }
@@ -104,7 +104,7 @@ export function useAsyncPlayback({
     });
   }, [sendMessage]);
 
-  const setStatus = useCallback((status: 'ready' | 'buffering') => {
+  const setStatus = useCallback((status: SyncStatus) => {
     setAsyncPlaybackState(prev => {
       if (!prev) return prev;
       const next = {

@@ -34,6 +34,7 @@ export const ServerRoomStateSchema = z.object({
         anchorPosition: z.number(),
         anchorTime: z.number(),
         playbackRate: z.number(),
+        action: z.enum(['play', 'pause', 'seek', 'rate']).optional(),
       }),
       members: z.array(
         z.object({

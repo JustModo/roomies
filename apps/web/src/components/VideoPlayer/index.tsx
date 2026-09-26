@@ -17,11 +17,13 @@ import { useChat } from '../../contexts/ChatContext';
 
 import { SyncStatus } from '@roomies/contracts';
 
+const SEEK_BATCH_MS = 300;
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   mediaInfo,
   seekKey,
   roomPlaybackState,
-  localTime,
+  localTimeRef,
   localCorrectionRate,
   seekCommand,
   onPlay,
@@ -39,6 +41,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onToggleAsync,
   allowAsyncMode = true,
   isLockedByAdmin = false,
+  onForceResume,
   isPartyJoined = false,
   isMicMuted = true,
   onToggleMic,
@@ -77,7 +80,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const activeLockByAdmin = isLockedByAdmin && !isAsyncMode;
-  const isServerLocked = !mediaInfo || roomPlaybackState?.state === 'waiting' || roomPlaybackState?.state === 'buffering' || activeLockByAdmin;
+  const isServerLocked = !mediaInfo || activeLockByAdmin;
   const isLocked = isServerLocked || isSelfLocked;
 
   const onStatusChangeRef = useRef(onStatusChange);
@@ -171,7 +174,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     videoRef,
     mediaInfo,
     seekKey,
-    localTime,
+    localTimeRef,
     roomPlaybackState,
     reportStatus,
     setIsPlaying,
@@ -200,13 +203,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // ── Video Events ───────────────────────────────────────────────────────────
 
-  const handleEnded = useCallback(() => {
-    if (isLocked) return;
-    if (roomPlaybackState?.state === 'playing') {
-      onPause();
-    }
-  }, [roomPlaybackState?.state, isLocked, onPause]);
-
   useVideoEvents({
     videoRef,
     roomPlaybackState,
@@ -222,48 +218,58 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onReportTime,
     activeOffsetRef,
     pendingReinitRef,
-    onEnded: handleEnded,
     onAutoplayBlocked: setAutoplayBlocked,
+    mediaDuration: mediaInfo?.duration,
   });
 
   // ── Controls ───────────────────────────────────────────────────────────────
 
   const handlePlayPause = useCallback(() => {
     if (isLocked) return;
-    if (roomPlaybackState?.state === 'playing') {
+    if (roomPlaybackState?.intendedState === 'playing') {
       onPause();
     } else {
       onPlay();
     }
-  }, [roomPlaybackState?.state, onPlay, onPause, isLocked]);
+  }, [roomPlaybackState?.intendedState, onPlay, onPause, isLocked]);
+
+  const pendingSeekRef = useRef<number | null>(null);
+  const [pendingSeek, setPendingSeek] = useState<number | null>(null);
+  const seekBatchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(seekBatchTimerRef.current), []);
 
   const handleSeekOffset = useCallback((offset: number) => {
     if (isLocked) return;
     if (!videoRef.current) return;
-    const transOffset = mediaInfo?.transcodeOffset || 0;
-    const currentAbsolute = absolutePlaybackTime(videoRef.current.currentTime, transOffset);
-    const newPos = Math.max(0, Math.min(currentAbsolute + offset, mediaInfo?.duration || duration));
-    onSeek(newPos);
+    const base = pendingSeekRef.current ?? absolutePlaybackTime(videoRef.current.currentTime, mediaInfo?.transcodeOffset || 0);
+    const target = Math.max(0, Math.min(base + offset, mediaInfo?.duration || duration));
+    pendingSeekRef.current = target;
+    setPendingSeek(target);
+    clearTimeout(seekBatchTimerRef.current);
+    seekBatchTimerRef.current = setTimeout(() => {
+      pendingSeekRef.current = null;
+      setPendingSeek(null);
+      setCurrentTime(target);
+      onSeek(target);
+    }, SEEK_BATCH_MS);
   }, [mediaInfo?.transcodeOffset, mediaInfo?.duration, duration, onSeek, isLocked]);
 
   useKeyboardShortcuts({ handlePlayPause, handleSeekOffset });
 
   usePlayerGestures({
-    videoRef,
     containerRef,
     isLocked,
     playbackRate: roomPlaybackState?.playbackRate || 1,
     volume,
     setVolume,
     handlePlayPause,
-    onSeek,
+    handleSeekOffset,
     onSetRate,
     idle,
     showControls,
     hideControls,
     lastShowTimeRef,
-    mediaDuration: mediaInfo?.duration || duration,
-    transcodeOffset: mediaInfo?.transcodeOffset || 0,
   });
 
   // ── Scrubbing (seek bar drag) ──────────────────────────────────────────────
@@ -331,7 +337,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const totalDuration = mediaInfo?.duration || duration;
-  const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
+  const displayTime = pendingSeek ?? currentTime;
+  const progressPercent = totalDuration > 0 ? (displayTime / totalDuration) * 100 : 0;
   const uiVisible = !idle || !isPlaying || isDragging || settingsMenuOpen;
 
   useEffect(() => {
@@ -385,6 +392,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         isPlaying={isPlaying}
         isDragging={isDragging}
         isAsyncMode={isAsyncMode}
+        isAtEnd={totalDuration > 0 && currentTime >= totalDuration - 1}
+        onForceResume={onForceResume}
+        formatTime={formatTime}
         errorText={playbackError}
       />
 
@@ -423,7 +433,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           roomPlaybackState={roomPlaybackState}
           volume={volume}
           setVolume={setVolume}
-          currentTime={currentTime}
+          currentTime={displayTime}
           totalDuration={totalDuration}
           formatTime={formatTime}
           handlePlayPause={handlePlayPause}

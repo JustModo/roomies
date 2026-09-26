@@ -11,7 +11,6 @@ export function useRoomSync() {
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
   const hasInitializedRef = useRef(false);
 
-  const [localTime, setLocalTime] = useState(0);
   const [localCorrectionRate, setLocalCorrectionRate] = useState<number | null>(null);
   const localTimeRef = useRef(0);
   const correctionTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
@@ -21,6 +20,7 @@ export function useRoomSync() {
   const [seekCommand, setSeekCommand] = useState<SeekCommand | null>(null);
 
   const smoothedPingRef = useRef<number>();
+  const clockOffsetRef = useRef(0);
   const pingQualityRef = useRef<number>(0);
   const consecutivePingRef = useRef<{ tier: number; count: number }>({ tier: 0, count: 0 });
   const activeResolutionRef = useRef<string | undefined>();
@@ -28,6 +28,7 @@ export function useRoomSync() {
 
   // Refs for values used in intervals/callbacks that must stay fresh.
   const activeRateRef = useRef(1);
+  const isRoomPlayingRef = useRef(false);
 
   const asyncPlayback = useAsyncPlayback({
     sendMessage,
@@ -42,7 +43,7 @@ export function useRoomSync() {
   const getPositionFromAnchor = useCallback((playback: RoomState['playback']): number => {
     let pos = playback.anchorPosition;
     if (playback.state === 'playing') {
-      const elapsed = (Date.now() - playback.anchorTime) / 1000;
+      const elapsed = (Date.now() + clockOffsetRef.current - playback.anchorTime) / 1000;
       pos += elapsed * playback.playbackRate;
     }
     return pos;
@@ -73,7 +74,6 @@ export function useRoomSync() {
       // the still-attached async source. Defer to the media.changed handler
       // below, which fires once the corrected offset is known.
       const pos = getPositionFromAnchor(roomState.playback);
-      setLocalTime(pos);
       localTimeRef.current = pos;
       pendingAsyncExitSeekRef.current = true;
     } else if (!wasAsync && asyncPlayback.isAsyncMode) {
@@ -104,7 +104,8 @@ export function useRoomSync() {
   // Keep the rate ref in sync.
   useEffect(() => {
     activeRateRef.current = localCorrectionRate ?? roomState?.playback.playbackRate ?? 1;
-  }, [roomState?.playback.playbackRate, localCorrectionRate]);
+    isRoomPlayingRef.current = roomState?.playback.state === 'playing';
+  }, [roomState?.playback.playbackRate, roomState?.playback.state, localCorrectionRate]);
 
   // ── Message Handler ────────────────────────────────────────────────────────
 
@@ -120,7 +121,6 @@ export function useRoomSync() {
         if (!hasInitializedRef.current && !asyncPlayback.isAsyncModeRef.current) {
           hasInitializedRef.current = true;
           const pos = getPositionFromAnchor(room.playback);
-          setLocalTime(pos);
           localTimeRef.current = pos;
           issueSeekCommand(pos);
         }
@@ -170,18 +170,18 @@ export function useRoomSync() {
         if (asyncPlayback.isAsyncModeRef.current) return;
 
         const pos = getPositionFromAnchor(msg.payload);
-        setLocalTime(pos);
         localTimeRef.current = pos;
 
         // On buffering: seek everyone to the anchor so they're at the right spot.
         // On playing: no explicit seek needed, the video element will just play.
-        if (msg.payload.state === 'buffering' || msg.payload.state === 'waiting') {
+        const isPending = msg.payload.state === 'buffering' || msg.payload.state === 'waiting';
+        if (isPending && (msg.payload.action === undefined || msg.payload.action === 'seek')) {
           issueSeekCommand(pos);
         }
 
       // ── media.changed ──────────────────────────────────────────────────
       } else if (msg.event === 'media.changed') {
-        const isUserScoped = (msg.payload as any).sessionScope === 'user';
+        const isUserScoped = msg.payload.sessionScope === 'user';
         const isAsync = asyncPlayback.isAsyncModeRef.current;
 
         if (msg.payload.mediaFileId && msg.payload.hlsUrl) {
@@ -278,9 +278,12 @@ export function useRoomSync() {
 
       // ── sync.heartbeat_ack (ping quality) ─────────────────────────────
       } else if (msg.event === 'sync.heartbeat_ack') {
-        const rawPing = Date.now() - msg.payload.timestamp;
+        const now = Date.now();
+        const rawPing = now - msg.payload.timestamp;
         const cur = smoothedPingRef.current;
         smoothedPingRef.current = cur === undefined ? rawPing : cur * 0.7 + rawPing * 0.3;
+        const offsetSample = msg.payload.serverTime + rawPing / 2 - now;
+        clockOffsetRef.current = cur === undefined ? offsetSample : clockOffsetRef.current * 0.7 + offsetSample * 0.3;
 
         let newTier = 0;
         if (smoothedPingRef.current >= 300) newTier = 2;
@@ -302,24 +305,18 @@ export function useRoomSync() {
 
         if (msg.payload.seek) {
           console.warn(`[sync] Hard seek correction: ${localTimeRef.current.toFixed(2)}s → ${msg.payload.position.toFixed(2)}s`);
-          setLocalTime(msg.payload.position);
           localTimeRef.current = msg.payload.position;
           issueSeekCommand(msg.payload.position);
         }
 
         if (msg.payload.playbackRate !== undefined) {
-          if (msg.payload.playbackRate === 1.0) {
+          if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
+          if (msg.payload.correctionDurationMs === undefined) {
             setLocalCorrectionRate(null);
-            if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
           } else {
             console.warn(`[sync] Soft rate correction: ${msg.payload.playbackRate}x for ${msg.payload.correctionDurationMs}ms`);
             setLocalCorrectionRate(msg.payload.playbackRate);
-            if (correctionTimeoutRef.current) clearTimeout(correctionTimeoutRef.current);
-            if (msg.payload.correctionDurationMs) {
-              correctionTimeoutRef.current = setTimeout(() => {
-                setLocalCorrectionRate(null);
-              }, msg.payload.correctionDurationMs);
-            }
+            correctionTimeoutRef.current = setTimeout(() => setLocalCorrectionRate(null), msg.payload.correctionDurationMs);
           }
         }
       }
@@ -333,10 +330,11 @@ export function useRoomSync() {
   const { isAsyncModeRef, asyncPlaybackStateRef } = asyncPlayback;
   const sendHeartbeat = useCallback((position: number = localTimeRef.current) => {
     const isAsync = isAsyncModeRef.current;
+    const inFlightSeconds = !isAsync && isRoomPlayingRef.current ? ((smoothedPingRef.current ?? 0) / 2000) * activeRateRef.current : 0;
     sendMessage({
       event: 'sync.heartbeat',
       payload: {
-        position,
+        position: position + inFlightSeconds,
         playbackRate: isAsync ? asyncPlaybackStateRef.current?.playbackRate ?? 1 : activeRateRef.current,
         resolution: activeResolutionRef.current as any,
         timestamp: Date.now(),
@@ -371,7 +369,6 @@ export function useRoomSync() {
   }, [sendMessage, asyncPlayback]);
 
   const seek = useCallback((position: number, forceNewOffset: boolean = false) => {
-    setLocalTime(position);
     localTimeRef.current = position;
 
     if (asyncPlayback.isAsyncModeRef.current) {
@@ -391,8 +388,8 @@ export function useRoomSync() {
 
   const setStatus = useCallback((status: SyncStatus) => {
     localStatusRef.current = status;
-    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.setStatus(status as any);
-    sendMessage({ event: 'sync.status', payload: { status: status as 'ready' | 'buffering' | 'async' } });
+    if (asyncPlayback.isAsyncModeRef.current) return asyncPlayback.setStatus(status);
+    sendMessage({ event: 'sync.status', payload: { status } });
   }, [sendMessage, asyncPlayback]);
 
   const setRate = useCallback((rate: number) => {
@@ -400,10 +397,10 @@ export function useRoomSync() {
     sendMessage({ event: 'playback.set_rate', payload: { rate } });
   }, [sendMessage, asyncPlayback]);
 
-  const reportLocalTime = useCallback((time: number) => {
+  const reportLocalTime = useCallback((time: number, flush = false) => {
     localTimeRef.current = time;
-    setLocalTime(time);
-  }, []);
+    if (flush) sendHeartbeat(time);
+  }, [sendHeartbeat]);
 
   const reportActiveResolution = useCallback((resolution: string) => {
     if (activeResolutionRef.current !== resolution) {
@@ -411,6 +408,10 @@ export function useRoomSync() {
       if (isConnected) sendHeartbeat();
     }
   }, [isConnected, sendHeartbeat]);
+
+  const forceResume = useCallback(() => {
+    sendMessage({ event: 'sync.force_resume', payload: {} });
+  }, [sendMessage]);
 
   const updatePartyState = useCallback((updates: { isJoined?: boolean; micMuted?: boolean; videoMuted?: boolean }) => {
     sendMessage({ event: 'party.update', payload: updates });
@@ -435,7 +436,7 @@ export function useRoomSync() {
     roomState: effectiveRoomState,
     mediaInfo,
     seekKey: mediaInfo?.seekKey ?? 0,
-    localTime,
+    localTimeRef,
     localCorrectionRate,
     seekCommand,
     play,
@@ -450,6 +451,7 @@ export function useRoomSync() {
     isAsyncMode: asyncPlayback.isAsyncMode,
     toggleAsyncMode: asyncPlayback.toggleAsyncMode,
     forceAsyncMode: asyncPlayback.forceAsyncMode,
+    forceResume,
     updatePartyState,
     setControlLock,
     updateSettings,

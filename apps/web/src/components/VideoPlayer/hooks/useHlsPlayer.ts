@@ -5,6 +5,7 @@ import { buildHlsMasterUrl, relativeStartPosition } from '../hlsOffset';
 
 const MAX_FATAL_RECOVERIES = 3;
 const PLAYBACK_ERROR_MESSAGE = 'PLAYBACK FAILED';
+const QUALITY_STORAGE_KEY = 'roomies_quality';
 
 interface NativeAudioTrackList {
   length: number;
@@ -15,7 +16,7 @@ interface UseHlsPlayerParams {
   videoRef: MutableRefObject<HTMLVideoElement | null>;
   mediaInfo: MediaInfo | null;
   seekKey?: number;
-  localTime: number;
+  localTimeRef: MutableRefObject<number>;
   roomPlaybackState?: RoomState['playback'];
   reportStatus: (status: 'ready' | 'buffering') => void;
   setIsPlaying: (playing: boolean) => void;
@@ -28,7 +29,7 @@ export function useHlsPlayer({
   videoRef,
   mediaInfo,
   seekKey,
-  localTime,
+  localTimeRef,
   roomPlaybackState,
   reportStatus,
   setIsPlaying,
@@ -40,8 +41,6 @@ export function useHlsPlayer({
   const [levels, setLevels] = useState<Level[]>([]);
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [activeResolution, setActiveResolution] = useState<string | undefined>();
-  /** Index into hls.levels, same ladder in both sync and async now. */
-  const preferredLevelRef = useRef<number>(-1);
 
   const [audioTracks, setAudioTracks] = useState<MediaPlaylist[]>([]);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number>(-1);
@@ -79,7 +78,6 @@ export function useHlsPlayer({
     if (isNewMedia) {
       setLevels([]);
       setCurrentLevel(-1);
-      preferredLevelRef.current = -1;
       setAudioTracks([]);
       setCurrentAudioTrack(-1);
     }
@@ -89,8 +87,7 @@ export function useHlsPlayer({
       activeOffsetRef.current = transcodeOffset;
 
       const hls = new Hls({
-        startPosition: relativeStartPosition(localTime, transcodeOffset),
-        startLevel: preferredLevelRef.current >= 0 ? preferredLevelRef.current : -1,
+        startPosition: relativeStartPosition(localTimeRef.current, transcodeOffset),
         enableWorker: true,
         lowLatencyMode: false,
         manifestLoadingMaxRetry: 10,
@@ -109,9 +106,9 @@ export function useHlsPlayer({
 
       hls.on(Events.MANIFEST_PARSED, (_event: Events.MANIFEST_PARSED, data: ManifestParsedData) => {
         setLevels(data.levels);
-        if (preferredLevelRef.current !== -1 && preferredLevelRef.current < data.levels.length) {
-          hls.currentLevel = preferredLevelRef.current;
-        }
+        const savedQuality = localStorage.getItem(QUALITY_STORAGE_KEY);
+        const savedLevel = data.levels.findIndex((level) => level.name === savedQuality);
+        if (savedLevel !== -1) hls.currentLevel = savedLevel;
 
         if (hls.audioTracks && hls.audioTracks.length > 1) {
           setAudioTracks([...hls.audioTracks]);
@@ -200,7 +197,7 @@ export function useHlsPlayer({
       activeOffsetRef.current = transcodeOffset;
 
       videoRef.current.src = buildHlsMasterUrl(mediaInfo.hlsUrl, transcodeOffset);
-      const targetTime = relativeStartPosition(localTime, transcodeOffset);
+      const targetTime = relativeStartPosition(localTimeRef.current, transcodeOffset);
       const videoEl = videoRef.current;
       const onLoadedMetadata = () => {
         if (videoRef.current) {
@@ -263,17 +260,16 @@ export function useHlsPlayer({
   }, [mediaInfo?.mediaFileId, mediaInfo?.transcodeOffset, mediaInfo?.hlsUrl, seekKey, reportStatus]);
 
   const handleQualityChange = (index: number) => {
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = index;
-      setCurrentLevel(index);
-      preferredLevelRef.current = index;
-      if (hlsRef.current.levels && hlsRef.current.levels[index]) {
-        const name = hlsRef.current.levels[index].name;
-        setActiveResolution(name);
-        if (name && onReportResolution) {
-          onReportResolution(name);
-        }
-      }
+    if (!hlsRef.current) return;
+    hlsRef.current.currentLevel = index;
+    setCurrentLevel(index);
+    const name = hlsRef.current.levels[index]?.name;
+    if (name) {
+      localStorage.setItem(QUALITY_STORAGE_KEY, name);
+      setActiveResolution(name);
+      onReportResolution?.(name);
+    } else {
+      localStorage.removeItem(QUALITY_STORAGE_KEY);
     }
   };
 

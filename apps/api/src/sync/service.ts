@@ -23,8 +23,9 @@ export class SyncService {
 
   async handleHeartbeat(rawPayload: HeartbeatPayload, ctx: SocketContext) {
     if (rawPayload.timestamp !== undefined) {
-      this.hub.sendTo(ctx.socket, { event: 'sync.heartbeat_ack', payload: { timestamp: rawPayload.timestamp } });
+      this.hub.sendTo(ctx.socket, { event: 'sync.heartbeat_ack', payload: { timestamp: rawPayload.timestamp, serverTime: Date.now() } });
     }
+    this.checkRoomTimers();
 
     const payload = { ...rawPayload, playbackRate: rawPayload.playbackRate ?? this.roomStore.getState().playback.playbackRate };
     const member = this.roomStore.getMember(ctx.userId);
@@ -72,12 +73,32 @@ export class SyncService {
       return this.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
     }
 
-    const anyoneBuffering = members.some((m) => m.status === 'buffering');
+    const anyoneBuffering = members.some((m) => m.status === 'buffering' && !m.catchingUp);
     if (anyoneBuffering && playback.state === 'playing') {
       this.updatePlayback({ state: 'buffering', anchorTime: Date.now() });
     }
     if (!anyoneBuffering && (playback.state === 'waiting' || playback.state === 'buffering') && activeMembers.length > 0) {
       this.updatePlayback({ state: playback.intendedState, anchorTime: Date.now() });
+    }
+  }
+
+  releaseLaggards(): void {
+    for (const member of this.roomStore.getState().members) {
+      if (member.status === 'buffering') this.roomStore.updateMember(member.userId, { catchingUp: true });
+    }
+    this.reconcileRoomBufferingState();
+  }
+
+  private checkRoomTimers(): void {
+    const { playback, duration, members } = this.roomStore.getState();
+    if (playback.state === 'playing' && duration > 0 && this.roomStore.getCurrentPosition() >= duration) {
+      this.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
+    } else if (
+      playback.state === 'buffering' &&
+      Date.now() - playback.anchorTime > SYNC_CONFIG.BUFFERING_CAP_MS &&
+      members.some((m) => m.status === 'ready')
+    ) {
+      this.releaseLaggards();
     }
   }
 
@@ -105,12 +126,12 @@ export class SyncService {
 
       if (driftMs > SYNC_CONFIG.HARD_THRESHOLD_MS && !inSeekCooldown && playback.state === 'playing') {
         ctx.socket.lastSeekTime = now;
-        this.log.warn({ userId: ctx.userId, driftMs: Math.round(driftMs), seekTo: expectedPosition }, 'Hard seek correction');
+        this.log.info({ userId: ctx.userId, driftMs: Math.round(driftMs), seekTo: expectedPosition }, 'Hard seek correction');
         this.hub.sendTo(ctx.socket, { event: 'sync.correct', payload: { position: expectedPosition, seek: true } });
       } else if (driftMs > SYNC_CONFIG.SOFT_THRESHOLD_MS && playback.state === 'playing') {
         this.applySoftCorrection(ctx, payload, playback, expectedPosition, driftMs);
       } else if (payload.playbackRate !== playback.playbackRate) {
-        this.log.info({ userId: ctx.userId, playbackRate: playback.playbackRate }, 'User back in sync, resetting playback rate');
+        this.log.debug({ userId: ctx.userId, playbackRate: playback.playbackRate }, 'User back in sync, resetting playback rate');
         this.hub.sendTo(ctx.socket, {
           event: 'sync.correct',
           payload: { position: expectedPosition, playbackRate: playback.playbackRate },
@@ -132,11 +153,12 @@ export class SyncService {
   ) {
     if (payload.playbackRate !== playback.playbackRate) return;
 
-    const delta = SYNC_CONFIG.SOFT_CORRECTION_RATE_DELTA;
+    const { SOFT_CORRECTION_WINDOW_S, SOFT_CORRECTION_MIN_DELTA, SOFT_CORRECTION_MAX_DELTA } = SYNC_CONFIG;
+    const delta = Math.min(SOFT_CORRECTION_MAX_DELTA, Math.max(SOFT_CORRECTION_MIN_DELTA, driftMs / 1000 / SOFT_CORRECTION_WINDOW_S));
     const correctionRate = playback.playbackRate * (payload.position < expectedPosition ? 1 + delta : 1 - delta);
     const correctionDurationMs = Math.round(driftMs / Math.abs(correctionRate - playback.playbackRate));
 
-    this.log.warn({ userId: ctx.userId, driftMs: Math.round(driftMs), correctionRate, correctionDurationMs }, 'Soft rate correction');
+    this.log.debug({ userId: ctx.userId, driftMs: Math.round(driftMs), correctionRate, correctionDurationMs }, 'Soft rate correction');
     this.hub.sendTo(ctx.socket, {
       event: 'sync.correct',
       payload: { position: expectedPosition, playbackRate: correctionRate, correctionDurationMs },
@@ -159,7 +181,7 @@ export class SyncService {
     } else if (status !== 'async' && wasAsync) {
       this.exitAsyncMode(ctx, status);
     } else {
-      this.roomStore.updateMember(ctx.userId, { status });
+      this.roomStore.updateMember(ctx.userId, { status, catchingUp: !!member?.catchingUp && status !== 'ready' });
     }
 
     this.hub.broadcast({ event: 'user.status_changed', payload: { userId: ctx.userId, status, pingQuality: member?.pingQuality } });
@@ -178,7 +200,7 @@ export class SyncService {
 
   /** Drops the async session (the transcode GC reclaims it) and points the player back at the room stream. */
   private exitAsyncMode(ctx: SocketContext, status: MemberState['status']) {
-    this.roomStore.updateMember(ctx.userId, { status, asyncSession: undefined });
+    this.roomStore.updateMember(ctx.userId, { status, asyncSession: undefined, catchingUp: true });
     this.coordinator.removeAsyncPlayhead(ctx.userId);
 
     const state = this.roomStore.getState();

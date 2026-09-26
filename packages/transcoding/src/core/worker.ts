@@ -4,13 +4,13 @@ import path from 'path';
 import {
   CACHE_RESUME_AHEAD_SECONDS,
   CACHE_SUSPEND_AHEAD_SECONDS,
+  LOOK_AHEAD_SEGMENTS,
   RENDER_NODE,
   RESOLUTION_PRESETS,
   SEGMENT_DURATION,
 } from '../config/constants';
 import { AUDIO_TIMESTAMP_FIX, appendAudioTrackHlsOutput, audioBitrateFor, buildHlsMuxArgs } from '../ffmpeg/hlsArgs';
-import { ensureDirectory, readSegmentStats } from '../fs/cache';
-import { startSegmentReadyWatcher } from '../fs/readyWatcher';
+import { countSegments, ensureDirectory } from '../fs/cache';
 import { AudioTrackDescriptor, FfmpegPreset, HardwareEncoder, Resolution } from '../types';
 import { TranscodeDeps } from './deps';
 
@@ -33,10 +33,10 @@ export interface WorkerInput {
 interface Leg {
   key: string;
   dir: string;
+  prefix: 'seg' | 'audio';
   event: 'ready' | 'audio-ready';
   isReady: boolean;
-  newestSegmentTime: number;
-  maxCoveredTime: number;
+  segmentCount: number;
 }
 
 /** Maps the software x264-style preset name to the closest NVENC preset. */
@@ -58,14 +58,16 @@ const QSV_PRESET_MAP: Record<FfmpegPreset, string> = {
 
 const STDERR_TAIL_LINES = 50;
 const STOP_TIMEOUT_MS = 3000;
+const WARMUP_POLL_MS = 300;
+const READY_POLL_MS = 1000;
 
-const createLeg = (key: string, dir: string, event: Leg['event']): Leg => ({
+const createLeg = (key: string, dir: string, prefix: Leg['prefix'], event: Leg['event']): Leg => ({
   key,
   dir,
+  prefix,
   event,
   isReady: false,
-  newestSegmentTime: 0,
-  maxCoveredTime: 0,
+  segmentCount: 0,
 });
 
 /**
@@ -84,7 +86,7 @@ export class TranscodeWorker extends EventEmitter {
 
   private input: WorkerInput & { startPosition: number; sourceFps: number } = { inputPath: '', startPosition: 0, sourceFps: 24 };
   private process: ChildProcess | null = null;
-  private stopReadyWatcher: (() => void) | null = null;
+  private segmentPollTimer: NodeJS.Timeout | undefined;
   private running = false;
   private suspended = false;
   private hwFallbackAttempted = false;
@@ -102,14 +104,16 @@ export class TranscodeWorker extends EventEmitter {
     this.resolutions = spec.resolutions;
     this.audioTracks = spec.audioTracks ?? [];
     this.hasSeparateAudio = this.audioTracks.length > 1;
-    this.legs = new Map(spec.resolutions.map((res) => [res, createLeg(res, spec.legDirs.get(res) ?? '', 'ready')]));
+    this.legs = new Map(spec.resolutions.map((res) => [res, createLeg(res, spec.legDirs.get(res) ?? '', 'seg', 'ready')]));
     this.audioLegs = new Map(
-      this.hasSeparateAudio ? this.audioTracks.map((t) => [t.id, createLeg(t.id, spec.audioLegDirs?.get(t.id) ?? '', 'audio-ready')]) : [],
+      this.hasSeparateAudio
+        ? this.audioTracks.map((t) => [t.id, createLeg(t.id, spec.audioLegDirs?.get(t.id) ?? '', 'audio', 'audio-ready')])
+        : [],
     );
   }
 
-  get isRunning(): boolean {
-    return this.running;
+  get isStopped(): boolean {
+    return this.stopRequested;
   }
 
   get startPosition(): number {
@@ -127,7 +131,7 @@ export class TranscodeWorker extends EventEmitter {
   }
 
   legMaxCoveredTime(resolution: Resolution): number {
-    return this.legs.get(resolution)?.maxCoveredTime ?? 0;
+    return this.input.startPosition + (this.legs.get(resolution)?.segmentCount ?? 0) * SEGMENT_DURATION;
   }
 
   audioLegOutputDir(trackId: string): string {
@@ -151,20 +155,27 @@ export class TranscodeWorker extends EventEmitter {
     return this.stopPromise;
   }
 
+  suspend(): void {
+    if (!this.process || !this.running || this.suspended || ![...this.legs.values()].some((leg) => leg.isReady)) return;
+    this.process.kill('SIGSTOP');
+    this.suspended = true;
+  }
+
   /** Suspend/resume the shared process based on the most-behind leg's progress. */
   manageCache(currentPlayhead: number): void {
     const videoLegs = [...this.legs.values()];
     if (!this.process || !this.running || !videoLegs.some((leg) => leg.isReady)) return;
 
-    const aheadBy = Math.min(...videoLegs.map((leg) => leg.newestSegmentTime)) - currentPlayhead;
+    const newestSegmentTime = this.input.startPosition + (Math.min(...videoLegs.map((leg) => leg.segmentCount)) - 1) * SEGMENT_DURATION;
+    const aheadBy = newestSegmentTime - currentPlayhead;
     const logContext = { sessionId: this.sessionId, resolutions: this.resolutions, aheadBy: Math.round(aheadBy) };
     try {
       if (aheadBy > CACHE_SUSPEND_AHEAD_SECONDS && !this.suspended) {
-        this.deps.log.info(logContext, 'Suspending FFmpeg');
+        this.deps.log.debug(logContext, 'Suspending FFmpeg');
         this.process.kill('SIGSTOP');
         this.suspended = true;
       } else if (aheadBy < CACHE_RESUME_AHEAD_SECONDS && this.suspended) {
-        this.deps.log.info(logContext, 'Resuming FFmpeg');
+        this.deps.log.debug(logContext, 'Resuming FFmpeg');
         this.process.kill('SIGCONT');
         this.suspended = false;
       }
@@ -209,7 +220,6 @@ export class TranscodeWorker extends EventEmitter {
           videoCodec,
           '-preset',
           preset,
-          ...(videoCodec === 'libx264' ? ['-tune', 'zerolatency'] : []),
           '-g',
           gop,
           '-keyint_min',
@@ -322,10 +332,10 @@ export class TranscodeWorker extends EventEmitter {
 
       // Mark leg ready on exit if segments exist; flag starved legs on unexpected exit.
       let anyLegStarved = false;
-      for (const leg of this.allLegs().filter((l) => !l.isReady)) {
-        const hasSegments = readSegmentStats(leg.dir, this.input.startPosition).segmentCount > 0;
-        if (hasSegments && (code === 0 || this.stopRequested)) this.markReady(leg);
-        else if (!this.stopRequested) anyLegStarved = true;
+      for (const leg of this.allLegs()) leg.segmentCount = countSegments(leg.dir, leg.prefix, leg.segmentCount);
+      for (const leg of this.allLegs().filter((l) => !l.isReady && !this.stopRequested)) {
+        if (code === 0 && leg.segmentCount > 0) this.markReady(leg);
+        else anyLegStarved = true;
       }
 
       // FFmpeg traps SIGTERM to flush segments and exit cleanly.
@@ -386,26 +396,17 @@ export class TranscodeWorker extends EventEmitter {
     this.suspended = false;
   }
 
-  /** Watches every leg's output directory for segment files via the shared readyWatcher. */
   private watchSegments(): void {
-    const watcher = startSegmentReadyWatcher({
-      startPosition: this.input.startPosition,
-      isRunning: () => this.running,
-      targets: this.allLegs().map((leg) => ({
-        dir: leg.dir,
-        isReady: () => leg.isReady,
-        onReady: () => this.markReady(leg),
-        onStats: ({ newestSegmentTime, maxCoveredTime }) => {
-          leg.newestSegmentTime = newestSegmentTime;
-          leg.maxCoveredTime = maxCoveredTime;
-        },
-      })),
-    });
-    this.stopReadyWatcher = watcher.stop;
+    const allReady = this.allLegs().every((leg) => leg.isReady);
+    this.segmentPollTimer = setTimeout(() => this.watchSegments(), allReady ? READY_POLL_MS : WARMUP_POLL_MS);
+    for (const leg of this.allLegs()) {
+      leg.segmentCount = countSegments(leg.dir, leg.prefix, leg.segmentCount);
+      if (!leg.isReady && leg.segmentCount >= LOOK_AHEAD_SEGMENTS) this.markReady(leg);
+    }
   }
 
   private stopWatchers(): void {
-    this.stopReadyWatcher?.();
-    this.stopReadyWatcher = null;
+    clearTimeout(this.segmentPollTimer);
+    this.segmentPollTimer = undefined;
   }
 }

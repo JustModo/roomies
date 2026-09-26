@@ -1,22 +1,18 @@
 import { useEffect, useRef } from 'react';
-import { absolutePlaybackTime } from '../hlsOffset';
 
 interface UsePlayerGesturesParams {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   isLocked: boolean;
   playbackRate: number;
   volume: number;
   setVolume: (volume: number) => void;
   handlePlayPause: () => void;
-  onSeek: (position: number) => void;
+  handleSeekOffset: (offset: number) => void;
   onSetRate: (rate: number) => void;
   idle: boolean;
   showControls: () => void;
   hideControls: () => void;
   lastShowTimeRef: React.MutableRefObject<number>;
-  mediaDuration: number;
-  transcodeOffset: number;
 }
 
 const MOVE_CANCEL_PX = 10; // movement past this cancels a pending tap/hold
@@ -24,21 +20,18 @@ const HOLD_THRESHOLD_MS = 500;
 const DOUBLE_TAP_WINDOW_MS = 250;
 
 export function usePlayerGestures({
-  videoRef,
   containerRef,
   isLocked,
   playbackRate,
   volume,
   setVolume,
   handlePlayPause,
-  onSeek,
+  handleSeekOffset,
   onSetRate,
   idle,
   showControls,
   hideControls,
   lastShowTimeRef,
-  mediaDuration,
-  transcodeOffset,
 }: UsePlayerGesturesParams) {
   const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRateRef = useRef<number>(1);
@@ -54,11 +47,9 @@ export function usePlayerGestures({
     playbackRate,
     volume,
     idle,
-    mediaDuration,
-    transcodeOffset,
     setVolume,
     handlePlayPause,
-    onSeek,
+    handleSeekOffset,
     onSetRate,
     showControls,
     hideControls
@@ -69,11 +60,9 @@ export function usePlayerGestures({
       playbackRate,
       volume,
       idle,
-      mediaDuration,
-      transcodeOffset,
       setVolume,
       handlePlayPause,
-      onSeek,
+      handleSeekOffset,
       onSetRate,
       showControls,
       hideControls
@@ -220,15 +209,7 @@ export function usePlayerGestures({
         clearTimeout(clickTimeoutRef.current);
         clickTimeoutRef.current = null;
 
-        const video = videoRef.current;
-        if (video) {
-          const currentAbsolute = absolutePlaybackTime(video.currentTime, stateRef.current.transcodeOffset);
-          if (xPercent < 0.3) {
-            stateRef.current.onSeek(Math.max(0, currentAbsolute - 10));
-          } else {
-            stateRef.current.onSeek(Math.min(stateRef.current.mediaDuration, currentAbsolute + 10));
-          }
-        }
+        stateRef.current.handleSeekOffset(xPercent < 0.3 ? -10 : 10);
       } else {
         clickTimeoutRef.current = setTimeout(() => {
           clickTimeoutRef.current = null;
@@ -287,5 +268,5 @@ export function usePlayerGestures({
       if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
       if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
     };
-  }, [isLocked, videoRef, containerRef, lastShowTimeRef]);
+  }, [isLocked, containerRef, lastShowTimeRef]);
 }

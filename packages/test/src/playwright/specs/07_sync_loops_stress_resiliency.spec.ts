@@ -34,17 +34,14 @@ test.describe('Sync Stress & Resiliency', () => {
     await waitForTimesConverged(adminPage, guestPage, 6, 45000);
   });
 
-  test('04. buffering lock appears then releases after seek', async ({ room }) => {
+  test('04. syncing appears then releases after seek', async ({ room }) => {
     const { adminPage, adminPlayer } = room;
-    // Large seek often triggers SYNCING / controls locked while syncing
     for (let i = 0; i < 5; i++) {
       await adminPlayer.seekForward10();
     }
-    // Either briefly shows syncing lock or settles quickly — both OK if controls recover
     await expect
       .poll(
         async () => {
-          const locked = await adminPage.locator('[title="Controls locked while syncing"]').count();
           const syncing = await adminPage
             .getByText('SYNCING', { exact: true })
             .isVisible()
@@ -54,8 +51,7 @@ test.describe('Sync Stress & Resiliency', () => {
             .first()
             .isEnabled()
             .catch(() => false);
-          // Success when either we observed syncing, or controls are usable again
-          return locked > 0 || syncing || enabled;
+          return syncing || enabled;
         },
         { timeout: 30000 },
       )

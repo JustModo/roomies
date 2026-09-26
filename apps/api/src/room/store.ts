@@ -9,6 +9,7 @@ export interface MemberState {
   userId: string;
 
   status: 'ready' | 'buffering' | 'async';
+  catchingUp?: boolean;
   position: number;
   activeResolution?: Resolution;
   asyncSession?: AsyncSessionState;
@@ -136,11 +137,8 @@ export class RoomStore {
 
   public getCurrentPosition(): number {
     const p = this.state.playback;
-    if (p.state === 'playing') {
-      const elapsed = (Date.now() - p.anchorTime) / 1000;
-      return p.anchorPosition + elapsed * p.playbackRate;
-    }
-    return p.anchorPosition;
+    const position = p.state === 'playing' ? p.anchorPosition + ((Date.now() - p.anchorTime) / 1000) * p.playbackRate : p.anchorPosition;
+    return this.state.duration > 0 ? Math.min(position, this.state.duration) : position;
   }
 
   /** NOTE: Merges playback state updates and recalculates anchorPosition if state/rate changes while playing. */
@@ -161,6 +159,7 @@ export class RoomStore {
     for (const member of this.state.members) {
       if (member.status !== 'async') {
         member.status = 'buffering';
+        member.catchingUp = false;
       }
     }
   }

@@ -5,6 +5,7 @@ type LogFn = {
 
 /** Minimal structured logger the server packages log through; Fastify's pino logger satisfies it. */
 export interface Logger {
+  debug: LogFn;
   info: LogFn;
   warn: LogFn;
   error: LogFn;

@@ -44,10 +44,10 @@ describe('Sync drift correction & heartbeat status', () => {
 
     const { payload } = await client.waitForEvent('sync.correct');
     expect(payload.seek).toBeUndefined();
-    expect(payload.playbackRate).toBeCloseTo(1 - SYNC_CONFIG.SOFT_CORRECTION_RATE_DELTA);
+    expect(payload.playbackRate).toBeCloseTo(1 - 1 / SYNC_CONFIG.SOFT_CORRECTION_WINDOW_S);
     expect(payload.position).toBeCloseTo(100, 0);
-    expect(payload.correctionDurationMs).toBeGreaterThan(9000);
-    expect(payload.correctionDurationMs).toBeLessThan(11000);
+    expect(payload.correctionDurationMs).toBeGreaterThan(7000);
+    expect(payload.correctionDurationMs).toBeLessThan(9000);
   });
 
   it('sends a soft rate correction that speeds up a client falling behind', async () => {
@@ -55,7 +55,7 @@ describe('Sync drift correction & heartbeat status', () => {
     client.send('sync.heartbeat', { position: 99, playbackRate: 1 });
 
     const { payload } = await client.waitForEvent('sync.correct');
-    expect(payload.playbackRate).toBeCloseTo(1 + SYNC_CONFIG.SOFT_CORRECTION_RATE_DELTA);
+    expect(payload.playbackRate).toBeCloseTo(1 + 1 / SYNC_CONFIG.SOFT_CORRECTION_WINDOW_S);
   });
 
   it('does not stack a soft correction on a client already running at a corrected rate', async () => {
@@ -78,7 +78,7 @@ describe('Sync drift correction & heartbeat status', () => {
     client.send('sync.heartbeat', { position: 110, playbackRate: 1 });
     const soft = await client.waitForEvent('sync.correct');
     expect(soft.payload.seek).toBeUndefined();
-    expect(soft.payload.playbackRate).toBeCloseTo(0.9);
+    expect(soft.payload.playbackRate).toBeCloseTo(1 - SYNC_CONFIG.SOFT_CORRECTION_MAX_DELTA);
   });
 
   it('never corrects a paused room, however far the client drifted', async () => {
@@ -96,6 +96,7 @@ describe('Sync drift correction & heartbeat status', () => {
 
     const { payload } = await client.waitForEvent('sync.correct');
     expect(payload.playbackRate).toBe(1);
+    expect(payload.correctionDurationMs).toBeUndefined();
     expect(payload.seek).toBeUndefined();
   });
 

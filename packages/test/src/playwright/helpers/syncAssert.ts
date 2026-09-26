@@ -94,9 +94,6 @@ function isHlsResponse(url: string) {
  * Wait until playback controls are unlocked (not buffering / not admin-sync lock).
  */
 export async function waitForPlaybackUnlocked(page: Page, timeout = MEDIA_READY_MS) {
-  await expect(page.locator('[title="Controls locked while syncing"]')).toHaveCount(0, {
-    timeout,
-  });
   await expect(page.locator('[title="Controls locked by admin"]')).toHaveCount(0, {
     timeout,
   });

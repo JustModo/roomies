@@ -530,4 +530,27 @@ describe('Playback & Room Sync (Async Mode)', () => {
     expect(finalStatus.payload.status).toBe('ready');
     await adminClient.close();
   });
+
+  it('lets a member leaving async catch up without stalling the room', async () => {
+    const adminClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.admin.token);
+    const guestClient = await createTestWsClient(`${env.server.wsUrl}/ws`, env.guest.token);
+    adminClient.send('room.join', {});
+    guestClient.send('room.join', {});
+    await adminClient.waitForEvent('room.state');
+    await guestClient.waitForEvent('room.state');
+
+    adminClient.send('sync.status', { status: 'ready' });
+    await adminClient.waitForEventMatching('user.status_changed', (msg) => msg.payload.userId === env.admin.user.id);
+    adminClient.send('playback.play', {});
+    await adminClient.waitForEventMatching('playback.state', (msg) => msg.payload.state === 'playing');
+
+    guestClient.send('sync.status', { status: 'async' });
+    await guestClient.waitForEventMatching('media.changed', (msg) => msg.payload.sessionScope === 'user');
+    guestClient.send('sync.status', { status: 'buffering' });
+    await guestClient.waitForEventMatching('media.changed', (msg) => msg.payload.sessionScope === 'room');
+
+    expect(roomStore.getState().playback.state).toBe('playing');
+    await adminClient.close();
+    await guestClient.close();
+  });
 });

@@ -3,7 +3,7 @@ import { READY_TIMEOUT_MS, PLAYHEAD_STALE_MS, RESOLUTION_PRESETS, SEGMENT_DURATI
 import { PlaybackPolicy, policyForSessionId, scaledResolution, variantsForSource } from '../config/policy';
 import { SourceVideoInfo, getSourceVideoInfo } from '../ffmpeg/ffprobe';
 import { ensureDirectory, removeDirectory } from '../fs/cache';
-import { AudioTrackDescriptor, Resolution, TranscodeErrorCallback } from '../types';
+import { AudioTrackDescriptor, Resolution } from '../types';
 import { TranscodeDeps } from './deps';
 import { TranscodeWorker } from './worker';
 
@@ -23,6 +23,13 @@ export interface PlayheadState {
 
 /** A freshly created offset group is never collected before this age, so a seek can land on it. */
 const GROUP_MIN_AGE_MS = 15000;
+
+export class GroupStoppedError extends Error {
+  constructor(offset: number) {
+    super(`Offset group @${offset} was stopped`);
+    this.name = 'GroupStoppedError';
+  }
+}
 
 /** Aligns seek position to nearest segment boundary. */
 export function getAlignedPosition(position: number): number {
@@ -44,9 +51,7 @@ export class TranscodeSession {
   private groupCreatedAt = new Map<number, number>();
   private gcTimers = new Map<number, NodeJS.Timeout>();
   private playheads = new Map<string, PlayheadState>();
-  private onErrorCallback: TranscodeErrorCallback | null = null;
   private videoInfoPromise: Promise<SourceVideoInfo> | null = null;
-  private reportedErrors = new WeakSet<Error>();
   private readonly staleSweepTimer: NodeJS.Timeout;
 
   constructor(
@@ -65,17 +70,6 @@ export class TranscodeSession {
     this.staleSweepTimer = setInterval(() => this.sweepStalePlayheads(), PLAYHEAD_STALE_MS);
   }
 
-  onError(callback: TranscodeErrorCallback): void {
-    this.onErrorCallback = callback;
-  }
-
-  /** Reports a failure for a given resolution through the same channel as worker process errors. */
-  reportError(resolution: Resolution, error: Error): void {
-    if (this.reportedErrors.has(error)) return;
-    this.reportedErrors.add(error);
-    this.onErrorCallback?.(resolution, error);
-  }
-
   /** The rungs this session's workers will actually encode, after pruning any that would
    *  upscale the source. Reuses the memoized probe, so callers pay no extra ffprobe.
    *  The master playlist must advertise exactly this — advertising a rung that is never
@@ -83,7 +77,7 @@ export class TranscodeSession {
    *  between two levels that are the same stream, flushing the buffer on every switch. */
   async availableVariants(): Promise<{ resolution: Resolution; width: number; height: number }[]> {
     const { width, height } = await this.getVideoInfo();
-    return variantsForSource(this.policy.variants, width, height).map((resolution) => ({
+    return this.encodedVariants(width, height).map((resolution) => ({
       resolution,
       ...scaledResolution(RESOLUTION_PRESETS[resolution], width, height),
     }));
@@ -131,7 +125,7 @@ export class TranscodeSession {
     let swappedToOffset: number | null = state ? null : maxOffset;
     if (state && state.currentOffset !== maxOffset) {
       const oldOffset = state.currentOffset;
-      this.deps.log.info({ playhead: id, from: oldOffset, to: maxOffset }, 'Playhead shifted offset');
+      this.deps.log.debug({ playhead: id, from: oldOffset, to: maxOffset }, 'Playhead shifted offset');
       state.currentOffset = maxOffset;
       swappedToOffset = maxOffset;
       this.cleanupOffsetIfEmpty(oldOffset);
@@ -163,6 +157,19 @@ export class TranscodeSession {
     });
   }
 
+  idleGroups(): { offset: number; createdAt: number }[] {
+    const watched = new Set([...this.playheads.values()].map((ph) => ph.currentOffset));
+    return [...this.variantGroups.keys()]
+      .filter((offset) => !watched.has(offset))
+      .map((offset) => ({ offset, createdAt: this.groupCreatedAt.get(offset) ?? 0 }));
+  }
+
+  stopIdleGroups(keepOffset: number): void {
+    for (const { offset } of this.idleGroups()) {
+      if (offset !== keepOffset) void this.stopGroup(offset);
+    }
+  }
+
   getCoveringOffset(position: number): number | null {
     return [...this.variantGroups.keys()].find((offset) => this.isPositionCovered(position, offset)) ?? null;
   }
@@ -170,7 +177,7 @@ export class TranscodeSession {
   /** Reuses currentOffset if it covers the position, otherwise starts (and prewarms) a group at the aligned offset. */
   async seek(position: number, currentOffset: number, resolutionsToPrewarm: Resolution[] = this.policy.variants): Promise<number> {
     if (this.isPositionCovered(position, currentOffset)) {
-      this.deps.log.info({ position, offset: currentOffset }, 'Seek covered by current offset, reusing cache');
+      this.deps.log.debug({ position, offset: currentOffset }, 'Seek covered by current offset, reusing cache');
       return currentOffset;
     }
 
@@ -179,10 +186,8 @@ export class TranscodeSession {
 
     const results = await Promise.allSettled(resolutionsToPrewarm.map((res) => this.ensureVariantReady(res, alignedPosition)));
     results.forEach((result, i) => {
-      if (result.status === 'fulfilled') return;
-      const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
-      this.deps.log.error({ err: error, resolution: resolutionsToPrewarm[i], offset: alignedPosition }, 'Prewarm failed');
-      this.reportError(resolutionsToPrewarm[i], error);
+      if (result.status === 'fulfilled' || result.reason instanceof GroupStoppedError) return;
+      this.deps.log.error({ err: result.reason, resolution: resolutionsToPrewarm[i], offset: alignedPosition }, 'Prewarm failed');
     });
 
     return alignedPosition;
@@ -197,11 +202,22 @@ export class TranscodeSession {
     clearTimeout(this.gcTimers.get(offset));
     this.gcTimers.delete(offset);
 
-    this.deps.log.info({ sessionId: this.sessionId, offset }, 'Stopping worker');
+    this.deps.log.debug({ sessionId: this.sessionId, offset }, 'Stopping worker');
     await worker.stop();
 
     // Clean offset directory if no new group was created in the meantime.
     if (!this.variantGroups.has(offset)) removeDirectory(this.groupDir(offset), this.deps.log);
+  }
+
+  park(): void {
+    this.playheads.clear();
+    for (const timer of this.gcTimers.values()) clearTimeout(timer);
+    this.gcTimers.clear();
+    const newest = [...this.groupCreatedAt.entries()].reduce<[number, number] | null>((a, b) => (!a || b[1] > a[1] ? b : a), null)?.[0];
+    for (const offset of [...this.variantGroups.keys()]) {
+      if (offset !== newest) void this.stopGroup(offset);
+    }
+    if (newest !== undefined) this.variantGroups.get(newest)?.suspend();
   }
 
   async stop(): Promise<void> {
@@ -213,6 +229,11 @@ export class TranscodeSession {
   private getVideoInfo(): Promise<SourceVideoInfo> {
     this.videoInfoPromise ??= getSourceVideoInfo(this.deps.options.ffprobePath, this.inputPath);
     return this.videoInfoPromise;
+  }
+
+  private encodedVariants(width: number, height: number): Resolution[] {
+    const fitting = variantsForSource(this.policy.variants, width, height);
+    return this.policy.ladderEnds && fitting.length > 2 ? [fitting[0], fitting[fitting.length - 1]] : fitting;
   }
 
   private requireWorker(offset: number): TranscodeWorker {
@@ -256,7 +277,7 @@ export class TranscodeSession {
       };
       const onExit = () => {
         cleanup();
-        reject(new Error(`Worker @${offset} exited before ${key} was ready`));
+        reject(worker.isStopped ? new GroupStoppedError(offset) : new Error(`Worker @${offset} exited before ${key} was ready`));
       };
       const timer = setTimeout(() => {
         cleanup();
@@ -286,12 +307,13 @@ export class TranscodeSession {
     const { fps, width, height, audioBitrate } = await this.getVideoInfo();
 
     const { slots, log } = this.deps;
+    if (slots.isFull) await this.deps.evictIdleGroup?.();
     if (slots.isFull) {
       log.error({ offset, max: slots.max }, 'Refusing to spawn worker: concurrent worker cap reached');
       throw new Error('Maximum concurrent transcode workers reached');
     }
 
-    const variants = variantsForSource(this.policy.variants, width, height);
+    const variants = this.encodedVariants(width, height);
     const groupDir = this.groupDir(offset);
     const legSuffix = `ss-${offset}-${Math.random().toString(36).substring(2, 8)}`;
     const worker = new TranscodeWorker(this.deps, {
@@ -303,16 +325,15 @@ export class TranscodeSession {
     });
 
     const context = { sessionId: this.sessionId, offset };
-    worker.on('ready', (resolution: Resolution) => log.info({ ...context, resolution }, 'Variant ready'));
+    worker.on('ready', (resolution: Resolution) => log.debug({ ...context, resolution }, 'Variant ready'));
     worker.on('error', (err: Error) => {
       log.error({ ...context, err, cause: err.cause }, 'Worker error');
       // Drop dead worker so subsequent requests spawn a fresh worker.
       if (this.variantGroups.get(offset) === worker) this.forgetGroup(offset);
       if (!this.variantGroups.has(offset)) removeDirectory(groupDir, log);
-      this.reportError(worker.resolutions[0], err);
     });
     worker.on('exit', (code: number | null) => {
-      if (code === 0) log.info(context, 'Worker completed');
+      if (code === 0) log.debug(context, 'Worker completed');
     });
 
     try {
@@ -365,7 +386,7 @@ export class TranscodeSession {
     if (this.policy.keepLatestEmptyOffset) {
       const isLatest = [...this.variantGroups.keys()].every((o) => (this.groupCreatedAt.get(o) || 0) <= createdAt);
       if (isLatest) {
-        this.deps.log.info({ sessionId: this.sessionId, offset }, 'Keeping latest offset group active');
+        this.deps.log.debug({ sessionId: this.sessionId, offset }, 'Keeping latest offset group active');
         return;
       }
     }

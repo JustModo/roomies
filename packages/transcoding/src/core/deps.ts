@@ -31,4 +31,5 @@ export interface TranscodeDeps {
   readonly encoder: EncoderBackend;
   readonly slots: WorkerSlots;
   readonly log: Logger;
+  readonly evictIdleGroup?: () => Promise<boolean>;
 }

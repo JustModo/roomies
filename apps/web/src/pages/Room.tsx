@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, MutableRefObject } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ChevronLeft, Settings2, Lock, Unlock, Mic, MicOff } from 'lucide-react';
 import { useRoomSync } from '../hooks/useRoomSync';
@@ -68,7 +68,7 @@ function RoomBody() {
     roomState,
     mediaInfo,
     seekKey,
-    localTime,
+    localTimeRef,
     localCorrectionRate,
     seekCommand,
     play,
@@ -82,6 +82,7 @@ function RoomBody() {
     reportActiveResolution,
     isAsyncMode,
     toggleAsyncMode,
+    forceResume,
     updatePartyState,
     setControlLock,
     updateSettings,
@@ -117,7 +118,7 @@ function RoomBody() {
           roomState={roomState}
           mediaInfo={mediaInfo}
           seekKey={seekKey}
-          localTime={localTime}
+          localTimeRef={localTimeRef}
           localCorrectionRate={localCorrectionRate}
           seekCommand={seekCommand}
           play={play}
@@ -133,6 +134,7 @@ function RoomBody() {
           setShowAdmin={setShowAdmin}
           isAsyncMode={isAsyncMode}
           toggleAsyncMode={toggleAsyncMode}
+          forceResume={forceResume}
           updatePartyState={updatePartyState}
           setControlLock={setControlLock}
           updateSettings={updateSettings}
@@ -146,7 +148,7 @@ interface RoomInnerProps {
   roomState: RoomState | null;
   mediaInfo: MediaInfo | null;
   seekKey: number;
-  localTime: number;
+  localTimeRef: MutableRefObject<number>;
   localCorrectionRate: number | null | undefined;
   seekCommand: SeekCommand | null;
   play: () => void;
@@ -154,7 +156,7 @@ interface RoomInnerProps {
   seek: (pos: number) => void;
   setRate: (rate: number) => void;
   setStatus: (status: SyncStatus) => void;
-  reportLocalTime: (time: number) => void;
+  reportLocalTime: (time: number, flush?: boolean) => void;
   reportActiveResolution: (resolution: string) => void;
   viewersCount: number;
   handleExit: () => void;
@@ -162,6 +164,7 @@ interface RoomInnerProps {
   setShowAdmin: (show: boolean) => void;
   isAsyncMode: boolean;
   toggleAsyncMode: () => void;
+  forceResume: () => void;
   updatePartyState: (updates: { isJoined?: boolean, micMuted?: boolean, videoMuted?: boolean }) => void;
   setControlLock: (userId: string, locked: boolean) => void;
   updateSettings?: (settings: { allowAsyncMode?: boolean }) => void;
@@ -171,7 +174,7 @@ function RoomInner({
   roomState,
   mediaInfo,
   seekKey,
-  localTime,
+  localTimeRef,
   localCorrectionRate,
   seekCommand,
   play,
@@ -187,6 +190,7 @@ function RoomInner({
   setShowAdmin,
   isAsyncMode,
   toggleAsyncMode,
+  forceResume,
   updatePartyState,
   setControlLock,
   updateSettings,
@@ -323,7 +327,7 @@ function RoomInner({
           mediaInfo={mediaInfo}
           seekKey={seekKey}
           roomPlaybackState={roomState?.playback}
-          localTime={localTime}
+          localTimeRef={localTimeRef}
           localCorrectionRate={localCorrectionRate}
           seekCommand={seekCommand}
           onPlay={play}
@@ -341,6 +345,7 @@ function RoomInner({
           onToggleAsync={handleToggleAsync}
           allowAsyncMode={roomState?.settings?.allowAsyncMode ?? true}
           isLockedByAdmin={isLockedByAdmin}
+          onForceResume={user?.role === 'root' ? forceResume : undefined}
           isPartyJoined={isJoined}
           isMicMuted={isMicMuted}
           onToggleMic={handleToggleMic}
@@ -366,7 +371,7 @@ function RoomInner({
                 {isServerLocked ? (
                   <div
                     className={`${ICON_BTN_PADDING} flex items-center justify-center transition-colors ${activeLockByAdmin ? 'text-red-500' : 'text-paper/40'}`}
-                    title={activeLockByAdmin ? 'Controls locked by admin' : 'Controls locked while syncing'}
+                    title={activeLockByAdmin ? 'Controls locked by admin' : 'No media'}
                   >
                     <Lock className={ICON_PRIMARY} strokeWidth={1.5} />
                   </div>

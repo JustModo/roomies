@@ -8,18 +8,21 @@ export interface PlaybackPolicy {
   variants: Resolution[];
   /** Whether to preserve the latest empty offset group when playheads leave. */
   keepLatestEmptyOffset: boolean;
+  ladderEnds: boolean;
 }
 
 export const SyncPolicy: PlaybackPolicy = {
   sessionId: 'sync',
   variants: SUPPORTED_RESOLUTIONS,
   keepLatestEmptyOffset: true,
+  ladderEnds: false,
 };
 
 export const AsyncPolicy: PlaybackPolicy = {
   sessionId: 'async',
   variants: SUPPORTED_RESOLUTIONS,
   keepLatestEmptyOffset: false,
+  ladderEnds: true,
 };
 
 export function policyForSessionId(sessionId: string): PlaybackPolicy {

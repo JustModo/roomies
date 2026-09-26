@@ -510,12 +510,6 @@ export function ChatProvider({
           break;
         }
 
-        case 'error': {
-          console.error('[chat] Server error:', msg.payload.message);
-          addLocalSystemMessage(msg.payload.message);
-          break;
-        }
-
         default:
           break;
       }

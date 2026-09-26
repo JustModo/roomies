@@ -17,6 +17,7 @@ import {
   TranscodeSessionManager,
   TranscodeWorker,
   WorkerSlots,
+  GroupStoppedError,
   READY_TIMEOUT_MS,
   RESOLUTION_PRESETS,
   SUPPORTED_RESOLUTIONS,
@@ -25,7 +26,7 @@ import {
   audioBitrateFor,
   buildSeparateAudioEncodeArgs,
   ensureDirectory,
-  readSegmentStats,
+  countSegments,
   removeDirectory,
   transcodeOptionsFrom,
   variantsForSource,
@@ -134,48 +135,16 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     clean(testDir);
   });
 
-  it('computes newest/max-covered segment time from segment filenames on disk', () => {
+  it('counts consecutive segments on disk, resuming from a known count', () => {
     const testDir = `${process.env.CACHE_DIR}/variant-cache-stats`;
     ensureDirectory(testDir);
-    const startPosition = 100;
-
-    // seg_00000.ts..seg_00003.ts => 4 segments, indices 0-3
     for (let i = 0; i < 4; i++) {
       fs.writeFileSync(`${testDir}/seg_${String(i).padStart(5, '0')}.ts`, '');
     }
 
-    const { newestSegmentTime, maxCoveredTime } = readSegmentStats(testDir, startPosition);
-
-    // newestSegmentTime is derived from the highest-index segment's own start time.
-    expect(newestSegmentTime).toBe(startPosition + 3 * SEGMENT_DURATION);
-    // maxCoveredTime extends one segment past the highest index (its end time).
-    expect(maxCoveredTime).toBe(startPosition + 4 * SEGMENT_DURATION);
-
-    clean(testDir);
-  });
-
-  it('routes reportError() through the registered onError callback', () => {
-    const testDir = `${process.env.CACHE_DIR}/report-error-test`;
-    const session = newSession('test-session', 'media-1', testDir);
-
-    const received: Array<{ resolution: string; error: Error }> = [];
-    session.onError((resolution, error) => received.push({ resolution, error }));
-
-    const err = new Error('Maximum concurrent transcode variants reached');
-    session.reportError('720p', err);
-
-    expect(received).toHaveLength(1);
-    expect(received[0].resolution).toBe('720p');
-    expect(received[0].error).toBe(err);
-
-    clean(testDir);
-  });
-
-  it('reportError() is a no-op when no onError callback is registered', () => {
-    const testDir = `${process.env.CACHE_DIR}/report-error-noop-test`;
-    const session = newSession('test-session-2', 'media-1', testDir);
-
-    expect(() => session.reportError('360p', new Error('boom'))).not.toThrow();
+    expect(countSegments(testDir, 'seg')).toBe(4);
+    expect(countSegments(testDir, 'seg', 2)).toBe(4);
+    expect(countSegments(testDir, 'audio')).toBe(0);
 
     clean(testDir);
   });
@@ -213,13 +182,12 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(maxConcurrentWorkers).toBeGreaterThanOrEqual(4);
   });
 
-  it('returns zeroed stats for a directory with no segments', () => {
+  it('counts no segments for an empty or missing directory', () => {
     const testDir = `${process.env.CACHE_DIR}/variant-cache-stats-empty`;
     ensureDirectory(testDir);
 
-    const { newestSegmentTime, maxCoveredTime } = readSegmentStats(testDir, 50);
-    expect(newestSegmentTime).toBe(0);
-    expect(maxCoveredTime).toBe(0);
+    expect(countSegments(testDir, 'seg')).toBe(0);
+    expect(countSegments(`${testDir}/missing`, 'seg')).toBe(0);
 
     clean(testDir);
   });
@@ -231,28 +199,27 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(args).toContain('-hls_time');
     expect(args).toContain(String(SEGMENT_DURATION));
     expect(args).toContain('/tmp/seg_%05d.ts');
+    expect(args[args.indexOf('-hls_playlist_type') + 1]).toBe('event');
   });
 
-  it('defines sync vs async mode policies that both carry the full resolution ladder', () => {
+  it('defines sync vs async mode policies, with async encoding only the ladder ends', () => {
     expect(SyncPolicy.variants).toEqual(SUPPORTED_RESOLUTIONS);
     expect(AsyncPolicy.variants).toEqual(SUPPORTED_RESOLUTIONS);
     expect(SyncPolicy.keepLatestEmptyOffset).toBe(true);
     expect(AsyncPolicy.keepLatestEmptyOffset).toBe(false);
+    expect(SyncPolicy.ladderEnds).toBe(false);
+    expect(AsyncPolicy.ladderEnds).toBe(true);
     expect(policyForSessionId('sync')).toBe(SyncPolicy);
     expect(policyForSessionId('async')).toBe(AsyncPolicy);
   });
 
-  it('spawns exactly one ffmpeg process for a 3-resolution async-scope offset group, same as sync', async () => {
+  it('spawns one ffmpeg process encoding only the lowest and highest rungs for an async offset group', async () => {
     const spawnMock = mockedSpawn as unknown as ReturnType<typeof vi.fn>;
     spawnMock.mockClear();
 
     const testDir = `${process.env.CACHE_DIR}/async-group-spawn-test`;
     const session = newSession('async', 'media-1', testDir);
 
-    // A second (and third) resolution request at the same offset is no longer refused —
-    // every offset always carries the full ladder, so these just await the same worker.
-    // Requests never resolve under the fake-ffmpeg stub (no real segments get
-    // written), so don't await them — same as the sync test above.
     session.ensureVariantReady('720p', 0).catch(() => {});
     session.ensureVariantReady('360p', 0).catch(() => {});
     session.ensureVariantReady('1080p', 0).catch(() => {});
@@ -263,8 +230,9 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     expect(ffmpegLikeCalls).toHaveLength(1);
 
     const [, groupArgs] = ffmpegLikeCalls[0] as [string, string[]];
-    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(6);
-    expect(groupArgs.filter((a) => a === '0:a:0?')).toHaveLength(3);
+    expect(groupArgs.filter((a) => a === '-map')).toHaveLength(4);
+    expect(groupArgs.filter((a) => a === '0:a:0?')).toHaveLength(2);
+    expect(groupArgs.some((a) => a.includes('scale=1280:720'))).toBe(false);
 
     await session.stop();
   });
@@ -438,10 +406,74 @@ describe('Transcoding & Quality Variant Pipeline', () => {
       await session.stop();
       clean(`${process.env.CACHE_DIR}/cap`);
     });
+
+    it('evicts the oldest idle group of another session instead of refusing at the cap', async () => {
+      spawnMock.mockImplementation(fakeChild);
+      const manager = new TranscodeSessionManager({ ...options, maxConcurrentWorkers: 1 }, silentLogger);
+
+      const sync = manager.startSession('sync', 'media-evict', '/dev/null');
+      sync.ensureVariantReady('720p', 0).catch(() => {});
+      await vi.waitFor(() => expect(groupsOf(sync).has(0)).toBe(true));
+
+      const async = manager.startSession('async', 'media-evict', '/dev/null');
+      async.ensureVariantReady('720p', 30).catch(() => {});
+      await vi.waitFor(() => expect(groupsOf(async).has(30)).toBe(true));
+
+      expect(groupsOf(sync).has(0)).toBe(false);
+      await manager.stopAll();
+    });
+
+    it('rejects a pending playlist wait with GroupStoppedError when its group is stopped', async () => {
+      spawnMock.mockImplementation(fakeChild);
+      const session = newSession('sync', 'media-stopped', `${process.env.CACHE_DIR}/stopped-wait`);
+      const pending = session.ensureVariantReady('720p', 0);
+      await vi.waitFor(() => expect(groupsOf(session).has(0)).toBe(true));
+
+      await session.stopGroup(0);
+
+      await expect(pending).rejects.toBeInstanceOf(GroupStoppedError);
+      await session.stop();
+    });
+
+    it('stops groups superseded by a newer seek target but keeps groups viewers are on', async () => {
+      spawnMock.mockImplementation(fakeChild);
+      const session = newSession('sync', 'media-superseded', `${process.env.CACHE_DIR}/superseded`);
+      for (const offset of [0, 60, 120]) session.ensureVariantReady('720p', offset).catch(() => {});
+      await vi.waitFor(() => expect(groupsOf(session).size).toBe(3));
+      (session as any).playheads.set('viewer', { position: 10, currentOffset: 0, lastSeenAt: Date.now() });
+
+      session.stopIdleGroups(120);
+
+      expect([...groupsOf(session).keys()].sort((a, b) => a - b)).toEqual([0, 120]);
+      await session.stop();
+    });
+
+    it('parks the previous sync session on its newest group and revives it when its media returns', async () => {
+      spawnMock.mockImplementation(fakeChild);
+      const manager = new TranscodeSessionManager(options, silentLogger);
+
+      const first = manager.startSession('sync', 'media-a', '/dev/null');
+      first.ensureVariantReady('720p', 0).catch(() => {});
+      first.ensureVariantReady('720p', 60).catch(() => {});
+      await vi.waitFor(() => expect(groupsOf(first).size).toBe(2));
+      (first as any).groupCreatedAt.set(0, Date.now() - 1000);
+
+      const second = manager.startSession('sync', 'media-b', '/dev/null');
+      expect(manager.getSession('sync')).toBe(second);
+      expect([...groupsOf(first).keys()]).toEqual([60]);
+
+      expect(manager.startSession('sync', 'media-a', '/dev/null')).toBe(first);
+      expect(manager.getSession('sync')).toBe(first);
+      expect(groupsOf(first).has(60)).toBe(true);
+
+      await manager.stopAll();
+      expect(groupsOf(first).size).toBe(0);
+      expect(groupsOf(second).size).toBe(0);
+    });
   });
 
   describe('hardware encoder argument building', () => {
-    const argsFor = (hw: 'qsv' | 'vaapi') => {
+    const argsFor = (hw: 'qsv' | 'vaapi' | null) => {
       const worker = new TranscodeWorker(makeDeps(), {
         sessionId: 'sync',
         resolutions: ['720p'],
@@ -471,9 +503,15 @@ describe('Transcoding & Quality Variant Pipeline', () => {
       expect(args[args.indexOf('-c:v') + 1]).toBe('h264_vaapi');
       expect(args).not.toContain('-init_hw_device');
     });
+
+    it('encodes on the CPU without live-streaming tuning', () => {
+      const args = argsFor(null);
+      expect(args).not.toContain('-tune');
+      expect(args).not.toContain('zerolatency');
+    });
   });
 
-  it('counts demuxed audio_*.ts segments alongside video segments', () => {
+  it('counts demuxed audio_*.ts segments', () => {
     const testDir = `${process.env.CACHE_DIR}/audio-cache-stats`;
     ensureDirectory(testDir);
     for (let i = 0; i < 3; i++) {
@@ -481,9 +519,7 @@ describe('Transcoding & Quality Variant Pipeline', () => {
     }
     fs.writeFileSync(`${testDir}/playlist.m3u8`, '');
 
-    const stats = readSegmentStats(testDir, 10);
-    expect(stats.segmentCount).toBe(3);
-    expect(stats.maxCoveredTime).toBe(10 + 3 * SEGMENT_DURATION);
+    expect(countSegments(testDir, 'audio')).toBe(3);
 
     clean(testDir);
   });

@@ -1,4 +1,4 @@
-import { SEGMENT_DURATION, HLS_LIST_SIZE, AUDIO_BITRATE, AUDIO_BITRATE_CEILING } from '../config/constants';
+import { SEGMENT_DURATION, AUDIO_BITRATE, AUDIO_BITRATE_CEILING } from '../config/constants';
 
 /** Picks an AAC bitrate for a rung. Stream-copying the source instead is not an option here:
  *  `-c:a copy` cannot be accurately input-seeked, so at any transcode offset > 0 the copied
@@ -39,8 +39,8 @@ export function buildHlsMuxArgs(segmentPattern: string): string[] {
     '0',
     '-hls_time',
     String(SEGMENT_DURATION),
-    '-hls_list_size',
-    String(HLS_LIST_SIZE),
+    '-hls_playlist_type',
+    'event',
     '-hls_segment_type',
     'mpegts',
     '-hls_flags',

@@ -39,7 +39,7 @@ declare module 'fastify' {
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
   // NOTE: trustProxy so req.ip is the real client behind Caddy, not loopback —
   // the login rate limiter keys on it. Only Caddy's port is published.
-  const app = fastify({ logger: { level: options.logLevel ?? process.env.LOG_LEVEL ?? 'info' }, trustProxy: true });
+  const app = fastify({ logger: { level: options.logLevel ?? process.env.LOG_LEVEL ?? 'info' }, disableRequestLogging: true, trustProxy: true });
   const config = options.config ?? loadConfig();
   const prisma = options.prisma ?? createPrismaClient(config.DATABASE_URL, config.NODE_ENV === 'development');
 

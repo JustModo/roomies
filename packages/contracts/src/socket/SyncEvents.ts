@@ -16,6 +16,7 @@ export const ServerSyncHeartbeatAckSchema = z.object({
   event: z.literal('sync.heartbeat_ack'),
   payload: z.object({
     timestamp: z.number(),
+    serverTime: z.number(),
   }),
 });
 
@@ -24,6 +25,11 @@ export const ClientSyncStatusSchema = z.object({
   payload: z.object({
     status: z.enum(['ready', 'buffering', 'async']),
   }),
+});
+
+export const ClientSyncForceResumeSchema = z.object({
+  event: z.literal('sync.force_resume'),
+  payload: z.object({}),
 });
 
 export const ServerSyncCorrectSchema = z.object({

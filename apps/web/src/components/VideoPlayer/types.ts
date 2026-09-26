@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { MutableRefObject, ReactNode } from 'react';
 import { MediaInfo, RoomState, SyncStatus } from '@roomies/contracts';
 
 export interface BufferedRange {
@@ -27,7 +27,7 @@ export interface VideoPlayerProps {
   mediaInfo: MediaInfo | null;
   seekKey?: number;
   roomPlaybackState?: RoomState['playback'];
-  localTime: number;
+  localTimeRef: MutableRefObject<number>;
   localCorrectionRate?: number | null;
   /** Replaces the old syncSeekTrigger + syncSeekPosition pair. */
   seekCommand?: SeekCommand | null;
@@ -36,7 +36,7 @@ export interface VideoPlayerProps {
   onSeek: (position: number, forceNewOffset?: boolean) => void;
   onSetRate: (rate: number) => void;
   onStatusChange: (status: SyncStatus) => void;
-  onReportTime: (time: number) => void;
+  onReportTime: (time: number, flush?: boolean) => void;
   onReportResolution?: (resolution: string) => void;
   showChat?: boolean;
   onToggleChat?: () => void;
@@ -46,6 +46,7 @@ export interface VideoPlayerProps {
   onToggleAsync?: () => void;
   allowAsyncMode?: boolean;
   isLockedByAdmin?: boolean;
+  onForceResume?: () => void;
   /** Voice-party mic state — the controls-bar mic button only renders while joined. */
   isPartyJoined?: boolean;
   isMicMuted?: boolean;

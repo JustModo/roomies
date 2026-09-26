@@ -16,7 +16,7 @@ import { registerPartySocketEvents } from './party/socket';
 import { PlaybackController } from './playback/controller';
 import { PlaybackCoordinator } from './playback/coordinator';
 import { PlaybackService } from './playback/service';
-import { registerPlaybackSocketEvents, registerTranscodeEvents } from './playback/socket';
+import { registerPlaybackSocketEvents } from './playback/socket';
 import { RoomService } from './room/service';
 import { registerRoomSocketEvents } from './room/socket';
 import { RoomStore } from './room/store';
@@ -61,7 +61,6 @@ export function createAppContext(config: Config, prisma: PrismaClient, secrets: 
   registerPlaybackSocketEvents(router, playback);
   registerChatSocketEvents(router, chat);
   registerPartySocketEvents(router, party);
-  registerTranscodeEvents(transcoder, hub, logger('transcode'));
 
   return {
     prisma,

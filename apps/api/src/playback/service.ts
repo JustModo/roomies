@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { FastifyBaseLogger } from 'fastify';
-import { AUDIO_BITRATE, RESOLUTION_PRESETS, Resolution, TranscodeSessionManager } from '@roomies/transcoding';
+import { AUDIO_BITRATE, GroupStoppedError, RESOLUTION_PRESETS, Resolution, SEGMENT_DURATION, TranscodeSessionManager } from '@roomies/transcoding';
 import { NotFoundError } from '../config/errors';
 import { RoomStore } from '../room/store';
 import { SocketHub } from '../websocket/hub';
@@ -13,6 +13,9 @@ type PlaybackAction = 'play' | 'pause' | 'seek' | 'rate';
 
 const quoted = (value: string) => `"${value.replace(/["\r\n]/g, '')}"`;
 const withOffset = (url: string, offset?: number) => (offset !== undefined ? `${url}?offset=${offset}` : url);
+const notFoundIfStopped = (err: unknown): never => {
+  throw err instanceof GroupStoppedError ? new NotFoundError('Transcode offset is no longer active') : err;
+};
 
 export class PlaybackService {
   constructor(
@@ -27,16 +30,7 @@ export class PlaybackService {
   /** Blocks commands from users whose controls an admin has locked. */
   controlsUnlocked: SocketGuard<SocketPayload<PlaybackEvent>> = (_payload, ctx) => !this.roomStore.getMember(ctx.userId)?.controlsLocked;
 
-  /**
-   * Requires active media. Room-scoped commands are blocked while the room is waiting/buffering;
-   * user-scoped (async) commands bypass that lock since async users play independently.
-   */
-  acceptsCommand: SocketGuard<SocketPayload<PlaybackEvent>> = (payload) => {
-    const state = this.roomStore.getState();
-    if (!state.mediaId) return false;
-    if ('scope' in payload && payload.scope === 'user') return true;
-    return state.playback.state !== 'waiting' && state.playback.state !== 'buffering';
-  };
+  hasMedia: SocketGuard<SocketPayload<PlaybackEvent>> = () => !!this.roomStore.getState().mediaId;
 
   async changeMedia(mediaFileId: string) {
     const mediaFile = await this.prisma.mediaFile.findUnique({
@@ -55,9 +49,7 @@ export class PlaybackService {
 
     // One worker creation covers every configured resolution together.
     session.ensureVariantReady(session.policy.variants[0], 0).catch((err) => {
-      const error = err instanceof Error ? err : new Error(String(err));
-      this.log.error({ err: error, mediaFileId }, 'Failed to pre-warm session');
-      session.reportError(session.policy.variants[0], error);
+      if (!(err instanceof GroupStoppedError)) this.log.error({ err, mediaFileId }, 'Failed to pre-warm session');
     });
 
     this.roomStore.updateMedia(mediaFileId, mediaFile.title, hlsUrl, mediaFile.duration, 0, subtitles, audioTracks);
@@ -146,7 +138,7 @@ export class PlaybackService {
     const session = await this.coordinator.ensureSession(sessionId, mediaId);
     const offset = this.resolvePlaylistOffset(sessionId, reqOffset);
 
-    await session.ensureVariantReady(resolution, offset);
+    await session.ensureVariantReady(resolution, offset).catch(notFoundIfStopped);
     return serveHlsPlaylist(session.getVariantOutputDir(resolution, offset), 'stream.m3u8', this.transcoder.options.cacheDir);
   }
 
@@ -154,17 +146,17 @@ export class PlaybackService {
     const session = await this.coordinator.ensureSession(sessionId, mediaId);
     const offset = this.resolvePlaylistOffset(sessionId, reqOffset);
 
-    await session.ensureAudioTrackReady(trackId, offset);
+    await session.ensureAudioTrackReady(trackId, offset).catch(notFoundIfStopped);
     return serveHlsPlaylist(session.getAudioOutputDir(trackId, offset), 'playlist.m3u8', this.transcoder.options.cacheDir);
   }
 
   async handlePlay(_payload: SocketPayload<'playback.play'>, ctx: SocketContext) {
-    this.roomStore.updatePlayback({ state: 'playing', intendedState: 'playing', anchorTime: Date.now() });
+    this.setIntendedState('playing');
     this.broadcastPlaybackState(ctx, 'play');
   }
 
   async handlePause(_payload: SocketPayload<'playback.pause'>, ctx: SocketContext) {
-    this.roomStore.updatePlayback({ state: 'paused', intendedState: 'paused', anchorTime: Date.now() });
+    this.setIntendedState('paused');
     this.broadcastPlaybackState(ctx, 'pause');
   }
 
@@ -179,13 +171,9 @@ export class PlaybackService {
    */
   async handleSeek(payload: SocketPayload<'playback.seek'>, ctx: SocketContext) {
     const state = this.roomStore.getState();
+    const position = state.duration > 0 ? Math.min(payload.position, Math.max(0, state.duration - SEGMENT_DURATION)) : payload.position;
     const scope: SessionScope = payload.scope === 'user' ? { type: 'user', userId: ctx.userId } : { type: 'room' };
-    const { effectiveOffset, needsReinit } = await this.coordinator.resolveSeek(
-      scope,
-      payload.position,
-      state.mediaId,
-      payload.forceNewOffset,
-    );
+    const { effectiveOffset, needsReinit } = await this.coordinator.resolveSeek(scope, position, state.mediaId, payload.forceNewOffset);
 
     if (scope.type === 'user') {
       this.roomStore.updateMember(ctx.userId, { asyncSession: { transcodeOffset: effectiveOffset } });
@@ -195,12 +183,18 @@ export class PlaybackService {
 
     const { playback } = state;
     const intendedState = playback.state === 'playing' || playback.intendedState === 'playing' ? 'playing' : 'paused';
-    this.roomStore.updatePlayback({ state: 'buffering', intendedState, anchorPosition: payload.position, anchorTime: Date.now() });
+    this.roomStore.updatePlayback({ state: 'buffering', intendedState, anchorPosition: position, anchorTime: Date.now() });
     this.roomStore.updateTranscodeOffset(effectiveOffset);
     this.roomStore.resetAllMembers();
 
     if (needsReinit) this.hub.broadcast({ event: 'media.changed', payload: mediaChangedFor(state, 'room', effectiveOffset) });
     this.broadcastPlaybackState(ctx, 'seek');
+  }
+
+  private setIntendedState(intendedState: 'playing' | 'paused'): void {
+    const { state } = this.roomStore.getState().playback;
+    const isPending = state === 'buffering' || state === 'waiting';
+    this.roomStore.updatePlayback(isPending ? { intendedState } : { state: intendedState, intendedState, anchorTime: Date.now() });
   }
 
   /** Resolve playlist start offset: prefer query; async must never fall back to room sync offset. */

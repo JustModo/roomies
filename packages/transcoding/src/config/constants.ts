@@ -38,9 +38,6 @@ export function isResolution(value: string | undefined): value is Resolution {
 /** Duration of each HLS segment in seconds. */
 export const SEGMENT_DURATION = 2;
 
-/** Number of segments in HLS playlist. 0 represents unlimited (VOD mode). */
-export const HLS_LIST_SIZE = 0;
-
 /** Number of segments that must exist on disk before the variant is ready. */
 export const LOOK_AHEAD_SEGMENTS = 4;
 

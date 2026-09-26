@@ -16,16 +16,21 @@ interface UseVideoEventsParams {
   setCurrentTime: (time: number) => void;
   setDuration: (duration: number) => void;
   setBufferedRanges: (ranges: BufferedRange[]) => void;
-  onReportTime: (time: number) => void;
+  onReportTime: (time: number, flush?: boolean) => void;
   activeOffsetRef: MutableRefObject<number>;
   /** Set while waiting for useHlsPlayer to reinit against a corrected offset —
    *  freezes time/buffer reporting so the still-playing OLD source can't clobber
    *  the pending seek target before the reinit consumes it. */
   pendingReinitRef: MutableRefObject<boolean>;
-  onEnded?: () => void;
   /** iOS blocks play() without a user gesture; the player shows a tap-to-play prompt. */
   onAutoplayBlocked?: (blocked: boolean) => void;
+  mediaDuration?: number;
 }
+
+const READY_AHEAD_S = 4;
+
+const readyThreshold = (absoluteTime: number, mediaDuration?: number): number =>
+  mediaDuration ? Math.min(READY_AHEAD_S, Math.max(0, mediaDuration - absoluteTime)) : READY_AHEAD_S;
 
 /** Returns how many seconds are buffered ahead of the current playhead. */
 const getBufferedAhead = (vid: HTMLVideoElement): number => {
@@ -56,8 +61,8 @@ export function useVideoEvents({
   onReportTime,
   activeOffsetRef,
   pendingReinitRef,
-  onEnded,
   onAutoplayBlocked,
+  mediaDuration,
 }: UseVideoEventsParams) {
   const lastHandledSeekIdRef = useRef(-1);
   const pendingSeekRef = useRef<number | null>(null);
@@ -71,7 +76,7 @@ export function useVideoEvents({
     const state = roomPlaybackState?.state;
     const video = videoRef.current;
 
-    if (state === 'playing' && video.paused && !isDragging) {
+    if (state === 'playing' && video.paused && !video.ended && !isDragging) {
       video.play().then(
         () => onAutoplayBlocked?.(false),
         (err: DOMException) => {
@@ -150,8 +155,9 @@ export function useVideoEvents({
     // Check if the target position is already in the buffer.
     let isAlreadyBuffered = false;
     const buffered = video.buffered;
+    const threshold = readyThreshold(seekCommand.position, mediaDuration);
     for (let i = 0; i < buffered.length; i++) {
-      if (targetRelative >= buffered.start(i) && targetRelative <= buffered.end(i) - 0.5) {
+      if (targetRelative >= buffered.start(i) && targetRelative <= buffered.end(i) - threshold) {
         isAlreadyBuffered = true;
         break;
       }
@@ -166,7 +172,7 @@ export function useVideoEvents({
 
     console.log(`[playback] Seek to abs=${seekCommand.position.toFixed(2)} rel=${targetRelative.toFixed(2)} (buffered=${isAlreadyBuffered})`);
     video.currentTime = targetRelative;
-  }, [seekCommand, isDragging, reportStatus, setCurrentTime, onReportTime]);
+  }, [seekCommand, isDragging, reportStatus, setCurrentTime, onReportTime, mediaDuration]);
 
   // ── DOM Event Listeners (status + time tracking) ──────────────────────────
   useEffect(() => {
@@ -184,11 +190,8 @@ export function useVideoEvents({
         video.playbackRate = targetRateRef.current;
       }
 
-      const bufferedAhead = getBufferedAhead(video);
-      const remainingTime = video.duration ? Math.max(0, video.duration - video.currentTime) : Infinity;
-      const threshold = Math.min(0.5, remainingTime);
-
-      if (bufferedAhead >= threshold) {
+      const threshold = readyThreshold(absolutePlaybackTime(video.currentTime, activeOffsetRef.current), mediaDuration);
+      if (getBufferedAhead(video) >= threshold) {
         clearTimeout(bufferingTimeout);
         reportStatus('ready');
       }
@@ -212,11 +215,19 @@ export function useVideoEvents({
       }
     };
 
-    const handleSeeked = () => checkAndReportReady();
+    const flushPosition = () => {
+      if (!pendingReinitRef.current) onReportTime(absolutePlaybackTime(video.currentTime, activeOffsetRef.current), true);
+    };
+
+    const handleSeeked = () => {
+      checkAndReportReady();
+      flushPosition();
+    };
     const handleCanPlay = () => checkAndReportReady();
     const handlePlaying = () => {
       clearTimeout(bufferingTimeout);
       checkAndReportReady();
+      flushPosition();
     };
     const handleProgress = () => checkAndReportReady();
 
@@ -230,7 +241,6 @@ export function useVideoEvents({
     const handleEnded = () => {
       clearTimeout(bufferingTimeout);
       reportStatus('ready');
-      onEnded?.();
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -253,7 +263,7 @@ export function useVideoEvents({
       video.removeEventListener('ratechange', handleRateChange);
       video.removeEventListener('ended', handleEnded);
     };
-  }, [reportStatus, onEnded, setCurrentTime]);
+  }, [reportStatus, setCurrentTime, onReportTime, mediaDuration]);
 
   // ── Time Update & Buffer Tracking ─────────────────────────────────────────
   useEffect(() => {

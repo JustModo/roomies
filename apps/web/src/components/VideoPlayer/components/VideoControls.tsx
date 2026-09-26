@@ -197,7 +197,7 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
     }
   }, [uiVisible]);
 
-  const isPlaying = roomPlaybackState?.state === 'playing';
+  const isPlaying = roomPlaybackState?.intendedState === 'playing';
 
   const handleToggleSettings = () => {
     toggleMenu('settings');

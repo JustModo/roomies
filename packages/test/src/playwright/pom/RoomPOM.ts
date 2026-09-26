@@ -55,7 +55,6 @@ export class RoomPOM {
 
   async expectControlsUnlocked() {
     await expect(this.page.locator('[title="Controls locked by admin"]')).toHaveCount(0);
-    await expect(this.page.locator('[title="Controls locked while syncing"]')).toHaveCount(0);
   }
 
   syncButton() {
