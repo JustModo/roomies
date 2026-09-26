@@ -25,7 +25,6 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-hls': ['hls.js'],
           'vendor-icons': ['lucide-react'],
-          'vendor-voice': ['@roomies/voice'],
           'vendor-emoji': ['emoji-picker-react'],
         },
       },

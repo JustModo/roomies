@@ -1,26 +1,54 @@
 @import "tailwindcss";
 
+
 @theme {
   --color-void: #0A0A0A;
   --color-ink: #000000;
+  --color-raise: #111111;
   --color-paper: #FFFFFF;
   --color-fog: #8C8C8C;
   --color-ash: #3A3A3A;
+  --color-accent: #60A5FA;
+  --color-danger: #F87171;
+  --color-success: #4ADE80;
+  --color-warn: #EAB308;
   --font-sans: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  /* Custom xs breakpoint for portrait-phone tweaks */
   --breakpoint-xs: 480px;
+  --spacing-sidebar: 22.5rem;
+  --text-11: 0.6875rem;
+  --text-12: 0.75rem;
+  --text-13: 0.8125rem;
+  --text-14: 0.875rem;
+  --text-15: 0.9375rem;
+  --text-16: 1rem;
+  --text-20: 1.25rem;
+  --text-28: 1.75rem;
+}
+
+@utility safe-x {
+  padding-left: max(var(--safe-edge, 0px), env(safe-area-inset-left));
+  padding-right: max(var(--safe-edge, 0px), env(safe-area-inset-right));
+}
+
+@utility safe-t {
+  padding-top: max(var(--safe-edge-y, 0px), env(safe-area-inset-top));
+}
+
+@utility safe-b {
+  padding-bottom: max(var(--safe-edge-y, 0px), env(safe-area-inset-bottom));
+}
+
+@utility player-container {
+  container: player / size;
+}
+
+@utility popover-fit {
+  max-height: 70vh;
+  max-height: calc(100cqh - 5rem);
 }
 
 @layer base {
-  :root {
-    --void: #0A0A0A;
-    --ink: #000000;
-    --paper: #FFFFFF;
-    --fog: #8C8C8C;
-    --ash: #3A3A3A;
-  }
-
   *, *::before, *::after {
     border-radius: 0 !important;
     box-shadow: none !important;
@@ -32,10 +60,10 @@
   }
 
   body {
-    background-color: var(--void);
+    background-color: var(--color-void);
     -webkit-tap-highlight-color: transparent;
-    color: var(--paper);
-    font-family: 'Inter', sans-serif;
+    color: var(--color-paper);
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     margin: 0;
@@ -43,17 +71,6 @@
     min-height: 100dvh;
   }
 }
-
-
-
-/* Strict typographic scale classes */
-.text-12 { font-size: 12px; }
-.text-13 { font-size: 13px; }
-.text-14 { font-size: 14px; }
-.text-16 { font-size: 16px; }
-.text-20 { font-size: 20px; }
-.text-28 { font-size: 28px; }
-.text-40 { font-size: 40px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
@@ -64,9 +81,8 @@
   }
 }
 
-/* Focus ring */
 *:focus-visible {
-  outline: 1px solid var(--paper);
+  outline: 1px solid var(--color-paper);
   outline-offset: 2px;
 }
 
@@ -111,18 +127,26 @@
   animation: fade-in 150ms ease-out forwards;
 }
 
-/* Volume Slider Custom Thumb */
+.volume-slider {
+  --thumb: 6px;
+  background: linear-gradient(to right, var(--color-fog) var(--fill), rgb(255 255 255 / 0.1) var(--fill));
+}
+@media (pointer: coarse) {
+  .volume-slider {
+    --thumb: 20px;
+  }
+}
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 6px;
-  height: 6px;
+  width: var(--thumb);
+  height: var(--thumb);
   background: rgba(255, 255, 255, 0.8);
   cursor: pointer;
 }
 .volume-slider::-moz-range-thumb {
-  width: 6px;
-  height: 6px;
+  width: var(--thumb);
+  height: var(--thumb);
   border: none;
   background: rgba(255, 255, 255, 0.8);
   cursor: pointer;
@@ -131,7 +155,7 @@
 /* Thin sleek dark mode scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--ash) transparent;
+  scrollbar-color: var(--color-ash) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -144,9 +168,9 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--ash);
+  background-color: var(--color-ash);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--fog);
+  background-color: var(--color-fog);
 }

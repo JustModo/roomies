@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { absolutePlaybackTime, relativeStartPosition, buildHlsMasterUrl } from '@roomies/web/src/components/VideoPlayer/hlsOffset';
+import { absolutePlaybackTime, relativeStartPosition, buildHlsMasterUrl } from '@roomies/web/src/lib/hlsOffset';
 
 describe('HLS offset helpers', () => {
   it('maps video time onto the absolute media timeline via the transcode offset', () => {

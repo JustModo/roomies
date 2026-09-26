@@ -1,0 +1,273 @@
+import { useState, useEffect, useRef, MutableRefObject } from 'react';
+import Hls, { Level, Events, ErrorData, ManifestParsedData, MediaPlaylist } from 'hls.js';
+import { MediaInfo } from '@roomies/contracts';
+import { buildHlsMasterUrl, relativeStartPosition } from '../../../lib/hlsOffset';
+import { useServices } from '../../../app/ServicesProvider';
+import { KEYS } from '../../../services/storage';
+
+const MAX_FATAL_RECOVERIES = 3;
+const PLAYBACK_ERROR_MESSAGE = 'PLAYBACK FAILED';
+const UNSUPPORTED_MESSAGE = 'PLAYBACK NOT SUPPORTED';
+
+interface NativeAudioTrackList {
+  length: number;
+  [index: number]: { label?: string; language?: string; enabled: boolean };
+}
+
+interface UseHlsPlayerParams {
+  videoRef: MutableRefObject<HTMLVideoElement | null>;
+  mediaInfo: MediaInfo | null;
+  seekKey?: number;
+  localTimeRef: MutableRefObject<number>;
+  activeOffsetRef: MutableRefObject<number>;
+  pendingReinitRef: MutableRefObject<boolean>;
+}
+
+export function useHlsPlayer({
+  videoRef,
+  mediaInfo,
+  seekKey,
+  localTimeRef,
+  activeOffsetRef,
+  pendingReinitRef,
+}: UseHlsPlayerParams) {
+  const { storage } = useServices();
+  const hlsRef = useRef<Hls | null>(null);
+  const [levels, setLevels] = useState<Level[]>([]);
+  const [currentLevel, setCurrentLevel] = useState<number>(-1);
+  const [activeResolution, setActiveResolution] = useState<string | undefined>();
+
+  const [audioTracks, setAudioTracks] = useState<MediaPlaylist[]>([]);
+  const [currentAudioTrack, setCurrentAudioTrack] = useState<number>(-1);
+  const mediaFileIdRef = useRef<string | undefined>();
+  const lastMediaIdRef = useRef<string | undefined>();
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    setPlaybackError(null);
+
+    // A reinit is proceeding — release the freeze useVideoEvents applied while
+    // waiting for this (offset/media change), so time/buffer reporting resumes
+    // against the new, correct source.
+    pendingReinitRef.current = false;
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    videoRef.current.removeAttribute('src');
+    videoRef.current.load();
+
+    if (!mediaInfo?.hlsUrl) {
+      setLevels([]);
+      setCurrentLevel(-1);
+      lastMediaIdRef.current = undefined;
+      return;
+    }
+
+    const isNewMedia = mediaInfo.mediaFileId !== lastMediaIdRef.current;
+    lastMediaIdRef.current = mediaInfo.mediaFileId;
+    mediaFileIdRef.current = mediaInfo.mediaFileId;
+
+    if (isNewMedia) {
+      setLevels([]);
+      setCurrentLevel(-1);
+      setAudioTracks([]);
+      setCurrentAudioTrack(-1);
+    }
+
+    if (Hls.isSupported()) {
+      const transcodeOffset = mediaInfo.transcodeOffset || 0;
+      activeOffsetRef.current = transcodeOffset;
+
+      const hls = new Hls({
+        startPosition: relativeStartPosition(localTimeRef.current, transcodeOffset),
+        enableWorker: true,
+        lowLatencyMode: false,
+        manifestLoadingMaxRetry: 10,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingMaxRetry: 10,
+        levelLoadingRetryDelay: 1000,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 120,
+        backBufferLength: 30,
+      });
+
+      hls.loadSource(buildHlsMasterUrl(mediaInfo.hlsUrl, transcodeOffset));
+      hls.attachMedia(videoRef.current);
+
+      hls.on(Events.MANIFEST_PARSED, (_event: Events.MANIFEST_PARSED, data: ManifestParsedData) => {
+        setLevels(data.levels);
+        const savedQuality = storage.get(KEYS.quality);
+        const savedLevel = data.levels.findIndex((level) => level.name === savedQuality);
+        if (savedLevel !== -1) hls.currentLevel = savedLevel;
+
+        if (hls.audioTracks && hls.audioTracks.length > 1) {
+          setAudioTracks([...hls.audioTracks]);
+          const saved = mediaFileIdRef.current ? storage.get(KEYS.audioTrack(mediaFileIdRef.current)) : null;
+          if (saved !== null) {
+            const preferredIdx = Number(saved);
+            if (preferredIdx >= 0 && preferredIdx < hls.audioTracks.length && preferredIdx !== hls.audioTrack) {
+              hls.audioTrack = preferredIdx;
+              setCurrentAudioTrack(preferredIdx);
+            } else {
+              setCurrentAudioTrack(hls.audioTrack);
+            }
+          } else {
+            setCurrentAudioTrack(hls.audioTrack);
+          }
+        }
+      });
+
+      hls.on(Events.AUDIO_TRACKS_UPDATED, () => {
+        if (hls.audioTracks && hls.audioTracks.length > 1) {
+          setAudioTracks([...hls.audioTracks]);
+          setCurrentAudioTrack(hls.audioTrack);
+        } else {
+          setAudioTracks([]);
+          setCurrentAudioTrack(-1);
+        }
+      });
+
+      hls.on(Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
+        const switchedIdx = hls.audioTracks.findIndex(t => t.id === data.id);
+        const idx = switchedIdx !== -1 ? switchedIdx : hls.audioTrack;
+        setCurrentAudioTrack(idx);
+        if (mediaFileIdRef.current) storage.set(KEYS.audioTrack(mediaFileIdRef.current), String(idx));
+      });
+
+      hls.on(Events.LEVEL_SWITCHED, (_event: Events.LEVEL_SWITCHED, data) => {
+        setCurrentLevel(hls.autoLevelEnabled ? -1 : data.level);
+        if (hls.levels && hls.levels[data.level]) {
+          setActiveResolution(hls.levels[data.level].name);
+        }
+      });
+
+      hls.on(Events.FRAG_LOADING, (_event, data) => {
+        const levelIndex = data.frag.level;
+        if (hls.levels && hls.levels[levelIndex]) {
+          setActiveResolution(hls.levels[levelIndex].name);
+        }
+      });
+
+      let recoveries = 0;
+      hls.on(Events.FRAG_LOADED, () => {
+        recoveries = 0;
+      });
+      hls.on(Events.ERROR, (_event: Events.ERROR, data: ErrorData) => {
+        if (!data.fatal) return;
+        console.error('[playback] HLS fatal error:', data.type, data.details);
+        const recoverable = data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR;
+        if (recoverable && recoveries < MAX_FATAL_RECOVERIES) {
+          recoveries += 1;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad(videoRef.current?.currentTime ?? -1);
+          } else {
+            hls.recoverMediaError();
+          }
+          return;
+        }
+        hls.destroy();
+        if (hlsRef.current === hls) hlsRef.current = null;
+        setPlaybackError(PLAYBACK_ERROR_MESSAGE);
+      });
+
+      hlsRef.current = hls;
+
+      return () => {
+        hls.destroy();
+        hlsRef.current = null;
+      };
+    } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+      const transcodeOffset = mediaInfo.transcodeOffset || 0;
+      activeOffsetRef.current = transcodeOffset;
+
+      videoRef.current.src = buildHlsMasterUrl(mediaInfo.hlsUrl, transcodeOffset);
+      const videoEl = videoRef.current;
+      const onLoadedMetadata = () => {
+        videoEl.currentTime = relativeStartPosition(localTimeRef.current, transcodeOffset);
+
+        const nativeTracks = (videoEl as HTMLVideoElement & { audioTracks?: NativeAudioTrackList }).audioTracks;
+        if (nativeTracks && nativeTracks.length > 1) {
+          const syntheticTracks: MediaPlaylist[] = [];
+          for (let i = 0; i < nativeTracks.length; i++) {
+            const t = nativeTracks[i];
+            syntheticTracks.push({
+              id: i,
+              name: t.label || t.language || `Track ${i + 1}`,
+              lang: t.language || undefined,
+              url: '',
+              attrs: {} as never,
+              bitrate: 0,
+              autoselect: i === 0,
+              default: i === 0,
+              forced: false,
+              groupId: 'audio',
+              type: 'AUDIO',
+              details: undefined,
+              audioCodec: undefined,
+              videoCodec: undefined,
+              unknownCodecs: undefined,
+              width: undefined,
+              height: undefined,
+            });
+          }
+          setAudioTracks(syntheticTracks);
+
+          const savedIdx = Number(mediaFileIdRef.current ? storage.get(KEYS.audioTrack(mediaFileIdRef.current)) : 0);
+          const preferredIdx = Number.isInteger(savedIdx) && savedIdx >= 0 && savedIdx < nativeTracks.length ? savedIdx : 0;
+          for (let i = 0; i < nativeTracks.length; i++) {
+            nativeTracks[i].enabled = i === preferredIdx;
+          }
+          setCurrentAudioTrack(preferredIdx);
+        }
+      };
+      const onError = () => {
+        console.error('[playback] Native HLS error:', videoEl.error?.code, videoEl.error?.message);
+        setPlaybackError(PLAYBACK_ERROR_MESSAGE);
+      };
+      videoEl.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+      videoEl.addEventListener('error', onError);
+
+      // { once: true } only detaches on fire, so without this the listener
+      // leaks whenever the effect re-runs before metadata arrives.
+      return () => {
+        videoEl.removeEventListener('loadedmetadata', onLoadedMetadata);
+        videoEl.removeEventListener('error', onError);
+      };
+    } else {
+      setPlaybackError(UNSUPPORTED_MESSAGE);
+    }
+  }, [mediaInfo?.mediaFileId, mediaInfo?.transcodeOffset, mediaInfo?.hlsUrl, seekKey]);
+
+  const handleQualityChange = (index: number) => {
+    if (!hlsRef.current) return;
+    hlsRef.current.currentLevel = index;
+    setCurrentLevel(index);
+    const name = hlsRef.current.levels[index]?.name;
+    storage.set(KEYS.quality, name ?? null);
+    if (name) setActiveResolution(name);
+  };
+
+  const handleAudioTrackChange = (idx: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = idx;
+      setCurrentAudioTrack(idx);
+      if (mediaFileIdRef.current) storage.set(KEYS.audioTrack(mediaFileIdRef.current), String(idx));
+    } else {
+      const videoEl = videoRef.current as (HTMLVideoElement & { audioTracks?: NativeAudioTrackList }) | null;
+      if (videoEl?.audioTracks) {
+        for (let i = 0; i < videoEl.audioTracks.length; i++) {
+          videoEl.audioTracks[i].enabled = i === idx;
+        }
+        setCurrentAudioTrack(idx);
+        if (mediaFileIdRef.current) storage.set(KEYS.audioTrack(mediaFileIdRef.current), String(idx));
+      }
+    }
+  };
+
+  return { levels, currentLevel, handleQualityChange, activeResolution, audioTracks, currentAudioTrack, handleAudioTrackChange, playbackError };
+}

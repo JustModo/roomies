@@ -1,0 +1,82 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useServices } from '../../app/ServicesProvider';
+import { Input } from '../../ui/Input';
+import { Button } from '../../ui/Button';
+
+export default function Login() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [searchParams] = useSearchParams();
+  const [error, setError] = useState(() => {
+    const reason = searchParams.get('reason');
+    if (reason === 'kicked') return 'You were logged out because you signed in elsewhere.';
+    if (reason === 'account_deleted') return 'Your account was deleted.';
+    if (reason === 'disconnected') return 'Your session ended. Please log in again.';
+    return '';
+  });
+  const { api } = useServices();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api
+      .authStatus()
+      .then(({ needsBootstrap }) => {
+        if (needsBootstrap) navigate('/register');
+      })
+      .catch((err) => console.error('[auth] Failed to check auth status:', err));
+  }, [api, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.login(username, password);
+      navigate('/');
+    } catch {
+      setError('Incorrect username or password.');
+    }
+  };
+
+  return (
+    <div className="min-h-dvh bg-void flex items-center justify-center p-4">
+      
+      <div className="w-full max-w-[360px]">
+        <h1 className="text-20 font-semibold uppercase tracking-[0.08em] text-paper text-center mb-12">
+          ROOMIES
+        </h1>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+          <Input 
+            label="USERNAME"
+            name="username" 
+            type="text" 
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            required
+            className={error ? '*:border-paper' : ''}
+          />
+          
+          <Input 
+            label="PASSWORD" 
+            name="password"
+            type="password" 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+            className={error ? '*:border-paper' : ''}
+          />
+          
+          <div className="pt-4 flex flex-col gap-4">
+            <Button type="submit">ENTER</Button>
+            {error && (
+              <p className="text-14 text-paper text-center">{error}</p>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

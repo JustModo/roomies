@@ -5,7 +5,7 @@ import {
   parseVttSettings,
   parseCueText,
   parseSubtitleContent,
-} from '@roomies/web/src/components/VideoPlayer/utils/subtitleParser';
+} from '@roomies/web/src/lib/subtitleParser';
 
 describe('Web subtitle parser', () => {
   it('parses VTT, SRT and short ASS timestamps', () => {

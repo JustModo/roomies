@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextPlaybackRate, PLAYBACK_RATES } from '@roomies/web/src/components/VideoPlayer/utils/playbackRate';
+import { nextPlaybackRate, PLAYBACK_RATES } from '@roomies/web/src/lib/playbackRate';
 
 describe('Playback speed cycle', () => {
   it('steps through every rate in ascending order and wraps back to the slowest', () => {

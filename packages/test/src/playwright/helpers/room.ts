@@ -35,7 +35,7 @@ export async function exitRoom(page: Page) {
 }
 
 export async function openSidebarTab(page: Page, tab: 'PARTY' | 'SETTINGS') {
-  const tabBtn = page.getByRole('button', { name: tab, exact: true });
+  const tabBtn = page.getByRole('tab', { name: tab, exact: true });
   if (!(await tabBtn.isVisible().catch(() => false))) {
     const toggle = page.locator('button[title="Toggle chat"]');
     if (await toggle.isVisible().catch(() => false)) {
@@ -81,10 +81,8 @@ export async function setAllowAsyncMode(adminPage: Page, enabled: boolean) {
   await openSettingsTab(adminPage);
   const label = adminPage.getByText('Allow Async Mode', { exact: true });
   await expect(label).toBeVisible();
-  const row = label.locator('xpath=ancestor::div[contains(@class,"justify-between")]');
-  const toggle = row.locator('button').last();
-  const className = (await toggle.getAttribute('class')) ?? '';
-  const isOn = className.includes('bg-blue-400');
+  const toggle = adminPage.getByRole('switch', { name: 'Allow Async Mode' });
+  const isOn = (await toggle.getAttribute('aria-checked')) === 'true';
   if (isOn !== enabled) {
     await toggle.click();
   }
@@ -92,9 +90,7 @@ export async function setAllowAsyncMode(adminPage: Page, enabled: boolean) {
 
 export async function getAllowAsyncMode(adminPage: Page): Promise<boolean> {
   await openSettingsTab(adminPage);
-  const label = adminPage.getByText('Allow Async Mode', { exact: true });
-  const row = label.locator('xpath=ancestor::div[contains(@class,"justify-between")]');
-  const toggle = row.locator('button').last();
-  const className = (await toggle.getAttribute('class')) ?? '';
-  return className.includes('bg-blue-400');
+  const toggle = adminPage.getByRole('switch', { name: 'Allow Async Mode' });
+  await expect(toggle).toBeVisible();
+  return (await toggle.getAttribute('aria-checked')) === 'true';
 }
